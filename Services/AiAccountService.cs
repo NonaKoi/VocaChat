@@ -12,8 +12,6 @@ public class AiAccountService
 {
     private readonly List<AiAccount> _aiAccounts = new();
 
-    public IReadOnlyList<AiAccount> Accounts => _aiAccounts;
-
     /// <summary>
     /// 验证昵称是否可以用于新账号；验证失败时返回可显示的错误信息。
     /// </summary>
@@ -23,41 +21,55 @@ public class AiAccountService
 
         if (string.IsNullOrWhiteSpace(trimmedNickname))
         {
-            return "昵称不能为空，请重新输入。";
+            return "昵称不能为空。";
         }
 
         if (FindByNickname(trimmedNickname) is not null)
         {
-            return "昵称已存在，请换一个昵称。";
+            return "昵称已存在。";
         }
 
         return null;
     }
 
     /// <summary>
-    /// 创建一个 AI 账号，并保存到当前进程的内存账号集合。
+    /// 验证并创建 AI 账号；成功时保存到内存集合，失败时返回明确错误信息。
     /// </summary>
-    public AiAccount CreateAiAccount(
+    public bool TryCreateAiAccount(
         string nickname,
         string identityDescription,
         string personality,
-        string speakingStyle)
+        string speakingStyle,
+        out AiAccount? aiAccount,
+        out string errorMessage)
     {
+        aiAccount = null;
+
         string? validationError = ValidateNickname(nickname);
 
         if (validationError is not null)
         {
-            throw new ArgumentException(validationError, nameof(nickname));
+            errorMessage = validationError;
+            return false;
         }
 
-        AiAccount aiAccount = new(
+        aiAccount = new AiAccount(
             nickname.Trim(),
             identityDescription.Trim(),
             personality.Trim(),
             speakingStyle.Trim());
 
         _aiAccounts.Add(aiAccount);
-        return aiAccount;
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    /// <summary>
+    /// 按 Id 查找 AI 账号；未找到时返回 null。
+    /// </summary>
+    public AiAccount? FindById(Guid id)
+    {
+        return _aiAccounts.FirstOrDefault(account => account.Id == id);
     }
 
     /// <summary>
@@ -69,5 +81,14 @@ public class AiAccountService
 
         return _aiAccounts.FirstOrDefault(account =>
             account.Nickname.Equals(trimmedNickname, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// 返回当前全部 AI 账号的只读副本，避免外部修改 Service 内部集合。
+    /// </summary>
+    public IReadOnlyList<AiAccount> GetAllAccounts()
+    {
+        List<AiAccount> accountSnapshot = new(_aiAccounts);
+        return accountSnapshot.AsReadOnly();
     }
 }

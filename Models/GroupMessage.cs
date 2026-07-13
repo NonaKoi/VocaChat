@@ -24,6 +24,26 @@ public class GroupMessage
         string senderDisplayName,
         Guid? senderAiAccountId,
         string content)
+        : this(
+            groupChatId,
+            senderType,
+            senderDisplayName,
+            senderAiAccountId,
+            content,
+            DateTime.Now)
+    {
+    }
+
+    /// <summary>
+    /// 使用指定发送时间创建群消息，供项目内部准备和验证消息顺序。
+    /// </summary>
+    internal GroupMessage(
+        Guid groupChatId,
+        MessageSenderType senderType,
+        string senderDisplayName,
+        Guid? senderAiAccountId,
+        string content,
+        DateTime sentAt)
     {
         Id = Guid.NewGuid();
         GroupChatId = groupChatId;
@@ -31,6 +51,6 @@ public class GroupMessage
         SenderDisplayName = senderDisplayName;
         SenderAiAccountId = senderAiAccountId;
         Content = content;
-        SentAt = DateTime.Now;
+        SentAt = sentAt;
     }
 }

@@ -1,12 +1,54 @@
+using System;
 using VocaChat.ConsoleApp.Models;
 
 namespace VocaChat.ConsoleApp.Services;
 
 /// <summary>
-/// 负责根据 AI 账号资料和用户消息生成本地模拟回复。
+/// 负责从群成员中选择一个 AI 发言者，并生成本地模拟回复。
 /// </summary>
 public class FakeAiReplyService
 {
+    /// <summary>
+    /// 只从当前群成员中选择一个 AI；有效点名优先，否则选择第一个成员。
+    /// </summary>
+    public AiAccount? SelectAiSpeaker(
+        GroupChat groupChat,
+        string userContent,
+        out bool selectedByMention)
+    {
+        selectedByMention = false;
+
+        if (groupChat.Members.Count == 0)
+        {
+            return null;
+        }
+
+        AiAccount? mentionedMember = null;
+        int earliestMentionIndex = int.MaxValue;
+
+        foreach (AiAccount member in groupChat.Members)
+        {
+            string mentionText = $"@{member.Nickname}";
+            int mentionIndex = userContent.IndexOf(
+                mentionText,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (mentionIndex >= 0 && mentionIndex < earliestMentionIndex)
+            {
+                mentionedMember = member;
+                earliestMentionIndex = mentionIndex;
+            }
+        }
+
+        if (mentionedMember is not null)
+        {
+            selectedByMention = true;
+            return mentionedMember;
+        }
+
+        return groupChat.Members[0];
+    }
+
     /// <summary>
     /// 生成不依赖网络或真实大模型的假 AI 回复文本。
     /// </summary>

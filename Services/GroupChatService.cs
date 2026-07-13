@@ -6,149 +6,164 @@ using VocaChat.ConsoleApp.Models;
 namespace VocaChat.ConsoleApp.Services;
 
 /// <summary>
-/// 负责群聊创建、消息保存、AI 发言者选择和聊天记录排序。
+/// 负责群聊的创建、内存保存、查询和成员管理。
 /// </summary>
 public class GroupChatService
 {
+    private readonly AiAccountService _aiAccountService;
+    private readonly List<GroupChat> _groupChats = new();
+
+    /// <summary>
+    /// 创建群聊 Service，并使用账号 Service 验证群成员是否真实存在。
+    /// </summary>
+    public GroupChatService(AiAccountService aiAccountService)
+    {
+        _aiAccountService = aiAccountService;
+    }
+
     /// <summary>
     /// 验证群聊名称；验证失败时返回可显示的错误信息。
     /// </summary>
     public string? ValidateGroupChatName(string name)
     {
         return string.IsNullOrWhiteSpace(name)
-            ? "群聊名称不能为空，请重新输入。"
+            ? "群聊名称不能为空。"
             : null;
     }
 
     /// <summary>
-    /// 使用用户已创建并选中的 AI 账号创建一个群聊。
+    /// 使用用户已经创建的 AI 账号 Id 创建并保存群聊。
     /// </summary>
-    public GroupChat CreateGroupChat(string name, IEnumerable<AiAccount> selectedMembers)
+    public bool TryCreateGroupChat(
+        string name,
+        IEnumerable<Guid> selectedAiAccountIds,
+        out GroupChat? groupChat,
+        out string errorMessage)
     {
+        groupChat = null;
+
         string? validationError = ValidateGroupChatName(name);
 
         if (validationError is not null)
         {
-            throw new ArgumentException(validationError, nameof(name));
+            errorMessage = validationError;
+            return false;
+        }
+
+        if (selectedAiAccountIds is null)
+        {
+            errorMessage = "群聊至少需要一个 AI 成员。";
+            return false;
+        }
+
+        List<Guid> distinctAiAccountIds = new();
+
+        foreach (Guid aiAccountId in selectedAiAccountIds)
+        {
+            if (!distinctAiAccountIds.Contains(aiAccountId))
+            {
+                distinctAiAccountIds.Add(aiAccountId);
+            }
+        }
+
+        if (distinctAiAccountIds.Count == 0)
+        {
+            errorMessage = "群聊至少需要一个 AI 成员。";
+            return false;
         }
 
         List<AiAccount> members = new();
 
-        foreach (AiAccount selectedMember in selectedMembers)
+        foreach (Guid aiAccountId in distinctAiAccountIds)
         {
-            bool alreadyAdded = members.Any(member => member.Id == selectedMember.Id);
+            AiAccount? aiAccount = _aiAccountService.FindById(aiAccountId);
 
-            if (!alreadyAdded)
+            if (aiAccount is null)
             {
-                members.Add(selectedMember);
+                errorMessage = "选择的 AI 账号不存在，不能加入群聊。";
+                return false;
             }
+
+            members.Add(aiAccount);
         }
 
-        if (members.Count == 0)
+        GroupChat newGroupChat = new(name.Trim());
+
+        foreach (AiAccount member in members)
         {
-            throw new ArgumentException("群聊至少需要一个 AI 成员。", nameof(selectedMembers));
+            newGroupChat.AddMember(member);
         }
 
-        return new GroupChat(name.Trim(), members);
+        _groupChats.Add(newGroupChat);
+        groupChat = newGroupChat;
+        errorMessage = string.Empty;
+        return true;
     }
 
     /// <summary>
-    /// 保存一条本地用户消息；空白内容不会创建消息。
+    /// 将一个已经创建的 AI 账号加入已保存的群聊，并阻止重复加入。
     /// </summary>
-    public GroupMessage? SaveUserMessage(GroupChat groupChat, string content)
-    {
-        string trimmedContent = content.Trim();
-
-        if (string.IsNullOrWhiteSpace(trimmedContent))
-        {
-            return null;
-        }
-
-        GroupMessage userMessage = new(
-            groupChat.Id,
-            MessageSenderType.User,
-            "我",
-            null,
-            trimmedContent);
-
-        groupChat.Messages.Add(userMessage);
-        return userMessage;
-    }
-
-    /// <summary>
-    /// 只从当前群成员中选择一个 AI；有效点名优先，否则选择第一个成员。
-    /// </summary>
-    public AiAccount? SelectAiSpeaker(
+    public bool TryAddMember(
         GroupChat groupChat,
-        string userContent,
-        out bool selectedByMention)
+        Guid aiAccountId,
+        out string errorMessage)
     {
-        selectedByMention = false;
-
-        if (groupChat.Members.Count == 0)
+        if (FindById(groupChat.Id) is null)
         {
-            return null;
+            errorMessage = "群聊不存在，不能添加成员。";
+            return false;
         }
 
-        AiAccount? mentionedMember = null;
-        int earliestMentionIndex = int.MaxValue;
+        AiAccount? aiAccount = _aiAccountService.FindById(aiAccountId);
 
-        foreach (AiAccount member in groupChat.Members)
+        if (aiAccount is null)
         {
-            string mentionText = $"@{member.Nickname}";
-            int mentionIndex = userContent.IndexOf(
-                mentionText,
-                StringComparison.OrdinalIgnoreCase);
-
-            if (mentionIndex >= 0 && mentionIndex < earliestMentionIndex)
-            {
-                mentionedMember = member;
-                earliestMentionIndex = mentionIndex;
-            }
+            errorMessage = "AI 账号不存在，不能加入群聊。";
+            return false;
         }
 
-        if (mentionedMember is not null)
+        if (IsMember(groupChat, aiAccountId))
         {
-            selectedByMention = true;
-            return mentionedMember;
+            errorMessage = "该 AI 账号已经是群成员。";
+            return false;
         }
 
-        return groupChat.Members[0];
+        groupChat.AddMember(aiAccount);
+        errorMessage = string.Empty;
+        return true;
     }
 
     /// <summary>
-    /// 保存一条 AI 回复，并确保发言账号确实属于当前群聊。
+    /// 判断指定 AI 账号是否属于当前群聊。
     /// </summary>
-    public GroupMessage SaveAiReply(
-        GroupChat groupChat,
-        AiAccount aiSpeaker,
-        string content)
+    public bool IsMember(GroupChat groupChat, Guid aiAccountId)
     {
-        bool isGroupMember = groupChat.Members.Any(member => member.Id == aiSpeaker.Id);
-
-        if (!isGroupMember)
-        {
-            throw new InvalidOperationException("未加入当前群聊的 AI 账号不能发送群消息。");
-        }
-
-        GroupMessage aiMessage = new(
-            groupChat.Id,
-            MessageSenderType.AiAccount,
-            aiSpeaker.Nickname,
-            aiSpeaker.Id,
-            content.Trim());
-
-        groupChat.Messages.Add(aiMessage);
-        return aiMessage;
+        return groupChat.Members.Any(member => member.Id == aiAccountId);
     }
 
     /// <summary>
-    /// 返回当前群聊按发送时间从早到晚排列的全部消息。
+    /// 返回当前群聊成员的只读副本。
     /// </summary>
-    public IReadOnlyList<GroupMessage> GetOrderedChatHistory(GroupChat groupChat)
+    public IReadOnlyList<AiAccount> GetMembers(GroupChat groupChat)
     {
-        return groupChat.Messages
-            .OrderBy(message => message.SentAt)
-            .ToList();
+        List<AiAccount> memberSnapshot = new(groupChat.Members);
+        return memberSnapshot.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 按 Id 查找已保存的群聊；未找到时返回 null。
+    /// </summary>
+    public GroupChat? FindById(Guid id)
+    {
+        return _groupChats.FirstOrDefault(groupChat => groupChat.Id == id);
+    }
+
+    /// <summary>
+    /// 返回当前全部群聊的只读副本。
+    /// </summary>
+    public IReadOnlyList<GroupChat> GetAllGroupChats()
+    {
+        List<GroupChat> groupChatSnapshot = new(_groupChats);
+        return groupChatSnapshot.AsReadOnly();
     }
 }
