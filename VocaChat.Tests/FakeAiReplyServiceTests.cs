@@ -1,13 +1,17 @@
+using System;
 using VocaChat.ConsoleApp.Models;
 using VocaChat.ConsoleApp.Services;
+using VocaChat.Tests.TestSupport;
 
 namespace VocaChat.Tests;
 
 /// <summary>
 /// 验证假 AI 发言者选择范围、点名优先级和本地回复生成。
 /// </summary>
-public class FakeAiReplyServiceTests
+public class FakeAiReplyServiceTests : IDisposable
 {
+    private readonly SqliteTestDatabase _database = new();
+
     [Fact]
     public void SelectAiSpeaker_WithoutMention_ReturnsOneCurrentMember()
     {
@@ -35,7 +39,7 @@ public class FakeAiReplyServiceTests
             "hello",
             out bool selectedByMention);
 
-        Assert.Same(context.Accounts[0], speaker);
+        Assert.Equal(context.Accounts[0].Id, speaker?.Id);
         Assert.False(selectedByMention);
     }
 
@@ -50,14 +54,14 @@ public class FakeAiReplyServiceTests
             "请让 @bEtA 回复",
             out bool selectedByMention);
 
-        Assert.Same(context.Accounts[1], speaker);
+        Assert.Equal(context.Accounts[1].Id, speaker?.Id);
         Assert.True(selectedByMention);
     }
 
     [Fact]
     public void SelectAiSpeaker_WithUnjoinedMention_DoesNotSelectUnjoinedAccount()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount joinedAccount = CreateAccount(accountService, "Alpha");
         AiAccount unjoinedAccount = CreateAccount(accountService, "Gamma");
         GroupChatService groupChatService = new(accountService);
@@ -70,7 +74,7 @@ public class FakeAiReplyServiceTests
             out bool selectedByMention);
 
         Assert.NotNull(speaker);
-        Assert.NotSame(unjoinedAccount, speaker);
+        Assert.NotEqual(unjoinedAccount.Id, speaker.Id);
         Assert.Contains(speaker, groupChat.Members);
         Assert.False(selectedByMention);
     }
@@ -107,9 +111,9 @@ public class FakeAiReplyServiceTests
     /// <summary>
     /// 创建成员全部来自账号 Service 的测试群聊。
     /// </summary>
-    private static GroupContext CreateGroupContext(params string[] nicknames)
+    private GroupContext CreateGroupContext(params string[] nicknames)
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         List<AiAccount> accounts = new();
 
         foreach (string nickname in nicknames)
@@ -123,6 +127,16 @@ public class FakeAiReplyServiceTests
             accounts.Select(account => account.Id).ToArray());
 
         return new GroupContext(groupChat, accounts);
+    }
+
+    private AiAccountService CreateAccountService()
+    {
+        return new AiAccountService(_database.CreateDbContextFactory());
+    }
+
+    public void Dispose()
+    {
+        _database.Dispose();
     }
 
     /// <summary>

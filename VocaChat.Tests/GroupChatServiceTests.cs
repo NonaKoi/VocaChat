@@ -2,18 +2,21 @@ using System;
 using System.Collections.Generic;
 using VocaChat.ConsoleApp.Models;
 using VocaChat.ConsoleApp.Services;
+using VocaChat.Tests.TestSupport;
 
 namespace VocaChat.Tests;
 
 /// <summary>
 /// 验证群聊创建、已有账号成员关系和集合保护。
 /// </summary>
-public class GroupChatServiceTests
+public class GroupChatServiceTests : IDisposable
 {
+    private readonly SqliteTestDatabase _database = new();
+
     [Fact]
-    public void TryCreateGroupChat_WithExistingAccounts_ReusesAccountsAndStoresChat()
+    public void TryCreateGroupChat_WithExistingAccounts_UsesTheirIdsAndStoresChat()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount firstAccount = CreateAccount(accountService, "Alpha");
         AiAccount secondAccount = CreateAccount(accountService, "Beta");
         GroupChatService groupChatService = new(accountService);
@@ -28,8 +31,8 @@ public class GroupChatServiceTests
         Assert.True(succeeded, errorMessage);
         Assert.NotNull(groupChat);
         Assert.Equal("Team", groupChat.Name);
-        Assert.Same(firstAccount, groupChat.Members[0]);
-        Assert.Same(secondAccount, groupChat.Members[1]);
+        Assert.Equal(firstAccount.Id, groupChat.Members[0].Id);
+        Assert.Equal(secondAccount.Id, groupChat.Members[1].Id);
         Assert.Equal(accountCountBeforeCreation, accountService.GetAllAccounts().Count);
         Assert.Same(groupChat, groupChatService.FindById(groupChat.Id));
     }
@@ -39,7 +42,7 @@ public class GroupChatServiceTests
     [InlineData("   ")]
     public void TryCreateGroupChat_WithBlankName_Fails(string groupName)
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount account = CreateAccount(accountService, "Alpha");
         GroupChatService groupChatService = new(accountService);
 
@@ -58,7 +61,7 @@ public class GroupChatServiceTests
     [Fact]
     public void TryAddMember_WithExistingAccount_AddsMember()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount firstAccount = CreateAccount(accountService, "Alpha");
         AiAccount secondAccount = CreateAccount(accountService, "Beta");
         GroupChatService groupChatService = new(accountService);
@@ -71,13 +74,13 @@ public class GroupChatServiceTests
 
         Assert.True(succeeded, errorMessage);
         Assert.Equal(2, groupChat.Members.Count);
-        Assert.Same(secondAccount, groupChat.Members[1]);
+        Assert.Equal(secondAccount.Id, groupChat.Members[1].Id);
     }
 
     [Fact]
     public void TryAddMember_WithDuplicateAccount_Fails()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount account = CreateAccount(accountService, "Alpha");
         GroupChatService groupChatService = new(accountService);
         GroupChat groupChat = CreateGroupChat(groupChatService, account.Id);
@@ -95,7 +98,7 @@ public class GroupChatServiceTests
     [Fact]
     public void IsMember_DistinguishesJoinedAndUnjoinedAccounts()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount joinedAccount = CreateAccount(accountService, "Alpha");
         AiAccount unjoinedAccount = CreateAccount(accountService, "Beta");
         GroupChatService groupChatService = new(accountService);
@@ -108,7 +111,7 @@ public class GroupChatServiceTests
     [Fact]
     public void TryAddMember_WithMissingAccount_Fails()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount account = CreateAccount(accountService, "Alpha");
         GroupChatService groupChatService = new(accountService);
         GroupChat groupChat = CreateGroupChat(groupChatService, account.Id);
@@ -126,7 +129,7 @@ public class GroupChatServiceTests
     [Fact]
     public void Members_CannotBeModifiedByExternalCode()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = CreateAccountService();
         AiAccount account = CreateAccount(accountService, "Alpha");
         GroupChatService groupChatService = new(accountService);
         GroupChat groupChat = CreateGroupChat(groupChatService, account.Id);
@@ -136,6 +139,16 @@ public class GroupChatServiceTests
 
         Assert.Throws<NotSupportedException>(() => mutableView.Add(externalAccount));
         Assert.Single(groupChatService.GetMembers(groupChat));
+    }
+
+    private AiAccountService CreateAccountService()
+    {
+        return new AiAccountService(_database.CreateDbContextFactory());
+    }
+
+    public void Dispose()
+    {
+        _database.Dispose();
     }
 
     /// <summary>

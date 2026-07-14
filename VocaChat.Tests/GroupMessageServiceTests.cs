@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using VocaChat.ConsoleApp.Models;
 using VocaChat.ConsoleApp.Services;
+using VocaChat.Tests.TestSupport;
 
 namespace VocaChat.Tests;
 
 /// <summary>
 /// 验证用户和 AI 群消息的保存规则、成员限制和时间排序。
 /// </summary>
-public class GroupMessageServiceTests
+public class GroupMessageServiceTests : IDisposable
 {
+    private readonly SqliteTestDatabase _database = new();
+
     [Fact]
     public void TrySaveUserMessage_WithValidContent_SavesCorrectUserMessage()
     {
@@ -168,9 +171,9 @@ public class GroupMessageServiceTests
     /// <summary>
     /// 创建包含一个群内账号和一个未入群账号的独立测试上下文。
     /// </summary>
-    private static TestContext CreateContext()
+    private TestContext CreateContext()
     {
-        AiAccountService accountService = new();
+        AiAccountService accountService = new(_database.CreateDbContextFactory());
         AiAccount joinedAccount = CreateAccount(accountService, "Alpha");
         AiAccount unjoinedAccount = CreateAccount(accountService, "Beta");
         GroupChatService groupChatService = new(accountService);
@@ -186,6 +189,11 @@ public class GroupMessageServiceTests
             joinedAccount,
             unjoinedAccount,
             new GroupMessageService(groupChatService));
+    }
+
+    public void Dispose()
+    {
+        _database.Dispose();
     }
 
     /// <summary>
