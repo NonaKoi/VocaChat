@@ -12,6 +12,7 @@ public sealed class VocaChatDbContext : DbContext
 {
     public DbSet<AiAccount> AiAccounts => Set<AiAccount>();
     public DbSet<GroupChat> GroupChats => Set<GroupChat>();
+    public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
 
     public VocaChatDbContext(DbContextOptions<VocaChatDbContext> options)
         : base(options)
@@ -26,5 +27,6 @@ public sealed class VocaChatDbContext : DbContext
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfiguration(new AiAccountConfiguration());
         modelBuilder.ApplyConfiguration(new GroupChatConfiguration());
+        modelBuilder.ApplyConfiguration(new GroupMessageConfiguration());
     }
 }
