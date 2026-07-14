@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using VocaChat.ConsoleApp.Data;
 using VocaChat.ConsoleApp.Models;
 using VocaChat.ConsoleApp.Services;
 using VocaChat.Tests.TestSupport;
@@ -7,14 +9,14 @@ using VocaChat.Tests.TestSupport;
 namespace VocaChat.Tests;
 
 /// <summary>
-/// 验证用户和 AI 群消息的保存规则、成员限制和时间排序。
+/// 验证用户和 AI 群消息的数据库保存、成员限制、隔离和稳定排序。
 /// </summary>
 public class GroupMessageServiceTests : IDisposable
 {
     private readonly SqliteTestDatabase _database = new();
 
     [Fact]
-    public void TrySaveUserMessage_WithValidContent_SavesCorrectUserMessage()
+    public void TrySaveUserMessage_WithValidContent_PersistsCorrectUserMessage()
     {
         TestContext context = CreateContext();
 
@@ -24,14 +26,17 @@ public class GroupMessageServiceTests : IDisposable
             out GroupMessage? message,
             out string errorMessage);
 
+        GroupMessage storedMessage = Assert.Single(
+            CreateMessageService().GetOrderedChatHistory(context.GroupChat));
+
         Assert.True(succeeded, errorMessage);
         Assert.NotNull(message);
-        Assert.Equal(context.GroupChat.Id, message.GroupChatId);
-        Assert.Equal(MessageSenderType.User, message.SenderType);
-        Assert.Equal("我", message.SenderDisplayName);
-        Assert.Null(message.SenderAiAccountId);
-        Assert.Equal("hello", message.Content);
-        Assert.Same(message, Assert.Single(context.GroupChat.Messages));
+        Assert.Equal(message.Id, storedMessage.Id);
+        Assert.Equal(context.GroupChat.Id, storedMessage.GroupChatId);
+        Assert.Equal(MessageSenderType.User, storedMessage.SenderType);
+        Assert.Equal("我", storedMessage.SenderDisplayName);
+        Assert.Null(storedMessage.SenderAiAccountId);
+        Assert.Equal("hello", storedMessage.Content);
     }
 
     [Theory]
@@ -50,35 +55,48 @@ public class GroupMessageServiceTests : IDisposable
         Assert.False(succeeded);
         Assert.Null(message);
         Assert.Equal("消息内容不能为空。", errorMessage);
-        Assert.Empty(context.GroupChat.Messages);
+        Assert.Empty(context.MessageService.GetOrderedChatHistory(context.GroupChat));
     }
 
     [Fact]
-    public void TrySaveAiReply_WithGroupMember_SavesCorrectAiMessage()
+    public void TrySaveUserMessage_WithMissingGroupChat_Fails()
     {
         TestContext context = CreateContext();
-        context.MessageService.TrySaveUserMessage(
-            context.GroupChat,
+        GroupChat missingGroupChat = new("Missing");
+
+        bool succeeded = context.MessageService.TrySaveUserMessage(
+            missingGroupChat,
             "hello",
-            out GroupMessage? userMessage,
-            out _);
+            out GroupMessage? message,
+            out string errorMessage);
+
+        Assert.False(succeeded);
+        Assert.Null(message);
+        Assert.Equal("群聊不存在，不能保存消息。", errorMessage);
+    }
+
+    [Fact]
+    public void TrySaveAiReply_WithGroupMember_PersistsCorrectAiMessage()
+    {
+        TestContext context = CreateContext();
 
         bool succeeded = context.MessageService.TrySaveAiReply(
             context.GroupChat,
             context.JoinedAccount,
             "  reply  ",
-            out GroupMessage? aiMessage,
+            out GroupMessage? message,
             out string errorMessage);
 
+        GroupMessage storedMessage = Assert.Single(
+            CreateMessageService().GetOrderedChatHistory(context.GroupChat));
+
         Assert.True(succeeded, errorMessage);
-        Assert.NotNull(aiMessage);
-        Assert.Equal(MessageSenderType.AiAccount, aiMessage.SenderType);
-        Assert.Equal(context.JoinedAccount.Nickname, aiMessage.SenderDisplayName);
-        Assert.Equal(context.JoinedAccount.Id, aiMessage.SenderAiAccountId);
-        Assert.Equal("reply", aiMessage.Content);
-        Assert.Equal(2, context.GroupChat.Messages.Count);
-        Assert.Same(userMessage, context.GroupChat.Messages[0]);
-        Assert.Same(aiMessage, context.GroupChat.Messages[1]);
+        Assert.NotNull(message);
+        Assert.Equal(message.Id, storedMessage.Id);
+        Assert.Equal(MessageSenderType.AiAccount, storedMessage.SenderType);
+        Assert.Equal(context.JoinedAccount.Nickname, storedMessage.SenderDisplayName);
+        Assert.Equal(context.JoinedAccount.Id, storedMessage.SenderAiAccountId);
+        Assert.Equal("reply", storedMessage.Content);
     }
 
     [Fact]
@@ -96,7 +114,7 @@ public class GroupMessageServiceTests : IDisposable
         Assert.False(succeeded);
         Assert.Null(message);
         Assert.Equal("未加入当前群聊的 AI 账号不能发送群消息。", errorMessage);
-        Assert.Empty(context.GroupChat.Messages);
+        Assert.Empty(context.MessageService.GetOrderedChatHistory(context.GroupChat));
     }
 
     [Theory]
@@ -116,79 +134,146 @@ public class GroupMessageServiceTests : IDisposable
         Assert.False(succeeded);
         Assert.Null(message);
         Assert.Equal("AI 回复内容不能为空。", errorMessage);
-        Assert.Empty(context.GroupChat.Messages);
+        Assert.Empty(context.MessageService.GetOrderedChatHistory(context.GroupChat));
     }
 
     [Fact]
-    public void GetOrderedChatHistory_OrdersBySentAtInsteadOfInsertionOrder()
+    public void GetOrderedChatHistory_AfterCreatingNewService_ReturnsUserAndAiMessages()
     {
         TestContext context = CreateContext();
-        DateTime earlierTime = new(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc);
-        DateTime laterTime = earlierTime.AddMinutes(1);
+        context.MessageService.TrySaveUserMessage(
+            context.GroupChat,
+            "hello",
+            out GroupMessage? userMessage,
+            out _);
+        context.MessageService.TrySaveAiReply(
+            context.GroupChat,
+            context.JoinedAccount,
+            "reply",
+            out GroupMessage? aiMessage,
+            out _);
+
+        GroupMessageService reloadedMessageService = CreateMessageService();
+        IReadOnlyList<GroupMessage> history =
+            reloadedMessageService.GetOrderedChatHistory(context.GroupChat);
+
+        Assert.Equal(2, history.Count);
+        Assert.Contains(history, message => message.Id == userMessage?.Id);
+        Assert.Contains(history, message => message.Id == aiMessage?.Id);
+    }
+
+    [Fact]
+    public void GetOrderedChatHistory_DoesNotMixMessagesFromDifferentGroupChats()
+    {
+        TestContext context = CreateContext();
+        GroupChat secondGroupChat = CreateGroupChat(
+            context.GroupChatService,
+            "Second Team",
+            context.JoinedAccount.Id);
+        context.MessageService.TrySaveUserMessage(
+            context.GroupChat,
+            "first group",
+            out _,
+            out _);
+        context.MessageService.TrySaveUserMessage(
+            secondGroupChat,
+            "second group",
+            out _,
+            out _);
+
+        IReadOnlyList<GroupMessage> firstHistory =
+            context.MessageService.GetOrderedChatHistory(context.GroupChat);
+        IReadOnlyList<GroupMessage> secondHistory =
+            context.MessageService.GetOrderedChatHistory(secondGroupChat);
+
+        Assert.Equal("first group", Assert.Single(firstHistory).Content);
+        Assert.Equal("second group", Assert.Single(secondHistory).Content);
+    }
+
+    [Fact]
+    public void GetOrderedChatHistory_OrdersBySentAtAndUsesIdForStableTies()
+    {
+        TestContext context = CreateContext();
+        DateTime sameTime = new(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc);
+        GroupMessage firstSameTimeMessage = new(
+            context.GroupChat.Id,
+            MessageSenderType.User,
+            "我",
+            null,
+            "same time one",
+            sameTime);
+        GroupMessage secondSameTimeMessage = new(
+            context.GroupChat.Id,
+            MessageSenderType.User,
+            "我",
+            null,
+            "same time two",
+            sameTime);
         GroupMessage laterMessage = new(
             context.GroupChat.Id,
             MessageSenderType.User,
             "我",
             null,
             "later",
-            laterTime);
-        GroupMessage earlierMessage = new(
-            context.GroupChat.Id,
-            MessageSenderType.User,
-            "我",
-            null,
-            "earlier",
-            earlierTime);
-        context.GroupChat.AddMessage(laterMessage);
-        context.GroupChat.AddMessage(earlierMessage);
+            sameTime.AddMinutes(1));
+
+        using (VocaChatDbContext dbContext =
+               _database.CreateDbContextFactory().CreateDbContext())
+        {
+            dbContext.GroupMessages.AddRange(
+                laterMessage,
+                secondSameTimeMessage,
+                firstSameTimeMessage);
+            dbContext.SaveChanges();
+        }
 
         IReadOnlyList<GroupMessage> history =
             context.MessageService.GetOrderedChatHistory(context.GroupChat);
+        IReadOnlyList<GroupMessage> reloadedHistory =
+            CreateMessageService().GetOrderedChatHistory(context.GroupChat);
+        Guid[] tiedMessageIds = history
+            .Take(2)
+            .Select(message => message.Id)
+            .ToArray();
 
-        Assert.Collection(
-            history,
-            first => Assert.Same(earlierMessage, first),
-            second => Assert.Same(laterMessage, second));
-    }
-
-    [Fact]
-    public void Messages_CannotBeModifiedByExternalCode()
-    {
-        TestContext context = CreateContext();
-        IList<GroupMessage> mutableView =
-            Assert.IsAssignableFrom<IList<GroupMessage>>(context.GroupChat.Messages);
-        GroupMessage externalMessage = new(
-            context.GroupChat.Id,
-            MessageSenderType.User,
-            "我",
-            null,
-            "external");
-
-        Assert.Throws<NotSupportedException>(() => mutableView.Add(externalMessage));
-        Assert.Empty(context.GroupChat.Messages);
+        Assert.Equal(laterMessage.Id, history[2].Id);
+        Assert.Contains(firstSameTimeMessage.Id, tiedMessageIds);
+        Assert.Contains(secondSameTimeMessage.Id, tiedMessageIds);
+        Assert.Equal(
+            history.Select(message => message.Id),
+            reloadedHistory.Select(message => message.Id));
     }
 
     /// <summary>
-    /// 创建包含一个群内账号和一个未入群账号的独立测试上下文。
+    /// 创建包含一个群内账号和一个未入群账号的独立数据库测试上下文。
     /// </summary>
     private TestContext CreateContext()
     {
-        AiAccountService accountService = new(_database.CreateDbContextFactory());
+        VocaChatDbContextFactory dbContextFactory =
+            _database.CreateDbContextFactory();
+        AiAccountService accountService = new(dbContextFactory);
         AiAccount joinedAccount = CreateAccount(accountService, "Alpha");
         AiAccount unjoinedAccount = CreateAccount(accountService, "Beta");
-        GroupChatService groupChatService = new(_database.CreateDbContextFactory());
-        bool groupCreated = groupChatService.TryCreateGroupChat(
+        GroupChatService groupChatService = new(dbContextFactory);
+        GroupChat groupChat = CreateGroupChat(
+            groupChatService,
             "Team",
-            new[] { joinedAccount.Id },
-            out GroupChat? groupChat,
-            out string groupError);
-        Assert.True(groupCreated, groupError);
+            joinedAccount.Id);
 
         return new TestContext(
-            Assert.IsType<GroupChat>(groupChat),
+            groupChat,
             joinedAccount,
             unjoinedAccount,
-            new GroupMessageService(groupChatService));
+            groupChatService,
+            new GroupMessageService(dbContextFactory));
+    }
+
+    /// <summary>
+    /// 使用同一个临时数据库创建新的消息 Service，模拟重新启动后的查询。
+    /// </summary>
+    private GroupMessageService CreateMessageService()
+    {
+        return new GroupMessageService(_database.CreateDbContextFactory());
     }
 
     public void Dispose()
@@ -196,9 +281,6 @@ public class GroupMessageServiceTests : IDisposable
         _database.Dispose();
     }
 
-    /// <summary>
-    /// 创建测试所需账号，并确保测试准备本身成功。
-    /// </summary>
     private static AiAccount CreateAccount(AiAccountService service, string nickname)
     {
         bool succeeded = service.TryCreateAiAccount(
@@ -213,22 +295,40 @@ public class GroupMessageServiceTests : IDisposable
         return Assert.IsType<AiAccount>(account);
     }
 
+    private static GroupChat CreateGroupChat(
+        GroupChatService service,
+        string name,
+        Guid memberId)
+    {
+        bool succeeded = service.TryCreateGroupChat(
+            name,
+            new[] { memberId },
+            out GroupChat? groupChat,
+            out string errorMessage);
+
+        Assert.True(succeeded, errorMessage);
+        return Assert.IsType<GroupChat>(groupChat);
+    }
+
     private sealed class TestContext
     {
         public GroupChat GroupChat { get; }
         public AiAccount JoinedAccount { get; }
         public AiAccount UnjoinedAccount { get; }
+        public GroupChatService GroupChatService { get; }
         public GroupMessageService MessageService { get; }
 
         public TestContext(
             GroupChat groupChat,
             AiAccount joinedAccount,
             AiAccount unjoinedAccount,
+            GroupChatService groupChatService,
             GroupMessageService messageService)
         {
             GroupChat = groupChat;
             JoinedAccount = joinedAccount;
             UnjoinedAccount = unjoinedAccount;
+            GroupChatService = groupChatService;
             MessageService = messageService;
         }
     }
