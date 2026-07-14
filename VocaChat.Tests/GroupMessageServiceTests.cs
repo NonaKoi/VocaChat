@@ -176,7 +176,7 @@ public class GroupMessageServiceTests : IDisposable
         AiAccountService accountService = new(_database.CreateDbContextFactory());
         AiAccount joinedAccount = CreateAccount(accountService, "Alpha");
         AiAccount unjoinedAccount = CreateAccount(accountService, "Beta");
-        GroupChatService groupChatService = new(accountService);
+        GroupChatService groupChatService = new(_database.CreateDbContextFactory());
         bool groupCreated = groupChatService.TryCreateGroupChat(
             "Team",
             new[] { joinedAccount.Id },

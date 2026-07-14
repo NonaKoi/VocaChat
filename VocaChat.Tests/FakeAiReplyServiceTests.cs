@@ -64,7 +64,7 @@ public class FakeAiReplyServiceTests : IDisposable
         AiAccountService accountService = CreateAccountService();
         AiAccount joinedAccount = CreateAccount(accountService, "Alpha");
         AiAccount unjoinedAccount = CreateAccount(accountService, "Gamma");
-        GroupChatService groupChatService = new(accountService);
+        GroupChatService groupChatService = CreateGroupChatService();
         GroupChat groupChat = CreateGroupChat(groupChatService, joinedAccount.Id);
         FakeAiReplyService service = new();
 
@@ -121,7 +121,7 @@ public class FakeAiReplyServiceTests : IDisposable
             accounts.Add(CreateAccount(accountService, nickname));
         }
 
-        GroupChatService groupChatService = new(accountService);
+        GroupChatService groupChatService = CreateGroupChatService();
         GroupChat groupChat = CreateGroupChat(
             groupChatService,
             accounts.Select(account => account.Id).ToArray());
@@ -132,6 +132,11 @@ public class FakeAiReplyServiceTests : IDisposable
     private AiAccountService CreateAccountService()
     {
         return new AiAccountService(_database.CreateDbContextFactory());
+    }
+
+    private GroupChatService CreateGroupChatService()
+    {
+        return new GroupChatService(_database.CreateDbContextFactory());
     }
 
     public void Dispose()
