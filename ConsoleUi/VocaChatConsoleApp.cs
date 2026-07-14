@@ -59,13 +59,13 @@ public class VocaChatConsoleApp
     private static void DisplayStartupInformation()
     {
         Console.WriteLine("VocaChat Console 原型");
-        Console.WriteLine("当前处于第二阶段：整理核心业务和 Service");
+        Console.WriteLine("当前处于第三阶段：SQLite 与 EF Core");
         Console.WriteLine("当前 AI 回复由本地规则模拟，不会调用真实 AI API。");
         Console.WriteLine();
     }
 
     /// <summary>
-    /// 循环获取账号资料，并调用账号 Service 完成验证、创建和内存保存。
+    /// 循环获取账号资料，并调用账号 Service 完成验证、创建和数据库保存。
     /// </summary>
     private void CreateAiAccounts()
     {
@@ -123,7 +123,7 @@ public class VocaChatConsoleApp
     }
 
     /// <summary>
-    /// 按创建顺序显示当前内存中保存的全部 AI 账号。
+    /// 按创建顺序显示当前数据库中保存的全部 AI 账号。
     /// </summary>
     private static void DisplayAiAccounts(IReadOnlyList<AiAccount> aiAccounts)
     {

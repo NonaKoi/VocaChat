@@ -7,12 +7,28 @@ namespace VocaChat.ConsoleApp.Models;
 /// </summary>
 public class AiAccount
 {
-    public Guid Id { get; }
-    public string Nickname { get; }
-    public string IdentityDescription { get; }
-    public string Personality { get; }
-    public string SpeakingStyle { get; }
-    public DateTime CreatedAt { get; }
+    internal const int NicknameMaxLength = 50;
+    internal const int IdentityDescriptionMaxLength = 500;
+    internal const int PersonalityMaxLength = 200;
+    internal const int SpeakingStyleMaxLength = 200;
+
+    public Guid Id { get; private set; }
+    public string Nickname { get; private set; }
+    public string IdentityDescription { get; private set; }
+    public string Personality { get; private set; }
+    public string SpeakingStyle { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+
+    /// <summary>
+    /// 供 EF Core 从数据库还原实体使用。
+    /// </summary>
+    private AiAccount()
+    {
+        Nickname = string.Empty;
+        IdentityDescription = string.Empty;
+        Personality = string.Empty;
+        SpeakingStyle = string.Empty;
+    }
 
     /// <summary>
     /// 创建 AI 账号，并在创建时生成唯一 Id 和创建时间。
