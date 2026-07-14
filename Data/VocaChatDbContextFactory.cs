@@ -75,7 +75,8 @@ public sealed class VocaChatDbContextFactory : IDesignTimeDbContextFactory<VocaC
         string databasePath = Path.Combine(applicationDirectory, DatabaseFileName);
         SqliteConnectionStringBuilder connectionStringBuilder = new()
         {
-            DataSource = databasePath
+            DataSource = databasePath,
+            ForeignKeys = true
         };
 
         return connectionStringBuilder.ToString();

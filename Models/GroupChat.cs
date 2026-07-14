@@ -8,14 +8,24 @@ namespace VocaChat.ConsoleApp.Models;
 /// </summary>
 public class GroupChat
 {
+    internal const int NameMaxLength = 100;
+
     private readonly List<AiAccount> _members = new();
     private readonly List<GroupMessage> _messages = new();
 
-    public Guid Id { get; }
-    public string Name { get; }
+    public Guid Id { get; private set; }
+    public string Name { get; private set; }
     public IReadOnlyList<AiAccount> Members => _members.AsReadOnly();
     public IReadOnlyList<GroupMessage> Messages => _messages.AsReadOnly();
-    public DateTime CreatedAt { get; }
+    public DateTime CreatedAt { get; private set; }
+
+    /// <summary>
+    /// 供 EF Core 从数据库还原群聊和成员关系使用。
+    /// </summary>
+    private GroupChat()
+    {
+        Name = string.Empty;
+    }
 
     /// <summary>
     /// 创建一个空成员的群聊，并初始化消息集合。
