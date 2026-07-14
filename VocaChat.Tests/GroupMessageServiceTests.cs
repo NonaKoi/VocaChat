@@ -163,6 +163,80 @@ public class GroupMessageServiceTests : IDisposable
     }
 
     [Fact]
+    public void ExistingGroupChat_AfterServicesRestart_CanContinueWithoutDuplicatingData()
+    {
+        VocaChatDbContextFactory firstFactory =
+            _database.CreateDbContextFactory();
+        AiAccountService firstAccountService = new(firstFactory);
+        AiAccount account = CreateAccount(firstAccountService, "Alpha");
+        GroupChatService firstGroupChatService = new(firstFactory);
+        GroupChat createdGroupChat = CreateGroupChat(
+            firstGroupChatService,
+            "Persistent Team",
+            account.Id);
+        GroupMessageService firstMessageService = new(firstFactory);
+        bool oldMessageSaved = firstMessageService.TrySaveUserMessage(
+            createdGroupChat,
+            "old message",
+            out GroupMessage? oldMessage,
+            out string oldMessageError);
+        Assert.True(oldMessageSaved, oldMessageError);
+
+        GroupChatService restartedGroupChatService = new(
+            _database.CreateDbContextFactory());
+        GroupChat existingGroupChat = Assert.Single(
+            restartedGroupChatService.GetAllGroupChats());
+        GroupMessageService restartedMessageService = new(
+            _database.CreateDbContextFactory());
+        IReadOnlyList<GroupMessage> historyBeforeContinuing =
+            restartedMessageService.GetOrderedChatHistory(existingGroupChat);
+        FakeAiReplyService fakeAiReplyService = new();
+        AiAccount? aiSpeaker = fakeAiReplyService.SelectAiSpeaker(
+            existingGroupChat,
+            "new message",
+            out _);
+        AiAccount selectedAiSpeaker = Assert.IsType<AiAccount>(aiSpeaker);
+
+        Assert.Equal(createdGroupChat.Id, existingGroupChat.Id);
+        Assert.Single(existingGroupChat.Members);
+        Assert.Equal(oldMessage?.Id, Assert.Single(historyBeforeContinuing).Id);
+
+        bool newMessageSaved = restartedMessageService.TrySaveUserMessage(
+            existingGroupChat,
+            "new message",
+            out GroupMessage? newMessage,
+            out string newMessageError);
+        Assert.True(newMessageSaved, newMessageError);
+        string fakeReply = fakeAiReplyService.GenerateReply(
+            selectedAiSpeaker,
+            "new message");
+        bool aiReplySaved = restartedMessageService.TrySaveAiReply(
+            existingGroupChat,
+            selectedAiSpeaker,
+            fakeReply,
+            out GroupMessage? aiMessage,
+            out string aiMessageError);
+        Assert.True(aiReplySaved, aiMessageError);
+
+        AiAccountService finalAccountService = new(
+            _database.CreateDbContextFactory());
+        GroupChatService finalGroupChatService = new(
+            _database.CreateDbContextFactory());
+        GroupMessageService finalMessageService = new(
+            _database.CreateDbContextFactory());
+        IReadOnlyList<GroupMessage> completeHistory =
+            finalMessageService.GetOrderedChatHistory(existingGroupChat);
+
+        Assert.Equal(3, completeHistory.Count);
+        Assert.Contains(completeHistory, message => message.Id == oldMessage?.Id);
+        Assert.Contains(completeHistory, message => message.Id == newMessage?.Id);
+        Assert.Contains(completeHistory, message => message.Id == aiMessage?.Id);
+        Assert.Single(finalAccountService.GetAllAccounts());
+        Assert.Single(finalGroupChatService.GetAllGroupChats());
+        Assert.Single(finalGroupChatService.GetMembers(existingGroupChat));
+    }
+
+    [Fact]
     public void GetOrderedChatHistory_DoesNotMixMessagesFromDifferentGroupChats()
     {
         TestContext context = CreateContext();
