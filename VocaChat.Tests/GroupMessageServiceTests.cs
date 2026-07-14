@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using VocaChat.ConsoleApp.Data;
 using VocaChat.ConsoleApp.Models;
 using VocaChat.ConsoleApp.Services;
@@ -73,6 +74,23 @@ public class GroupMessageServiceTests : IDisposable
         Assert.False(succeeded);
         Assert.Null(message);
         Assert.Equal("群聊不存在，不能保存消息。", errorMessage);
+    }
+
+    [Fact]
+    public void DatabaseForeignKey_RejectsMessageWithMissingGroupChat()
+    {
+        GroupMessage messageWithMissingGroupChat = new(
+            Guid.NewGuid(),
+            MessageSenderType.User,
+            "我",
+            null,
+            "orphan message");
+
+        using VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        dbContext.GroupMessages.Add(messageWithMissingGroupChat);
+
+        Assert.Throws<DbUpdateException>(() => dbContext.SaveChanges());
     }
 
     [Fact]
