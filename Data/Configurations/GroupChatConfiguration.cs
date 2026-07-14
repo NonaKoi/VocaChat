@@ -58,8 +58,5 @@ public sealed class GroupChatConfiguration : IEntityTypeConfiguration<GroupChat>
         builder.Navigation(groupChat => groupChat.Members)
             .HasField("_members")
             .UsePropertyAccessMode(PropertyAccessMode.Field);
-
-        // 群消息会在下一功能单元单独迁移，本轮继续保留为当前会话的内存集合。
-        builder.Ignore(groupChat => groupChat.Messages);
     }
 }

@@ -7,13 +7,25 @@ namespace VocaChat.ConsoleApp.Models;
 /// </summary>
 public class GroupMessage
 {
-    public Guid Id { get; }
-    public Guid GroupChatId { get; }
-    public MessageSenderType SenderType { get; }
-    public string SenderDisplayName { get; }
-    public Guid? SenderAiAccountId { get; }
-    public string Content { get; }
-    public DateTime SentAt { get; }
+    internal const int SenderDisplayNameMaxLength = 100;
+    internal const int ContentMaxLength = 4000;
+
+    public Guid Id { get; private set; }
+    public Guid GroupChatId { get; private set; }
+    public MessageSenderType SenderType { get; private set; }
+    public string SenderDisplayName { get; private set; }
+    public Guid? SenderAiAccountId { get; private set; }
+    public string Content { get; private set; }
+    public DateTime SentAt { get; private set; }
+
+    /// <summary>
+    /// 供 EF Core 从数据库还原群消息使用。
+    /// </summary>
+    private GroupMessage()
+    {
+        SenderDisplayName = string.Empty;
+        Content = string.Empty;
+    }
 
     /// <summary>
     /// 创建群消息，并记录消息所属群聊、发送者和发送时间。

@@ -1,5 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
+using VocaChat.ConsoleApp.Data;
 using VocaChat.ConsoleApp.Models;
 
 namespace VocaChat.ConsoleApp.Services;
@@ -9,14 +12,15 @@ namespace VocaChat.ConsoleApp.Services;
 /// </summary>
 public class GroupMessageService
 {
-    private readonly GroupChatService _groupChatService;
+    private readonly VocaChatDbContextFactory _dbContextFactory;
 
     /// <summary>
-    /// 创建消息 Service，并使用群聊 Service 验证群聊和成员关系。
+    /// 创建消息 Service；每个保存或查询操作使用一个短生命周期 DbContext。
     /// </summary>
-    public GroupMessageService(GroupChatService groupChatService)
+    public GroupMessageService(VocaChatDbContextFactory dbContextFactory)
     {
-        _groupChatService = groupChatService;
+        _dbContextFactory = dbContextFactory
+            ?? throw new ArgumentNullException(nameof(dbContextFactory));
     }
 
     /// <summary>
@@ -30,15 +34,26 @@ public class GroupMessageService
     {
         message = null;
 
-        if (_groupChatService.FindById(groupChat.Id) is null)
-        {
-            errorMessage = "群聊不存在，不能保存消息。";
-            return false;
-        }
-
         if (string.IsNullOrWhiteSpace(content))
         {
             errorMessage = "消息内容不能为空。";
+            return false;
+        }
+
+        string trimmedContent = content.Trim();
+
+        if (trimmedContent.Length > GroupMessage.ContentMaxLength)
+        {
+            errorMessage = $"消息内容不能超过 {GroupMessage.ContentMaxLength} 个字符。";
+            return false;
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        if (!dbContext.GroupChats.Any(storedGroupChat =>
+                storedGroupChat.Id == groupChat.Id))
+        {
+            errorMessage = "群聊不存在，不能保存消息。";
             return false;
         }
 
@@ -47,9 +62,11 @@ public class GroupMessageService
             MessageSenderType.User,
             "我",
             null,
-            content.Trim());
+            trimmedContent);
 
-        groupChat.AddMessage(userMessage);
+        dbContext.GroupMessages.Add(userMessage);
+        dbContext.SaveChanges();
+
         message = userMessage;
         errorMessage = string.Empty;
         return true;
@@ -67,21 +84,36 @@ public class GroupMessageService
     {
         message = null;
 
-        if (_groupChatService.FindById(groupChat.Id) is null)
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            errorMessage = "AI 回复内容不能为空。";
+            return false;
+        }
+
+        string trimmedContent = content.Trim();
+
+        if (trimmedContent.Length > GroupMessage.ContentMaxLength)
+        {
+            errorMessage = $"AI 回复内容不能超过 {GroupMessage.ContentMaxLength} 个字符。";
+            return false;
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        if (!dbContext.GroupChats.Any(storedGroupChat =>
+                storedGroupChat.Id == groupChat.Id))
         {
             errorMessage = "群聊不存在，不能保存消息。";
             return false;
         }
 
-        if (!_groupChatService.IsMember(groupChat, aiSpeaker.Id))
+        bool isMember = dbContext.GroupChats.Any(storedGroupChat =>
+            storedGroupChat.Id == groupChat.Id
+            && storedGroupChat.Members.Any(member => member.Id == aiSpeaker.Id));
+
+        if (!isMember)
         {
             errorMessage = "未加入当前群聊的 AI 账号不能发送群消息。";
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            errorMessage = "AI 回复内容不能为空。";
             return false;
         }
 
@@ -90,9 +122,11 @@ public class GroupMessageService
             MessageSenderType.AiAccount,
             aiSpeaker.Nickname,
             aiSpeaker.Id,
-            content.Trim());
+            trimmedContent);
 
-        groupChat.AddMessage(aiMessage);
+        dbContext.GroupMessages.Add(aiMessage);
+        dbContext.SaveChanges();
+
         message = aiMessage;
         errorMessage = string.Empty;
         return true;
@@ -103,8 +137,13 @@ public class GroupMessageService
     /// </summary>
     public IReadOnlyList<GroupMessage> GetOrderedChatHistory(GroupChat groupChat)
     {
-        List<GroupMessage> orderedMessages = groupChat.Messages
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        List<GroupMessage> orderedMessages = dbContext.GroupMessages
+            .AsNoTracking()
+            .Where(message => message.GroupChatId == groupChat.Id)
             .OrderBy(message => message.SentAt)
+            .ThenBy(message => message.Id)
             .ToList();
 
         return orderedMessages.AsReadOnly();

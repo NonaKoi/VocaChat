@@ -11,12 +11,10 @@ public class GroupChat
     internal const int NameMaxLength = 100;
 
     private readonly List<AiAccount> _members = new();
-    private readonly List<GroupMessage> _messages = new();
 
     public Guid Id { get; private set; }
     public string Name { get; private set; }
     public IReadOnlyList<AiAccount> Members => _members.AsReadOnly();
-    public IReadOnlyList<GroupMessage> Messages => _messages.AsReadOnly();
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>
@@ -28,7 +26,7 @@ public class GroupChat
     }
 
     /// <summary>
-    /// 创建一个空成员的群聊，并初始化消息集合。
+    /// 创建一个空成员的群聊。
     /// </summary>
     internal GroupChat(string name)
     {
@@ -43,13 +41,5 @@ public class GroupChat
     internal void AddMember(AiAccount aiAccount)
     {
         _members.Add(aiAccount);
-    }
-
-    /// <summary>
-    /// 保存已经由消息 Service 验证通过的群消息。
-    /// </summary>
-    internal void AddMessage(GroupMessage message)
-    {
-        _messages.Add(message);
     }
 }
