@@ -33,7 +33,7 @@ public class VocaChatConsoleApp
     }
 
     /// <summary>
-    /// 按顺序执行账号创建、群聊创建和群消息流程。
+    /// 按顺序执行账号准备、群聊选择或创建，以及群消息流程。
     /// </summary>
     public void Run()
     {
@@ -46,9 +46,10 @@ public class VocaChatConsoleApp
         IReadOnlyList<AiAccount> aiAccounts = _aiAccountService.GetAllAccounts();
         DisplayAiAccounts(aiAccounts);
 
-        GroupChat groupChat = CreateGroupChat(aiAccounts);
+        GroupChat groupChat = SelectOrCreateGroupChat(aiAccounts);
         DisplayGroupChat(groupChat);
 
+        DisplayChatHistory(groupChat);
         EnterGroupChat(groupChat);
         DisplayChatHistory(groupChat);
     }
@@ -140,6 +141,69 @@ public class VocaChatConsoleApp
             Console.WriteLine($"   说话风格：{DisplayText(account.SpeakingStyle)}");
             Console.WriteLine($"   创建时间：{account.CreatedAt:yyyy-MM-dd HH:mm:ss}");
         }
+    }
+
+    /// <summary>
+    /// 查询数据库中的已有群聊；用户可以按编号进入，也可以输入 /new 创建新群聊。
+    /// </summary>
+    private GroupChat SelectOrCreateGroupChat(IReadOnlyList<AiAccount> aiAccounts)
+    {
+        IReadOnlyList<GroupChat> existingGroupChats =
+            _groupChatService.GetAllGroupChats();
+
+        if (existingGroupChats.Count == 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("当前没有已有群聊，将创建一个新群聊。");
+            return CreateGroupChat(aiAccounts);
+        }
+
+        while (true)
+        {
+            DisplayGroupChatOptions(existingGroupChats);
+            Console.Write("请输入群聊编号进入，或输入 /new 创建新群聊：");
+            string input = ReadRequiredLine().Trim();
+
+            if (input.Equals("/new", StringComparison.OrdinalIgnoreCase))
+            {
+                return CreateGroupChat(aiAccounts);
+            }
+
+            if (!int.TryParse(input, out int groupChatNumber))
+            {
+                Console.WriteLine("请输入有效的群聊编号或 /new。");
+                continue;
+            }
+
+            if (groupChatNumber < 1 || groupChatNumber > existingGroupChats.Count)
+            {
+                Console.WriteLine($"群聊编号 {groupChatNumber} 不存在，请重新输入。");
+                continue;
+            }
+
+            return existingGroupChats[groupChatNumber - 1];
+        }
+    }
+
+    /// <summary>
+    /// 按数据库查询顺序显示已有群聊及其成员数量。
+    /// </summary>
+    private static void DisplayGroupChatOptions(
+        IReadOnlyList<GroupChat> groupChats)
+    {
+        Console.WriteLine();
+        Console.WriteLine("已有群聊：");
+
+        for (int i = 0; i < groupChats.Count; i++)
+        {
+            GroupChat groupChat = groupChats[i];
+            Console.WriteLine(
+                $"{i + 1}. {groupChat.Name} "
+                + $"（{groupChat.Members.Count} 个 AI 成员，"
+                + $"创建于 {groupChat.CreatedAt:yyyy-MM-dd HH:mm:ss}）");
+        }
+
+        Console.WriteLine();
     }
 
     /// <summary>
@@ -274,12 +338,12 @@ public class VocaChatConsoleApp
     }
 
     /// <summary>
-    /// 显示已创建群聊的基本信息和 AI 账号成员列表。
+    /// 显示当前选择或创建的群聊信息和 AI 账号成员列表。
     /// </summary>
     private void DisplayGroupChat(GroupChat groupChat)
     {
         Console.WriteLine();
-        Console.WriteLine("群聊创建成功：");
+        Console.WriteLine("群聊信息：");
         Console.WriteLine($"群聊名称：{groupChat.Name}");
         Console.WriteLine($"创建时间：{groupChat.CreatedAt:yyyy-MM-dd HH:mm:ss}");
         Console.WriteLine("群成员：");
