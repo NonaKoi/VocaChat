@@ -20,7 +20,7 @@ public class Program
         }
 
         AiAccountService aiAccountService = new(dbContextFactory);
-        GroupChatService groupChatService = new(aiAccountService);
+        GroupChatService groupChatService = new(dbContextFactory);
         GroupMessageService groupMessageService = new(groupChatService);
         FakeAiReplyService fakeAiReplyService = new();
 

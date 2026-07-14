@@ -1,24 +1,30 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using VocaChat.ConsoleApp.Data;
 using VocaChat.ConsoleApp.Models;
 
 namespace VocaChat.ConsoleApp.Services;
 
 /// <summary>
-/// 负责群聊的创建、内存保存、查询和成员管理。
+/// 负责群聊和群成员关系的验证、数据库保存与查询。
 /// </summary>
 public class GroupChatService
 {
-    private readonly AiAccountService _aiAccountService;
-    private readonly List<GroupChat> _groupChats = new();
+    private const int SqlitePrimaryKeyConstraintErrorCode = 1555;
+    private const int SqliteUniqueConstraintErrorCode = 2067;
+
+    private readonly VocaChatDbContextFactory _dbContextFactory;
 
     /// <summary>
-    /// 创建群聊 Service，并使用账号 Service 验证群成员是否真实存在。
+    /// 创建群聊 Service；每个业务操作使用一个短生命周期 DbContext。
     /// </summary>
-    public GroupChatService(AiAccountService aiAccountService)
+    public GroupChatService(VocaChatDbContextFactory dbContextFactory)
     {
-        _aiAccountService = aiAccountService;
+        _dbContextFactory = dbContextFactory
+            ?? throw new ArgumentNullException(nameof(dbContextFactory));
     }
 
     /// <summary>
@@ -26,13 +32,21 @@ public class GroupChatService
     /// </summary>
     public string? ValidateGroupChatName(string name)
     {
-        return string.IsNullOrWhiteSpace(name)
-            ? "群聊名称不能为空。"
-            : null;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "群聊名称不能为空。";
+        }
+
+        if (name.Trim().Length > GroupChat.NameMaxLength)
+        {
+            return $"群聊名称不能超过 {GroupChat.NameMaxLength} 个字符。";
+        }
+
+        return null;
     }
 
     /// <summary>
-    /// 使用用户已经创建的 AI 账号 Id 创建并保存群聊。
+    /// 使用数据库中已经存在的 AI 账号创建群聊和成员关系。
     /// </summary>
     public bool TryCreateGroupChat(
         string name,
@@ -56,15 +70,9 @@ public class GroupChatService
             return false;
         }
 
-        List<Guid> distinctAiAccountIds = new();
-
-        foreach (Guid aiAccountId in selectedAiAccountIds)
-        {
-            if (!distinctAiAccountIds.Contains(aiAccountId))
-            {
-                distinctAiAccountIds.Add(aiAccountId);
-            }
-        }
+        List<Guid> distinctAiAccountIds = selectedAiAccountIds
+            .Distinct()
+            .ToList();
 
         if (distinctAiAccountIds.Count == 0)
         {
@@ -72,49 +80,57 @@ public class GroupChatService
             return false;
         }
 
-        List<AiAccount> members = new();
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
-        foreach (Guid aiAccountId in distinctAiAccountIds)
+        List<AiAccount> existingAiAccounts = dbContext.AiAccounts
+            .Where(aiAccount => distinctAiAccountIds.Contains(aiAccount.Id))
+            .ToList();
+
+        if (existingAiAccounts.Count != distinctAiAccountIds.Count)
         {
-            AiAccount? aiAccount = _aiAccountService.FindById(aiAccountId);
-
-            if (aiAccount is null)
-            {
-                errorMessage = "选择的 AI 账号不存在，不能加入群聊。";
-                return false;
-            }
-
-            members.Add(aiAccount);
+            errorMessage = "选择的 AI 账号不存在，不能加入群聊。";
+            return false;
         }
 
         GroupChat newGroupChat = new(name.Trim());
 
-        foreach (AiAccount member in members)
+        foreach (Guid aiAccountId in distinctAiAccountIds)
         {
+            AiAccount member = existingAiAccounts.Single(
+                aiAccount => aiAccount.Id == aiAccountId);
             newGroupChat.AddMember(member);
         }
 
-        _groupChats.Add(newGroupChat);
+        dbContext.GroupChats.Add(newGroupChat);
+        dbContext.SaveChanges();
+
         groupChat = newGroupChat;
         errorMessage = string.Empty;
         return true;
     }
 
     /// <summary>
-    /// 将一个已经创建的 AI 账号加入已保存的群聊，并阻止重复加入。
+    /// 将数据库中已有的 AI 账号加入已保存群聊，并阻止重复加入。
     /// </summary>
     public bool TryAddMember(
         GroupChat groupChat,
         Guid aiAccountId,
         out string errorMessage)
     {
-        if (FindById(groupChat.Id) is null)
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        GroupChat? storedGroupChat = dbContext.GroupChats
+            .Include(storedGroupChat => storedGroupChat.Members)
+            .SingleOrDefault(storedGroupChat => storedGroupChat.Id == groupChat.Id);
+
+        if (storedGroupChat is null)
         {
             errorMessage = "群聊不存在，不能添加成员。";
             return false;
         }
 
-        AiAccount? aiAccount = _aiAccountService.FindById(aiAccountId);
+        AiAccount? aiAccount = dbContext.AiAccounts
+            .SingleOrDefault(aiAccount => aiAccount.Id == aiAccountId);
 
         if (aiAccount is null)
         {
@@ -122,48 +138,107 @@ public class GroupChatService
             return false;
         }
 
-        if (IsMember(groupChat, aiAccountId))
+        if (storedGroupChat.Members.Any(member => member.Id == aiAccountId))
         {
             errorMessage = "该 AI 账号已经是群成员。";
             return false;
         }
 
-        groupChat.AddMember(aiAccount);
+        storedGroupChat.AddMember(aiAccount);
+
+        try
+        {
+            dbContext.SaveChanges();
+        }
+        catch (DbUpdateException exception)
+            when (IsDuplicateMemberConstraintViolation(exception))
+        {
+            errorMessage = "该 AI 账号已经是群成员。";
+            return false;
+        }
+
+        if (!groupChat.Members.Any(member => member.Id == aiAccountId))
+        {
+            groupChat.AddMember(aiAccount);
+        }
+
         errorMessage = string.Empty;
         return true;
     }
 
     /// <summary>
-    /// 判断指定 AI 账号是否属于当前群聊。
+    /// 根据数据库成员关系判断指定 AI 账号是否属于当前群聊。
     /// </summary>
     public bool IsMember(GroupChat groupChat, Guid aiAccountId)
     {
-        return groupChat.Members.Any(member => member.Id == aiAccountId);
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        return dbContext.GroupChats.Any(storedGroupChat =>
+            storedGroupChat.Id == groupChat.Id
+            && storedGroupChat.Members.Any(member => member.Id == aiAccountId));
     }
 
     /// <summary>
-    /// 返回当前群聊成员的只读副本。
+    /// 从数据库返回当前群聊成员的只读列表。
     /// </summary>
     public IReadOnlyList<AiAccount> GetMembers(GroupChat groupChat)
     {
-        List<AiAccount> memberSnapshot = new(groupChat.Members);
-        return memberSnapshot.AsReadOnly();
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        List<AiAccount> members = dbContext.GroupChats
+            .AsNoTracking()
+            .Where(storedGroupChat => storedGroupChat.Id == groupChat.Id)
+            .SelectMany(storedGroupChat => storedGroupChat.Members)
+            .OrderBy(member => member.CreatedAt)
+            .ThenBy(member => member.Id)
+            .ToList();
+
+        return members.AsReadOnly();
     }
 
     /// <summary>
-    /// 按 Id 查找已保存的群聊；未找到时返回 null。
+    /// 按 Id 查询群聊并加载成员；未找到时返回 null。
     /// </summary>
     public GroupChat? FindById(Guid id)
     {
-        return _groupChats.FirstOrDefault(groupChat => groupChat.Id == id);
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        return dbContext.GroupChats
+            .AsNoTracking()
+            .Include(groupChat => groupChat.Members)
+            .SingleOrDefault(groupChat => groupChat.Id == id);
     }
 
     /// <summary>
-    /// 返回当前全部群聊的只读副本。
+    /// 按创建时间返回全部群聊及其成员的只读列表。
     /// </summary>
     public IReadOnlyList<GroupChat> GetAllGroupChats()
     {
-        List<GroupChat> groupChatSnapshot = new(_groupChats);
-        return groupChatSnapshot.AsReadOnly();
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        List<GroupChat> groupChats = dbContext.GroupChats
+            .AsNoTracking()
+            .Include(groupChat => groupChat.Members)
+            .OrderBy(groupChat => groupChat.CreatedAt)
+            .ThenBy(groupChat => groupChat.Id)
+            .ToList();
+
+        return groupChats.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 只将成员中间表的主键或唯一约束冲突转换为重复成员错误。
+    /// </summary>
+    private static bool IsDuplicateMemberConstraintViolation(
+        DbUpdateException exception)
+    {
+        if (exception.InnerException is not SqliteException sqliteException)
+        {
+            return false;
+        }
+
+        return sqliteException.SqliteExtendedErrorCode
+            is SqlitePrimaryKeyConstraintErrorCode
+            or SqliteUniqueConstraintErrorCode;
     }
 }
