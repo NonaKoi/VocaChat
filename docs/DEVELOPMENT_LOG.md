@@ -22,3 +22,7 @@ Microsoft.OpenApi 2.0.0
 <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
 
 项目模板只能作为起点，不能默认认为模板生成的依赖组合就是当前安全组合。每次引入新 Host 或关键 NuGet 包，都应该检查完整的传递依赖
+
+## 添加群成员采用已有业务流程
+FindById(groupChatId) -> TryAddMember(groupChat, aiAccountId)
+这个流程会产生一次额外查询,但当前更重视现有 Service 行为清晰、容易理解，暂不为了微小查询优化扩展业务 API
