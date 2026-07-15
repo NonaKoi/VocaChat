@@ -15,7 +15,7 @@ public class VocaChatConsoleApp
     private readonly AiAccountService _aiAccountService;
     private readonly GroupChatService _groupChatService;
     private readonly GroupMessageService _groupMessageService;
-    private readonly FakeAiReplyService _fakeAiReplyService;
+    private readonly GroupChatInteractionService _interactionService;
 
     /// <summary>
     /// 创建控制台应用，并接收完整流程所需的业务 Service。
@@ -24,12 +24,12 @@ public class VocaChatConsoleApp
         AiAccountService aiAccountService,
         GroupChatService groupChatService,
         GroupMessageService groupMessageService,
-        FakeAiReplyService fakeAiReplyService)
+        GroupChatInteractionService interactionService)
     {
         _aiAccountService = aiAccountService;
         _groupChatService = groupChatService;
         _groupMessageService = groupMessageService;
-        _fakeAiReplyService = fakeAiReplyService;
+        _interactionService = interactionService;
     }
 
     /// <summary>
@@ -358,7 +358,7 @@ public class VocaChatConsoleApp
     }
 
     /// <summary>
-    /// 处理聊天输入，并调用 Service 保存用户消息、选择 AI 和保存假回复。
+    /// 处理聊天输入，并调用共享交互 Service 保存用户消息和模拟 AI 回复。
     /// </summary>
     private void EnterGroupChat(GroupChat groupChat)
     {
@@ -377,53 +377,36 @@ public class VocaChatConsoleApp
                 break;
             }
 
-            bool userMessageSaved = _groupMessageService.TrySaveUserMessage(
-                groupChat,
-                content,
-                out GroupMessage? userMessage,
-                out string userMessageError);
+            GroupChatInteractionResult result = _interactionService
+                .ProcessUserMessage(groupChat, content);
 
-            if (!userMessageSaved || userMessage is null)
+            if (result.Status == GroupChatInteractionStatus.UserMessageRejected)
             {
-                Console.WriteLine(userMessageError);
+                Console.WriteLine(result.ErrorMessage);
                 continue;
             }
 
-            DisplayMessage(userMessage);
-
-            AiAccount? aiSpeaker = _fakeAiReplyService.SelectAiSpeaker(
-                groupChat,
-                userMessage.Content,
-                out bool selectedByMention);
-
-            if (aiSpeaker is null)
+            if (result.UserMessage is not null)
             {
-                Console.WriteLine("当前群聊没有 AI 成员，无法生成假回复。");
-                continue;
+                DisplayMessage(result.UserMessage);
             }
 
-            if (userMessage.Content.Contains('@') && !selectedByMention)
+            if (result.SpeakerSelectionStatus
+                == AiSpeakerSelectionStatus.MentionNotMatched)
             {
                 Console.WriteLine("没有找到被点名的群内 AI，将按默认规则选择发言者。");
             }
 
-            string fakeReply = _fakeAiReplyService.GenerateReply(
-                aiSpeaker,
-                userMessage.Content);
-            bool aiMessageSaved = _groupMessageService.TrySaveAiReply(
-                groupChat,
-                aiSpeaker,
-                fakeReply,
-                out GroupMessage? aiMessage,
-                out string aiMessageError);
-
-            if (!aiMessageSaved || aiMessage is null)
+            if (result.Status == GroupChatInteractionStatus.AiReplyFailed)
             {
-                Console.WriteLine(aiMessageError);
+                Console.WriteLine(result.ErrorMessage);
                 continue;
             }
 
-            DisplayMessage(aiMessage);
+            if (result.AiReply is not null)
+            {
+                DisplayMessage(result.AiReply);
+            }
         }
     }
 

@@ -23,12 +23,15 @@ public class Program
         GroupChatService groupChatService = new(dbContextFactory);
         GroupMessageService groupMessageService = new(dbContextFactory);
         FakeAiReplyService fakeAiReplyService = new();
+        GroupChatInteractionService interactionService = new(
+            groupMessageService,
+            fakeAiReplyService);
 
         VocaChatConsoleApp consoleApp = new(
             aiAccountService,
             groupChatService,
             groupMessageService,
-            fakeAiReplyService);
+            interactionService);
 
         consoleApp.Run();
     }

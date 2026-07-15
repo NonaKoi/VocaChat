@@ -21,6 +21,7 @@ public class Program
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddSingleton<FakeAiReplyService>();
+        builder.Services.AddScoped<GroupChatInteractionService>();
 
         WebApplication app = builder.Build();
 
