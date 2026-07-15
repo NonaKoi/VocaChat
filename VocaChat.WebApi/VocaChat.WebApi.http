@@ -21,3 +21,29 @@ Content-Type: application/json
 }
 
 ###
+
+GET {{VocaChat.WebApi_HostAddress}}/api/group-chats
+Accept: application/json
+
+###
+
+POST {{VocaChat.WebApi_HostAddress}}/api/group-chats
+Content-Type: application/json
+
+{
+  "name": "API 测试群聊",
+  "memberAiAccountIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ]
+}
+
+###
+
+POST {{VocaChat.WebApi_HostAddress}}/api/group-chats/00000000-0000-0000-0000-000000000000/members
+Content-Type: application/json
+
+{
+  "aiAccountId": "00000000-0000-0000-0000-000000000000"
+}
+
+###
