@@ -4,3 +4,4 @@ AGENTS.md
 *.db
 *.db-shm
 *.db-wal
+docs/DEVELOPMENT_LOG.md
