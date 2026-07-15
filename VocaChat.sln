@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VocaChat.Tests", "VocaChat.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VocaChat.Shared", "VocaChat.Shared\VocaChat.Shared.csproj", "{E82EE317-4DE0-4EA4-87C8-A6559F74643D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VocaChat.WebApi", "VocaChat.WebApi\VocaChat.WebApi.csproj", "{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{E82EE317-4DE0-4EA4-87C8-A6559F74643D}.Release|x64.Build.0 = Release|Any CPU
 		{E82EE317-4DE0-4EA4-87C8-A6559F74643D}.Release|x86.ActiveCfg = Release|Any CPU
 		{E82EE317-4DE0-4EA4-87C8-A6559F74643D}.Release|x86.Build.0 = Release|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Debug|x64.Build.0 = Debug|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Debug|x86.Build.0 = Debug|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Release|x64.ActiveCfg = Release|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Release|x64.Build.0 = Release|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Release|x86.ActiveCfg = Release|Any CPU
+		{B4B85716-9066-4A3E-9E9B-4561AB8DF8C7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

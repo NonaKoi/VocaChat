@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Remove="VocaChat.Tests/**/*.cs" />
     <Compile Remove="VocaChat.Shared/**/*.cs" />
+    <Compile Remove="VocaChat.WebApi/**/*.cs" />
   </ItemGroup>
 
   <ItemGroup>

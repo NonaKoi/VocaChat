@@ -1,0 +1,6 @@
+@VocaChat.WebApi_HostAddress = http://localhost:5205
+
+GET {{VocaChat.WebApi_HostAddress}}/openapi/v1.json
+Accept: application/json
+
+###
