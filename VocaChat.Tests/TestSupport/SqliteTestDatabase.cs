@@ -14,7 +14,9 @@ internal sealed class SqliteTestDatabase : IDisposable
     private readonly string _databasePath;
     private readonly string _connectionString;
 
-    public SqliteTestDatabase()
+    public string DatabasePath => _databasePath;
+
+    public SqliteTestDatabase(bool applyMigrations = true)
     {
         string testDatabaseDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -33,8 +35,12 @@ internal sealed class SqliteTestDatabase : IDisposable
         };
         _connectionString = connectionStringBuilder.ToString();
 
-        using VocaChatDbContext dbContext = CreateDbContextFactory().CreateDbContext();
-        dbContext.Database.Migrate();
+        if (applyMigrations)
+        {
+            using VocaChatDbContext dbContext =
+                CreateDbContextFactory().CreateDbContext();
+            dbContext.Database.Migrate();
+        }
     }
 
     /// <summary>
