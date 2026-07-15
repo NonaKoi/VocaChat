@@ -4,3 +4,20 @@ GET {{VocaChat.WebApi_HostAddress}}/openapi/v1.json
 Accept: application/json
 
 ###
+
+GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts
+Accept: application/json
+
+###
+
+POST {{VocaChat.WebApi_HostAddress}}/api/ai-accounts
+Content-Type: application/json
+
+{
+  "nickname": "ApiTestAccount",
+  "identityDescription": "API 创建测试",
+  "personality": "冷静",
+  "speakingStyle": "简洁"
+}
+
+###
