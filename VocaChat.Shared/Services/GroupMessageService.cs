@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
-using VocaChat.ConsoleApp.Data;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Data;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Services;
+namespace VocaChat.Services;
 
 /// <summary>
 /// 负责验证、创建和保存群消息，并返回按时间排序的聊天记录。

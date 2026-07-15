@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VocaChat.ConsoleApp.ConsoleUi;
-using VocaChat.ConsoleApp.Data;
-using VocaChat.ConsoleApp.Services;
+using VocaChat.Data;
+using VocaChat.Services;
 
 namespace VocaChat.ConsoleApp;
 

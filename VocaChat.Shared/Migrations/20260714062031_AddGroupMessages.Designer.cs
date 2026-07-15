@@ -2,17 +2,20 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using VocaChat.ConsoleApp.Data;
+using VocaChat.Data;
 
 #nullable disable
 
-namespace VocaChat.ConsoleApp.Migrations
+namespace VocaChat.Migrations
 {
     [DbContext(typeof(VocaChatDbContext))]
-    partial class VocaChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260714062031_AddGroupMessages")]
+    partial class AddGroupMessages
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.6");
@@ -32,7 +35,7 @@ namespace VocaChat.ConsoleApp.Migrations
                     b.ToTable("GroupChatMembers", (string)null);
                 });
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.AiAccount", b =>
+            modelBuilder.Entity("VocaChat.Models.AiAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
@@ -80,7 +83,7 @@ namespace VocaChat.ConsoleApp.Migrations
                         });
                 });
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.GroupChat", b =>
+            modelBuilder.Entity("VocaChat.Models.GroupChat", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
@@ -103,7 +106,7 @@ namespace VocaChat.ConsoleApp.Migrations
                         });
                 });
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.GroupMessage", b =>
+            modelBuilder.Entity("VocaChat.Models.GroupMessage", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
@@ -152,28 +155,28 @@ namespace VocaChat.ConsoleApp.Migrations
 
             modelBuilder.Entity("GroupChatMembers", b =>
                 {
-                    b.HasOne("VocaChat.ConsoleApp.Models.AiAccount", null)
+                    b.HasOne("VocaChat.Models.AiAccount", null)
                         .WithMany()
                         .HasForeignKey("AiAccountId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("VocaChat.ConsoleApp.Models.GroupChat", null)
+                    b.HasOne("VocaChat.Models.GroupChat", null)
                         .WithMany()
                         .HasForeignKey("GroupChatId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.GroupMessage", b =>
+            modelBuilder.Entity("VocaChat.Models.GroupMessage", b =>
                 {
-                    b.HasOne("VocaChat.ConsoleApp.Models.GroupChat", null)
+                    b.HasOne("VocaChat.Models.GroupChat", null)
                         .WithMany()
                         .HasForeignKey("GroupChatId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("VocaChat.ConsoleApp.Models.AiAccount", null)
+                    b.HasOne("VocaChat.Models.AiAccount", null)
                         .WithMany()
                         .HasForeignKey("SenderAiAccountId")
                         .OnDelete(DeleteBehavior.Restrict);

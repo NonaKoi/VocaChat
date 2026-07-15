@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using VocaChat.ConsoleApp.Data;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Data;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Services;
+namespace VocaChat.Services;
 
 /// <summary>
 /// 负责群聊和群成员关系的验证、数据库保存与查询。

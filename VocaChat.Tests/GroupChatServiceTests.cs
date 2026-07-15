@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using VocaChat.ConsoleApp.Models;
-using VocaChat.ConsoleApp.Services;
+using VocaChat.Models;
+using VocaChat.Services;
 using VocaChat.Tests.TestSupport;
 
 namespace VocaChat.Tests;

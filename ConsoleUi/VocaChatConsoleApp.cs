@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using VocaChat.ConsoleApp.Models;
-using VocaChat.ConsoleApp.Services;
+using VocaChat.Models;
+using VocaChat.Services;
 
 namespace VocaChat.ConsoleApp.ConsoleUi;
 

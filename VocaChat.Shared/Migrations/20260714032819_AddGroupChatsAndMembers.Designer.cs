@@ -4,15 +4,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using VocaChat.ConsoleApp.Data;
+using VocaChat.Data;
 
 #nullable disable
 
-namespace VocaChat.ConsoleApp.Migrations
+namespace VocaChat.Migrations
 {
     [DbContext(typeof(VocaChatDbContext))]
-    [Migration("20260714000020_InitialAiAccountPersistence")]
-    partial class InitialAiAccountPersistence
+    [Migration("20260714032819_AddGroupChatsAndMembers")]
+    partial class AddGroupChatsAndMembers
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -20,7 +20,22 @@ namespace VocaChat.ConsoleApp.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.6");
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.AiAccount", b =>
+            modelBuilder.Entity("GroupChatMembers", b =>
+                {
+                    b.Property<Guid>("GroupChatId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("GroupChatId", "AiAccountId");
+
+                    b.HasIndex("AiAccountId");
+
+                    b.ToTable("GroupChatMembers", (string)null);
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
@@ -66,6 +81,44 @@ namespace VocaChat.ConsoleApp.Migrations
 
                             t.HasCheckConstraint("CK_AiAccounts_SpeakingStyle_MaxLength", "length(\"SpeakingStyle\") <= 200");
                         });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.GroupChat", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GroupChats", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GroupChats_Name_MaxLength", "length(\"Name\") <= 100");
+
+                            t.HasCheckConstraint("CK_GroupChats_Name_NotBlank", "length(trim(\"Name\")) > 0");
+                        });
+                });
+
+            modelBuilder.Entity("GroupChatMembers", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", null)
+                        .WithMany()
+                        .HasForeignKey("AiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.GroupChat", null)
+                        .WithMany()
+                        .HasForeignKey("GroupChatId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

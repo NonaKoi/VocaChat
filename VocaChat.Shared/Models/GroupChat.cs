@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace VocaChat.ConsoleApp.Models;
+namespace VocaChat.Models;
 
 /// <summary>
 /// 表示一个由当前本地用户创建的群聊。

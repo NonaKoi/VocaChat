@@ -1,4 +1,4 @@
-namespace VocaChat.ConsoleApp.Models;
+namespace VocaChat.Models;
 
 /// <summary>
 /// 表示群消息的发送者类型。

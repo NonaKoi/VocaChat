@@ -1,6 +1,6 @@
 using System;
 
-namespace VocaChat.ConsoleApp.Models;
+namespace VocaChat.Models;
 
 /// <summary>
 /// 表示由当前本地用户创建的一个长期存在的 AI 账号。

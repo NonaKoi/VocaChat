@@ -1,6 +1,6 @@
 using System;
 
-namespace VocaChat.ConsoleApp.Models;
+namespace VocaChat.Models;
 
 /// <summary>
 /// 表示一条属于某个群聊的消息。

@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace VocaChat.ConsoleApp.Data;
+namespace VocaChat.Data;
 
 /// <summary>
 /// 统一创建短生命周期的 <see cref="VocaChatDbContext" />。

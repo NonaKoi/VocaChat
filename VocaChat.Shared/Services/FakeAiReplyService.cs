@@ -1,7 +1,7 @@
 using System;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Services;
+namespace VocaChat.Services;
 
 /// <summary>
 /// 负责从群成员中选择一个 AI 发言者，并生成本地模拟回复。

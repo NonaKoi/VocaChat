@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Data.Configurations;
+namespace VocaChat.Data.Configurations;
 
 /// <summary>
 /// 配置 AI 账号的表结构、字段限制和昵称唯一规则。

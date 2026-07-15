@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Data.Configurations;
+namespace VocaChat.Data.Configurations;
 
 /// <summary>
 /// 配置群聊字段，以及群聊和已有 AI 账号之间的直接多对多关系。

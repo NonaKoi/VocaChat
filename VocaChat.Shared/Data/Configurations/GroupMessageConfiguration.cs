@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Data.Configurations;
+namespace VocaChat.Data.Configurations;
 
 /// <summary>
 /// 配置群消息字段、发送者一致性、查询索引和外键关系。

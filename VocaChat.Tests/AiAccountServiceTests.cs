@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
-using VocaChat.ConsoleApp.Data;
-using VocaChat.ConsoleApp.Models;
-using VocaChat.ConsoleApp.Services;
+using VocaChat.Data;
+using VocaChat.Models;
+using VocaChat.Services;
 using VocaChat.Tests.TestSupport;
 
 namespace VocaChat.Tests;

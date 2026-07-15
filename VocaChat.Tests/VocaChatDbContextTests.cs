@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using VocaChat.ConsoleApp.Data;
+using VocaChat.Data;
 
 namespace VocaChat.Tests;
 

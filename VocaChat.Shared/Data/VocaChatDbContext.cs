@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using VocaChat.ConsoleApp.Data.Configurations;
-using VocaChat.ConsoleApp.Models;
+using VocaChat.Data.Configurations;
+using VocaChat.Models;
 
-namespace VocaChat.ConsoleApp.Data;
+namespace VocaChat.Data;
 
 /// <summary>
 /// VocaChat 的 EF Core 数据库上下文，集中管理当前持久化实体和关系配置。

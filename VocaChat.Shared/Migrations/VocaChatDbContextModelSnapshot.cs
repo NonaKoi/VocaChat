@@ -2,20 +2,17 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using VocaChat.ConsoleApp.Data;
+using VocaChat.Data;
 
 #nullable disable
 
-namespace VocaChat.ConsoleApp.Migrations
+namespace VocaChat.Migrations
 {
     [DbContext(typeof(VocaChatDbContext))]
-    [Migration("20260714032819_AddGroupChatsAndMembers")]
-    partial class AddGroupChatsAndMembers
+    partial class VocaChatDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.6");
@@ -35,7 +32,7 @@ namespace VocaChat.ConsoleApp.Migrations
                     b.ToTable("GroupChatMembers", (string)null);
                 });
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.AiAccount", b =>
+            modelBuilder.Entity("VocaChat.Models.AiAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
@@ -83,7 +80,7 @@ namespace VocaChat.ConsoleApp.Migrations
                         });
                 });
 
-            modelBuilder.Entity("VocaChat.ConsoleApp.Models.GroupChat", b =>
+            modelBuilder.Entity("VocaChat.Models.GroupChat", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
@@ -106,19 +103,80 @@ namespace VocaChat.ConsoleApp.Migrations
                         });
                 });
 
+            modelBuilder.Entity("VocaChat.Models.GroupMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("GroupChatId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SenderAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SenderDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SenderType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SenderAiAccountId");
+
+                    b.HasIndex("GroupChatId", "SentAt", "Id");
+
+                    b.ToTable("GroupMessages", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GroupMessages_Content_MaxLength", "length(\"Content\") <= 4000");
+
+                            t.HasCheckConstraint("CK_GroupMessages_Content_NotBlank", "length(trim(\"Content\")) > 0");
+
+                            t.HasCheckConstraint("CK_GroupMessages_SenderDisplayName_MaxLength", "length(\"SenderDisplayName\") <= 100");
+
+                            t.HasCheckConstraint("CK_GroupMessages_SenderDisplayName_NotBlank", "length(trim(\"SenderDisplayName\")) > 0");
+
+                            t.HasCheckConstraint("CK_GroupMessages_Sender_Consistency", "(\"SenderType\" = 0 AND \"SenderAiAccountId\" IS NULL) OR (\"SenderType\" = 1 AND \"SenderAiAccountId\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("GroupChatMembers", b =>
                 {
-                    b.HasOne("VocaChat.ConsoleApp.Models.AiAccount", null)
+                    b.HasOne("VocaChat.Models.AiAccount", null)
                         .WithMany()
                         .HasForeignKey("AiAccountId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("VocaChat.ConsoleApp.Models.GroupChat", null)
+                    b.HasOne("VocaChat.Models.GroupChat", null)
                         .WithMany()
                         .HasForeignKey("GroupChatId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("VocaChat.Models.GroupMessage", b =>
+                {
+                    b.HasOne("VocaChat.Models.GroupChat", null)
+                        .WithMany()
+                        .HasForeignKey("GroupChatId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiAccount", null)
+                        .WithMany()
+                        .HasForeignKey("SenderAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }
