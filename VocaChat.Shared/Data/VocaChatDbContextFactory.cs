@@ -12,7 +12,6 @@ namespace VocaChat.Data;
 /// </summary>
 public sealed class VocaChatDbContextFactory : IDesignTimeDbContextFactory<VocaChatDbContext>
 {
-    private const string ApplicationDirectoryName = "VocaChat";
     private const string DatabaseFileName = "vocachat.db";
 
     private readonly string _connectionString;
@@ -64,15 +63,9 @@ public sealed class VocaChatDbContextFactory : IDesignTimeDbContextFactory<VocaC
     /// </summary>
     private static string CreateDefaultConnectionString()
     {
-        string localApplicationDataDirectory = Environment.GetFolderPath(
-            Environment.SpecialFolder.LocalApplicationData);
-        string applicationDirectory = Path.Combine(
-            localApplicationDataDirectory,
-            ApplicationDirectoryName);
-
-        Directory.CreateDirectory(applicationDirectory);
-
-        string databasePath = Path.Combine(applicationDirectory, DatabaseFileName);
+        string databasePath = Path.Combine(
+            VocaChatApplicationPaths.GetApplicationDataDirectory(),
+            DatabaseFileName);
         SqliteConnectionStringBuilder connectionStringBuilder = new()
         {
             DataSource = databasePath,

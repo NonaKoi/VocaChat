@@ -37,7 +37,7 @@ export function GroupInfoPanel({ groupChat, onClose }: GroupInfoPanelProps) {
               {groupChat.name}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {groupChat.members.length} 位 AI 成员
+              {groupChat.members.length} 位好友
             </p>
           </div>
         </div>
@@ -73,7 +73,7 @@ export function GroupInfoPanel({ groupChat, onClose }: GroupInfoPanelProps) {
                 className="mx-auto size-5 text-muted-foreground"
                 aria-hidden="true"
               />
-              <p className="mt-2 text-xs text-muted-foreground">暂无 AI 成员</p>
+              <p className="mt-2 text-xs text-muted-foreground">暂无好友</p>
             </div>
           ) : (
             <ul className="mt-3 grid gap-1">
@@ -82,11 +82,15 @@ export function GroupInfoPanel({ groupChat, onClose }: GroupInfoPanelProps) {
                   key={member.id}
                   className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-muted"
                 >
-                  <EntityAvatar name={member.nickname} size="small" />
+                  <EntityAvatar
+                    name={member.nickname}
+                    src={member.avatarUrl}
+                    size="small"
+                  />
                   <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                     {member.nickname}
                   </span>
-                  <span className="text-[11px] text-muted-foreground">AI</span>
+                  <span className="text-[11px] text-muted-foreground">好友</span>
                 </li>
               ))}
             </ul>

@@ -16,6 +16,8 @@
   --vc-border: #dfe6ef;
   --vc-danger: #b54747;
   --vc-danger-soft: #fdf1f1;
+  --vc-success: #21865f;
+  --vc-warning: #a86410;
   --vc-avatar-blue: #346b91;
   --vc-avatar-teal: #3d7d83;
   --vc-avatar-slate: #586f87;
@@ -67,6 +69,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-danger-soft: var(--vc-danger-soft);
+  --color-success: var(--vc-success);
+  --color-warning: var(--vc-warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -143,6 +147,83 @@
   ::selection {
     background: var(--vc-primary-soft);
     color: var(--vc-primary);
+  }
+}
+
+@layer components {
+  .form-control {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--vc-surface);
+    padding: 0.625rem 0.75rem;
+    color: var(--foreground);
+    font-size: 0.875rem;
+    line-height: 1.5rem;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .form-control::placeholder {
+    color: var(--muted-foreground);
+  }
+
+  .form-control:focus-visible {
+    border-color: color-mix(in srgb, var(--vc-primary) 45%, var(--border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vc-primary) 12%, transparent);
+  }
+
+  .form-control:disabled {
+    cursor: not-allowed;
+    background: var(--vc-surface-muted);
+    opacity: 0.7;
+  }
+
+  .friend-profile-cover {
+    position: relative;
+    height: 168px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 72% 18%, rgb(255 255 255 / 18%) 0 7%, transparent 7.5%),
+      radial-gradient(circle at 82% 76%, rgb(255 255 255 / 10%) 0 13%, transparent 13.5%),
+      linear-gradient(118deg, #173c68 0%, #2d67a8 58%, #6e96c4 100%);
+  }
+
+  .friend-profile-cover::after {
+    position: absolute;
+    inset: auto 0 0;
+    height: 46%;
+    content: "";
+    background: linear-gradient(to top, rgb(15 41 71 / 22%), transparent);
+  }
+
+  .friend-profile-cover-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .friend-profile-orbit {
+    position: absolute;
+    display: block;
+    border: 1px solid rgb(255 255 255 / 18%);
+    border-radius: 999px;
+  }
+
+  .friend-profile-orbit-one {
+    top: -96px;
+    right: 9%;
+    width: 320px;
+    height: 320px;
+  }
+
+  .friend-profile-orbit-two {
+    top: 30px;
+    right: 31%;
+    width: 180px;
+    height: 180px;
   }
 }
 

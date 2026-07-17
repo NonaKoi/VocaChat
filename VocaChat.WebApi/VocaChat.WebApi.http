@@ -22,6 +22,40 @@ Content-Type: application/json
 
 ###
 
+PUT {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/00000000-0000-0000-0000-000000000000/avatar
+Content-Type: multipart/form-data; boundary=VocaChatBoundary
+
+--VocaChatBoundary
+Content-Disposition: form-data; name="file"; filename="avatar.png"
+Content-Type: image/png
+
+< ./avatar.png
+--VocaChatBoundary--
+
+###
+
+GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/00000000-0000-0000-0000-000000000000/avatar
+Accept: image/*
+
+###
+
+PUT {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/00000000-0000-0000-0000-000000000000/cover
+Content-Type: multipart/form-data; boundary=VocaChatBoundary
+
+--VocaChatBoundary
+Content-Disposition: form-data; name="file"; filename="cover.webp"
+Content-Type: image/webp
+
+< ./cover.webp
+--VocaChatBoundary--
+
+###
+
+GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/00000000-0000-0000-0000-000000000000/cover
+Accept: image/*
+
+###
+
 GET {{VocaChat.WebApi_HostAddress}}/api/group-chats
 Accept: application/json
 

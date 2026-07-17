@@ -97,7 +97,12 @@ public class FakeAiReplyServiceTests : IDisposable
     [Fact]
     public void GenerateReply_ReturnsNonBlankLocalReplyWithSpeakerAndUserContent()
     {
-        AiAccount aiSpeaker = new("Alpha", "助手", "冷静", "简洁");
+        AiAccount aiSpeaker = new(
+            "Alpha#01",
+            "Alpha",
+            "助手",
+            "冷静",
+            "简洁");
         FakeAiReplyService service = new();
 
         string reply = service.GenerateReply(aiSpeaker, "hello");

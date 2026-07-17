@@ -1,7 +1,7 @@
-import { ChatPage } from '@/components/chat/ChatPage'
+import { VocaChatApp } from '@/components/VocaChatApp'
 
 function App() {
-  return <ChatPage />
+  return <VocaChatApp />
 }
 
 export default App

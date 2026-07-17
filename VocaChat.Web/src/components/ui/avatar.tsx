@@ -31,4 +31,23 @@ function AvatarFallback({
   )
 }
 
-export { Avatar, AvatarFallback }
+function AvatarImage({
+  className,
+  alt = '',
+  width = 96,
+  height = 96,
+  ...props
+}: ComponentProps<'img'>) {
+  return (
+    <img
+      data-slot="avatar-image"
+      className={cn('absolute inset-0 z-10 size-full object-cover', className)}
+      alt={alt}
+      width={width}
+      height={height}
+      {...props}
+    />
+  )
+}
+
+export { Avatar, AvatarFallback, AvatarImage }

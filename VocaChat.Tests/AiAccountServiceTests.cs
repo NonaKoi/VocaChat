@@ -32,11 +32,134 @@ public class AiAccountServiceTests : IDisposable
         Assert.True(succeeded);
         Assert.NotNull(account);
         Assert.Equal(string.Empty, errorMessage);
+        Assert.Matches("^[0-9]{7}$", account.VcNumber);
         Assert.Equal("Nona", account.Nickname);
         Assert.Equal("助手", account.IdentityDescription);
         Assert.Equal("冷静", account.Personality);
         Assert.Equal("简洁", account.SpeakingStyle);
         Assert.Equal(account.Id, Assert.Single(service.GetAllAccounts()).Id);
+    }
+
+    [Fact]
+    public void TryCreateAiAccount_WithCustomVcNumber_AcceptsLettersAndSymbols()
+    {
+        AiAccountService service = CreateService();
+
+        bool succeeded = service.TryCreateAiAccount(
+            "Nona",
+            "  Nona#_2026  ",
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            out AiAccount? account,
+            out string errorMessage);
+
+        Assert.True(succeeded, errorMessage);
+        Assert.NotNull(account);
+        Assert.Equal("Nona#_2026", account.VcNumber);
+        Assert.Equal(account.Id, service.FindByVcNumber("nona#_2026")?.Id);
+    }
+
+    [Fact]
+    public void TryCreateAiAccount_WithCompleteProfile_PersistsStructuredProfile()
+    {
+        AiAccountService service = CreateService();
+        AiAccountCreationData creationData = new()
+        {
+            Nickname = "  夜影  ",
+            VcNumber = "Night#01",
+            IdentityDescription = "  喜欢安静思考的朋友  ",
+            Personality = "  冷静、理性  ",
+            SpeakingStyle = "  简洁温和  ",
+            Signature = "  在自己的节奏里前进。  ",
+            Birthday = new DateOnly(2000, 7, 23),
+            Gender = AiAccountGender.Male,
+            Location = "  中国 上海  ",
+            Occupation = "  自由插画师  ",
+            Hometown = "  中国 杭州  ",
+            OnlineStatus = OnlineStatus.Online,
+            InterestTags = new[] { " 绘画 ", "阅读", "绘画" },
+            PersonalityTags = new[] { "冷静", "理性", "冷静" }
+        };
+
+        bool succeeded = service.TryCreateAiAccount(
+            creationData,
+            out AiAccount? createdAccount,
+            out string errorMessage);
+
+        Assert.True(succeeded, errorMessage);
+        Assert.NotNull(createdAccount);
+
+        AiAccount? storedAccount = new AiAccountService(
+            _database.CreateDbContextFactory()).FindById(createdAccount.Id);
+
+        Assert.NotNull(storedAccount);
+        Assert.Equal("在自己的节奏里前进。", storedAccount.Signature);
+        Assert.Equal(new DateOnly(2000, 7, 23), storedAccount.Birthday);
+        Assert.Equal(AiAccountGender.Male, storedAccount.Gender);
+        Assert.Equal("中国 上海", storedAccount.Location);
+        Assert.Equal("自由插画师", storedAccount.Occupation);
+        Assert.Equal("中国 杭州", storedAccount.Hometown);
+        Assert.Equal(OnlineStatus.Online, storedAccount.OnlineStatus);
+        Assert.Equal(2, storedAccount.Tags.Count(tag =>
+            tag.Type == AiAccountTagType.Interest));
+        Assert.Equal(2, storedAccount.Tags.Count(tag =>
+            tag.Type == AiAccountTagType.Personality));
+        Assert.Equal(25, storedAccount.CalculateAge(new DateOnly(2026, 7, 22)));
+        Assert.Equal(26, storedAccount.CalculateAge(new DateOnly(2026, 7, 23)));
+        Assert.Equal("狮子座", storedAccount.GetZodiacSign());
+    }
+
+    [Fact]
+    public void TryCreateAiAccount_WithFutureBirthday_Fails()
+    {
+        AiAccountService service = CreateService();
+
+        bool succeeded = service.TryCreateAiAccount(
+            new AiAccountCreationData
+            {
+                Nickname = "FutureFriend",
+                Birthday = DateOnly.FromDateTime(DateTime.Today).AddDays(1)
+            },
+            out AiAccount? account,
+            out string errorMessage);
+
+        Assert.False(succeeded);
+        Assert.Null(account);
+        Assert.Equal("生日不能晚于今天。", errorMessage);
+    }
+
+    [Fact]
+    public void TryCreateAiAccount_WithoutVcNumber_GeneratesDistinctDefaults()
+    {
+        AiAccountService service = CreateService();
+
+        AiAccount firstAccount = CreateAccount(service, "Nona");
+        AiAccount secondAccount = CreateAccount(service, "Mika");
+
+        Assert.Matches("^[0-9]{7}$", firstAccount.VcNumber);
+        Assert.Matches("^[0-9]{7}$", secondAccount.VcNumber);
+        Assert.NotEqual(firstAccount.VcNumber, secondAccount.VcNumber);
+    }
+
+    [Fact]
+    public void TryCreateAiAccount_WithDuplicateVcNumberIgnoringCase_Fails()
+    {
+        AiAccountService service = CreateService();
+        CreateAccountWithVcNumber(service, "Nona", "Friend#01");
+
+        bool succeeded = service.TryCreateAiAccount(
+            "Mika",
+            "friend#01",
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            out AiAccount? duplicateAccount,
+            out string errorMessage);
+
+        Assert.False(succeeded);
+        Assert.Null(duplicateAccount);
+        Assert.Equal("VC号已存在。", errorMessage);
     }
 
     [Theory]
@@ -121,7 +244,12 @@ public class AiAccountServiceTests : IDisposable
         CreateAccount(service, "Nona");
         IReadOnlyList<AiAccount> snapshot = service.GetAllAccounts();
         IList<AiAccount> mutableView = Assert.IsAssignableFrom<IList<AiAccount>>(snapshot);
-        AiAccount externalAccount = new("External", string.Empty, string.Empty, string.Empty);
+        AiAccount externalAccount = new(
+            "External#01",
+            "External",
+            string.Empty,
+            string.Empty,
+            string.Empty);
 
         Assert.Throws<NotSupportedException>(() => mutableView.Add(externalAccount));
 
@@ -149,6 +277,7 @@ public class AiAccountServiceTests : IDisposable
 
         Assert.NotNull(storedAccount);
         Assert.Equal(createdAccount.Id, storedAccount.Id);
+        Assert.Equal(createdAccount.VcNumber, storedAccount.VcNumber);
         Assert.Equal("Nona", storedAccount.Nickname);
         Assert.Equal("助手", storedAccount.IdentityDescription);
         Assert.Equal("冷静", storedAccount.Personality);
@@ -165,9 +294,88 @@ public class AiAccountServiceTests : IDisposable
         using VocaChatDbContext dbContext =
             _database.CreateDbContextFactory().CreateDbContext();
         dbContext.AiAccounts.Add(
-            new AiAccount("nOnA", string.Empty, string.Empty, string.Empty));
+            new AiAccount(
+                "DifferentVcNumber",
+                "nOnA",
+                string.Empty,
+                string.Empty,
+                string.Empty));
 
         Assert.Throws<DbUpdateException>(() => dbContext.SaveChanges());
+    }
+
+    [Fact]
+    public void DatabaseUniqueIndex_RejectsDuplicateVcNumberIgnoringCase()
+    {
+        AiAccountService service = CreateService();
+        CreateAccountWithVcNumber(service, "Nona", "Friend#01");
+
+        using VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        dbContext.AiAccounts.Add(
+            new AiAccount(
+                "friend#01",
+                "Mika",
+                string.Empty,
+                string.Empty,
+                string.Empty));
+
+        Assert.Throws<DbUpdateException>(() => dbContext.SaveChanges());
+    }
+
+    [Fact]
+    public void TryChangeVcNumber_UpdatesDisplayIdWithoutChangingInternalId()
+    {
+        AiAccountService service = CreateService();
+        AiAccount account = CreateAccount(service, "Nona");
+
+        bool succeeded = service.TryChangeVcNumber(
+            account.Id,
+            "Nona@Home",
+            out AiAccount? updatedAccount,
+            out string errorMessage);
+
+        Assert.True(succeeded, errorMessage);
+        Assert.NotNull(updatedAccount);
+        Assert.Equal(account.Id, updatedAccount.Id);
+        Assert.Equal("Nona@Home", updatedAccount.VcNumber);
+        Assert.Equal(account.Id, service.FindByVcNumber("nona@home")?.Id);
+    }
+
+    [Fact]
+    public void TryChangeMediaIds_PersistsOpaqueIdentifiersAcrossServiceInstances()
+    {
+        AiAccountService firstService = CreateService();
+        AiAccount account = CreateAccount(firstService, "MediaNona");
+
+        bool avatarChanged = firstService.TryChangeAvatarMediaId(
+            account.Id,
+            "11111111111111111111111111111111.png",
+            out _,
+            out string? previousAvatarMediaId,
+            out string avatarError);
+        bool coverChanged = firstService.TryChangeProfileCoverMediaId(
+            account.Id,
+            "22222222222222222222222222222222.webp",
+            out _,
+            out string? previousCoverMediaId,
+            out string coverError);
+
+        AiAccount? reloadedAccount = CreateService().FindById(account.Id);
+
+        Assert.True(avatarChanged, avatarError);
+        Assert.True(coverChanged, coverError);
+        Assert.Null(previousAvatarMediaId);
+        Assert.Null(previousCoverMediaId);
+        Assert.NotNull(reloadedAccount);
+        Assert.Equal(
+            "11111111111111111111111111111111.png",
+            reloadedAccount.AvatarMediaId);
+        Assert.Equal(
+            "22222222222222222222222222222222.webp",
+            reloadedAccount.ProfileCoverMediaId);
+        Assert.False(Path.IsPathRooted(reloadedAccount.AvatarMediaId));
+        Assert.False(Path.IsPathRooted(reloadedAccount.ProfileCoverMediaId));
     }
 
     /// <summary>
@@ -190,6 +398,24 @@ public class AiAccountServiceTests : IDisposable
     {
         bool succeeded = service.TryCreateAiAccount(
             nickname,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            out AiAccount? account,
+            out string errorMessage);
+
+        Assert.True(succeeded, errorMessage);
+        return Assert.IsType<AiAccount>(account);
+    }
+
+    private static AiAccount CreateAccountWithVcNumber(
+        AiAccountService service,
+        string nickname,
+        string vcNumber)
+    {
+        bool succeeded = service.TryCreateAiAccount(
+            nickname,
+            vcNumber,
             string.Empty,
             string.Empty,
             string.Empty,

@@ -6,7 +6,7 @@ import {
 } from 'react'
 import { LoaderCircle, Paperclip, SendHorizontal, Smile } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { MessageSendOutcome } from '@/hooks/useGroupMessages'
+import type { MessageSendOutcome } from '@/types/messageSendOutcome'
 
 const MESSAGE_MAX_LENGTH = 4000
 const TEXTAREA_MAX_HEIGHT = 144

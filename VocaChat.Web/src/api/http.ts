@@ -49,6 +49,36 @@ export async function postJson<TResponse, TRequest>(
   })
 }
 
+export async function putJson<TResponse, TRequest>(path: string, body: TRequest): Promise<TResponse> {
+  return requestJson<TResponse>(path, {
+    method: 'PUT',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteJson<TResponse>(path: string): Promise<TResponse> {
+  return requestJson<TResponse>(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
+}
+
+export async function postFormData<TResponse>(path: string, body: FormData): Promise<TResponse> {
+  return requestJson<TResponse>(path, { method: 'POST', headers: { Accept: 'application/json' }, body })
+}
+
+/** 使用浏览器生成的 multipart boundary 上传表单文件。 */
+export async function putFormData<TResponse>(
+  path: string,
+  body: FormData,
+): Promise<TResponse> {
+  return requestJson<TResponse>(path, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+    },
+    body,
+  })
+}
+
 async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
   let response: Response
 

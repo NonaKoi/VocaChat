@@ -1,4 +1,5 @@
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useEffect, useState } from 'react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 
 const avatarTones = [
@@ -13,6 +14,8 @@ interface EntityAvatarProps {
   label?: string
   size?: 'small' | 'medium' | 'large'
   className?: string
+  src?: string | null
+  loading?: 'eager' | 'lazy'
 }
 
 function getStableTone(name: string): (typeof avatarTones)[number] {
@@ -30,7 +33,15 @@ export function EntityAvatar({
   label,
   size = 'medium',
   className,
+  src,
+  loading = 'lazy',
 }: EntityAvatarProps) {
+  const [imageFailed, setImageFailed] = useState(false)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [src])
+
   const sizeClass = {
     small: 'size-8 rounded-md text-xs',
     medium: 'size-11 text-sm',
@@ -39,6 +50,15 @@ export function EntityAvatar({
 
   return (
     <Avatar className={cn(sizeClass, className)} aria-hidden="true">
+      {src && !imageFailed && (
+        <AvatarImage
+          src={src}
+          alt=""
+          loading={loading}
+          fetchPriority={loading === 'eager' ? 'high' : 'auto'}
+          onError={() => setImageFailed(true)}
+        />
+      )}
       <AvatarFallback className={getStableTone(name)}>
         {(label ?? name.slice(0, 1)).toUpperCase()}
       </AvatarFallback>

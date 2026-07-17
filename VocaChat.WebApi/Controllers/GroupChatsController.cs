@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using VocaChat.Models;
 using VocaChat.Services;
 using VocaChat.WebApi.Dtos.GroupChats;
+using VocaChat.WebApi.Mapping;
 
 namespace VocaChat.WebApi.Controllers;
 
@@ -140,7 +141,8 @@ public class GroupChatsController : ControllerBase
         return new GroupChatMemberResponse
         {
             Id = aiAccount.Id,
-            Nickname = aiAccount.Nickname
+            Nickname = aiAccount.Nickname,
+            AvatarUrl = AiAccountMediaUrls.GetAvatarUrl(aiAccount)
         };
     }
 }

@@ -9,6 +9,7 @@ interface ListItemProps {
   selected: boolean
   onSelect: () => void
   avatarLabel?: string
+  avatarUrl?: string | null
   trailing?: ReactNode
 }
 
@@ -18,6 +19,7 @@ export function ListItem({
   selected,
   onSelect,
   avatarLabel,
+  avatarUrl,
   trailing,
 }: ListItemProps) {
   return (
@@ -33,7 +35,7 @@ export function ListItem({
       aria-current={selected ? 'true' : undefined}
       onClick={onSelect}
     >
-      <EntityAvatar name={title} label={avatarLabel} />
+      <EntityAvatar name={title} label={avatarLabel} src={avatarUrl} />
       <span className="grid min-w-0 flex-1 gap-1">
         <strong className="truncate text-sm font-semibold text-foreground">
           {title}

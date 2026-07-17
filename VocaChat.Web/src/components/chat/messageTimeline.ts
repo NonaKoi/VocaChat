@@ -1,14 +1,14 @@
-import type { GroupMessageResponse } from '@/api/types'
+import type { ChatMessageResponse } from '@/api/types'
 
 const GROUP_WINDOW_IN_MILLISECONDS = 5 * 60 * 1000
 
 export interface MessageGroup {
   kind: 'message-group'
   id: string
-  senderType: GroupMessageResponse['senderType']
+  senderType: ChatMessageResponse['senderType']
   senderDisplayName: string
   senderAiAccountId: string | null
-  messages: GroupMessageResponse[]
+  messages: ChatMessageResponse[]
 }
 
 export interface DateDivider {
@@ -24,7 +24,7 @@ export type MessageTimelineItem = MessageGroup | DateDivider
  * 同一发送者超过五分钟后会开启新分组，避免长时间跨度的消息被误认为同一轮发言。
  */
 export function buildMessageTimeline(
-  messages: GroupMessageResponse[],
+  messages: ChatMessageResponse[],
   now = new Date(),
 ): MessageTimelineItem[] {
   const timeline: MessageTimelineItem[] = []
@@ -66,7 +66,7 @@ export function buildMessageTimeline(
 
 function canAppendToGroup(
   group: MessageGroup,
-  message: GroupMessageResponse,
+  message: ChatMessageResponse,
 ): boolean {
   const previousMessage = group.messages.at(-1)
 

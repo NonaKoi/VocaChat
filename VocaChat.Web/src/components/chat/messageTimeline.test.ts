@@ -55,6 +55,7 @@ function createMessage(
     senderType,
     senderDisplayName,
     senderAiAccountId,
+    senderAvatarUrl: null,
     content: `消息 ${id}`,
     sentAt,
   }

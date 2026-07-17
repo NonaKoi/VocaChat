@@ -98,6 +98,9 @@ public class VocaChatConsoleApp
             Console.Write("请输入身份描述（可留空）：");
             string identityDescription = ReadRequiredLine();
 
+            Console.Write("请输入 VC号（可留空，系统将生成 7 位随机数字号）：");
+            string vcNumber = ReadRequiredLine();
+
             Console.Write("请输入性格（可留空）：");
             string personality = ReadRequiredLine();
 
@@ -106,6 +109,7 @@ public class VocaChatConsoleApp
 
             bool creationSucceeded = _aiAccountService.TryCreateAiAccount(
                 nickname,
+                vcNumber,
                 identityDescription,
                 personality,
                 speakingStyle,
@@ -118,7 +122,8 @@ public class VocaChatConsoleApp
                 continue;
             }
 
-            Console.WriteLine($"已创建 AI 账号：{aiAccount.Nickname}");
+            Console.WriteLine(
+                $"已创建 AI 账号：{aiAccount.Nickname}（VC号：{aiAccount.VcNumber}）");
             Console.WriteLine();
         }
     }
@@ -136,6 +141,7 @@ public class VocaChatConsoleApp
             AiAccount account = aiAccounts[i];
 
             Console.WriteLine($"{i + 1}. {account.Nickname}");
+            Console.WriteLine($"   VC号：{account.VcNumber}");
             Console.WriteLine($"   身份描述：{DisplayText(account.IdentityDescription)}");
             Console.WriteLine($"   性格：{DisplayText(account.Personality)}");
             Console.WriteLine($"   说话风格：{DisplayText(account.SpeakingStyle)}");

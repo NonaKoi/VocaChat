@@ -37,7 +37,7 @@ export function GroupChatDetails({
       <EmptyState
         icon={MessagesSquare}
         title="暂无群聊资料"
-        description="创建群聊并选择已有 AI 账号后，可以在这里查看成员关系。"
+        description="创建群聊并邀请好友后，可以在这里查看成员关系。"
       />
     )
   }
@@ -47,7 +47,7 @@ export function GroupChatDetails({
       <EmptyState
         icon={MessagesSquare}
         title="选择一个群聊"
-        description="从群聊列表选择一个会话，查看群聊资料和 AI 成员。"
+        description="从群聊列表选择一个会话，查看群聊资料和好友。"
       />
     )
   }
@@ -65,7 +65,7 @@ export function GroupChatDetails({
           </h2>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <UsersRound className="size-4" strokeWidth={1.75} aria-hidden="true" />
-            <span>{groupChat.members.length} 位 AI 成员</span>
+            <span>{groupChat.members.length} 位好友</span>
           </div>
         </div>
       </header>
@@ -83,7 +83,7 @@ export function GroupChatDetails({
 
         {groupChat.members.length === 0 ? (
           <p className="border-y border-border py-6 text-sm text-muted-foreground">
-            当前群聊没有 AI 成员。
+            当前群聊还没有好友。
           </p>
         ) : (
           <ul className="border-y border-border">
@@ -92,11 +92,15 @@ export function GroupChatDetails({
                 key={member.id}
                 className="flex min-w-0 items-center gap-3 border-b border-border py-3.5 last:border-b-0"
               >
-                <EntityAvatar name={member.nickname} size="small" />
+                <EntityAvatar
+                  name={member.nickname}
+                  src={member.avatarUrl}
+                  size="small"
+                />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   {member.nickname}
                 </span>
-                <span className="text-xs text-muted-foreground">AI 账号</span>
+                <span className="text-xs text-muted-foreground">好友</span>
               </li>
             ))}
           </ul>

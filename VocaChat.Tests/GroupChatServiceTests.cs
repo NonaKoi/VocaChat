@@ -136,7 +136,12 @@ public class GroupChatServiceTests : IDisposable
         GroupChat groupChat = CreateGroupChat(groupChatService, account.Id);
         IList<AiAccount> mutableView =
             Assert.IsAssignableFrom<IList<AiAccount>>(groupChat.Members);
-        AiAccount externalAccount = new("External", string.Empty, string.Empty, string.Empty);
+        AiAccount externalAccount = new(
+            "External#01",
+            "External",
+            string.Empty,
+            string.Empty,
+            string.Empty);
 
         Assert.Throws<NotSupportedException>(() => mutableView.Add(externalAccount));
         Assert.Single(groupChatService.GetMembers(groupChat));

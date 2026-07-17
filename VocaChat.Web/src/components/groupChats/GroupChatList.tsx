@@ -53,7 +53,7 @@ export function GroupChatList({
           <EmptyState
             icon={MessagesSquare}
             title="还没有群聊"
-            description="创建的 AI 群聊会显示在这里。"
+            description="创建的群聊会显示在这里。"
             compact
           />
         )}
@@ -63,7 +63,7 @@ export function GroupChatList({
               <li key={groupChat.id}>
                 <ListItem
                   title={groupChat.name}
-                  description={`${groupChat.members.length} 位 AI 成员`}
+                  description={`${groupChat.members.length} 位好友`}
                   avatarLabel="群"
                   selected={selectedId === groupChat.id}
                   onSelect={() => onSelect(groupChat.id)}
@@ -75,7 +75,7 @@ export function GroupChatList({
       </div>
 
       <footer className="border-t border-border px-6 py-3 text-xs text-muted-foreground">
-        群成员来自已经创建的 AI 账号
+        群成员来自已经添加的好友
       </footer>
     </Panel>
   )

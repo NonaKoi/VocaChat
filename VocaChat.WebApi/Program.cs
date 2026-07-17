@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VocaChat.Data;
 using VocaChat.Services;
+using VocaChat.WebApi.Services;
 
 namespace VocaChat.WebApi;
 
@@ -18,10 +19,20 @@ public class Program
 
         builder.Services.AddSingleton<VocaChatDbContextFactory>();
         builder.Services.AddScoped<AiAccountService>();
+        builder.Services.AddScoped<ContactService>();
+        builder.Services.AddScoped<PrivateChatService>();
+        builder.Services.AddScoped<PrivateChatInteractionService>();
+        builder.Services.AddScoped<ConversationService>();
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddSingleton<FakeAiReplyService>();
         builder.Services.AddScoped<GroupChatInteractionService>();
+        builder.Services.AddSingleton(_ =>
+            new LocalMediaStorageService(
+                VocaChatApplicationPaths.GetMediaDirectory()));
+        builder.Services.AddScoped<AiAccountMediaService>();
+        builder.Services.AddScoped<PostService>();
+        builder.Services.AddScoped<PostMediaService>();
 
         WebApplication app = builder.Build();
 

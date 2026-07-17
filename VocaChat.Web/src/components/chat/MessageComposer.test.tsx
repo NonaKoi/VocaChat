@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MessageComposer } from '@/components/chat/MessageComposer'
-import type { MessageSendOutcome } from '@/hooks/useGroupMessages'
+import type { MessageSendOutcome } from '@/types/messageSendOutcome'
 
 describe('MessageComposer', () => {
   it('发送成功后清空草稿', async () => {

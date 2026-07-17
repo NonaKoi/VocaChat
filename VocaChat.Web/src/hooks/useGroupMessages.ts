@@ -6,6 +6,7 @@ import {
 } from '@/api/groupMessages'
 import type { GroupMessageResponse } from '@/api/types'
 import type { RemoteStatus } from '@/types/remoteStatus'
+import type { MessageSendOutcome } from '@/types/messageSendOutcome'
 
 interface GroupMessagesState {
   data: GroupMessageResponse[]
@@ -16,8 +17,6 @@ interface GroupMessagesState {
   reload: () => void
   send: (content: string) => Promise<MessageSendOutcome>
 }
-
-export type MessageSendOutcome = 'success' | 'rejected' | 'partial'
 
 /** 管理当前群聊的历史读取、消息发送和部分失败反馈。 */
 export function useGroupMessages(

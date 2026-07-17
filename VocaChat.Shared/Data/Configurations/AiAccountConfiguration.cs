@@ -40,6 +40,11 @@ public sealed class AiAccountConfiguration : IEntityTypeConfiguration<AiAccount>
             .HasMaxLength(AiAccount.NicknameMaxLength)
             .UseCollation("NOCASE");
 
+        builder.Property(aiAccount => aiAccount.VcNumber)
+            .IsRequired()
+            .HasMaxLength(AiAccount.VcNumberMaxLength)
+            .UseCollation("NOCASE");
+
         builder.Property(aiAccount => aiAccount.IdentityDescription)
             .IsRequired()
             .HasMaxLength(AiAccount.IdentityDescriptionMaxLength);
@@ -52,10 +57,47 @@ public sealed class AiAccountConfiguration : IEntityTypeConfiguration<AiAccount>
             .IsRequired()
             .HasMaxLength(AiAccount.SpeakingStyleMaxLength);
 
+        builder.Property(aiAccount => aiAccount.Signature)
+            .IsRequired()
+            .HasMaxLength(AiAccount.SignatureMaxLength);
+
+        builder.Property(aiAccount => aiAccount.Birthday);
+
+        builder.Property(aiAccount => aiAccount.Gender)
+            .IsRequired();
+
+        builder.Property(aiAccount => aiAccount.Location)
+            .IsRequired()
+            .HasMaxLength(AiAccount.LocationMaxLength);
+
+        builder.Property(aiAccount => aiAccount.Occupation)
+            .IsRequired()
+            .HasMaxLength(AiAccount.OccupationMaxLength);
+
+        builder.Property(aiAccount => aiAccount.Hometown)
+            .IsRequired()
+            .HasMaxLength(AiAccount.HometownMaxLength);
+
+        builder.Property(aiAccount => aiAccount.OnlineStatus)
+            .IsRequired();
+
+        builder.Property(aiAccount => aiAccount.AvatarMediaId)
+            .HasMaxLength(AiAccount.MediaIdMaxLength);
+
+        builder.Property(aiAccount => aiAccount.ProfileCoverMediaId)
+            .HasMaxLength(AiAccount.MediaIdMaxLength);
+
         builder.Property(aiAccount => aiAccount.CreatedAt)
             .IsRequired();
 
         builder.HasIndex(aiAccount => aiAccount.Nickname)
             .IsUnique();
+
+        builder.HasIndex(aiAccount => aiAccount.VcNumber)
+            .IsUnique();
+
+        builder.Navigation(aiAccount => aiAccount.Tags)
+            .HasField("_tags")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import { ArrowDown } from 'lucide-react'
-import type { GroupMessageResponse } from '@/api/types'
+import type { ChatMessageResponse } from '@/api/types'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,14 +12,14 @@ import { formatMessageTime } from '@/utils/dateTime'
 const BOTTOM_THRESHOLD = 96
 
 interface MessageListProps {
-  groupChatId: string
-  messages: GroupMessageResponse[]
+  conversationId: string
+  messages: ChatMessageResponse[]
 }
 
 /**
  * 显示分组后的消息时间线。用户阅读较早消息时不会被新消息强制拉回底部。
  */
-export function MessageList({ groupChatId, messages }: MessageListProps) {
+export function MessageList({ conversationId, messages }: MessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(0)
   const isNearBottomRef = useRef(true)
@@ -32,7 +32,7 @@ export function MessageList({ groupChatId, messages }: MessageListProps) {
     setPendingMessageCount(0)
 
     requestAnimationFrame(() => scrollToBottom('auto'))
-  }, [groupChatId])
+  }, [conversationId])
 
   useEffect(() => {
     const addedCount = messages.length - previousMessageCountRef.current
@@ -87,7 +87,7 @@ export function MessageList({ groupChatId, messages }: MessageListProps) {
           <div className="grid h-full min-h-56 place-content-center text-center">
             <p className="text-sm font-medium text-foreground">还没有聊天记录</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              发送第一条消息，群内 AI 将生成一条模拟回复。
+              发送第一条消息，群内好友会给出回复。
             </p>
           </div>
         ) : (
@@ -139,6 +139,7 @@ function MessageGroupItem({ group }: { group: MessageGroup }) {
         {!isUser && (
           <EntityAvatar
             name={group.senderDisplayName}
+            src={group.messages[0].senderAvatarUrl}
             size="small"
             className="mt-5 shrink-0"
           />

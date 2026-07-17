@@ -115,6 +115,6 @@ public sealed class GroupChatsApiTests
             .OrderBy(name => name)
             .ToArray();
 
-        Assert.Equal(new[] { "id", "nickname" }, propertyNames);
+        Assert.Equal(new[] { "avatarUrl", "id", "nickname" }, propertyNames);
     }
 }

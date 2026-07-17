@@ -14,8 +14,8 @@ import type { AppSection } from '@/types/appSection'
 
 const primaryNavigation = [
   { section: 'chat', label: '聊天', icon: MessageCircleMore, enabled: true },
-  { section: 'friends', label: '好友', icon: UserRound, enabled: false },
-  { section: 'activity', label: '动态', icon: Activity, enabled: false },
+  { section: 'friends', label: '好友', icon: UserRound, enabled: true },
+  { section: 'activity', label: '动态', icon: Activity, enabled: true },
 ] as const
 
 const secondaryNavigation = [

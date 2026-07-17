@@ -12,6 +12,7 @@ public sealed class GroupMessageResponse
     public string SenderType { get; init; } = string.Empty;
     public string SenderDisplayName { get; init; } = string.Empty;
     public Guid? SenderAiAccountId { get; init; }
+    public string? SenderAvatarUrl { get; init; }
     public string Content { get; init; } = string.Empty;
     public DateTime SentAt { get; init; }
 }

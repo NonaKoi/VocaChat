@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using VocaChat.Models;
 using VocaChat.Services;
 using VocaChat.WebApi.Dtos.GroupMessages;
+using VocaChat.WebApi.Mapping;
 
 namespace VocaChat.WebApi.Controllers;
 
@@ -49,7 +50,7 @@ public sealed class GroupMessagesController : ControllerBase
 
         List<GroupMessageResponse> response = _groupMessageService
             .GetOrderedChatHistory(groupChat)
-            .Select(ToResponse)
+            .Select(message => ToResponse(message, groupChat))
             .ToList();
 
         return Ok(response);
@@ -94,7 +95,7 @@ public sealed class GroupMessagesController : ControllerBase
                     Message = result.ErrorMessage,
                     SavedUserMessage = result.UserMessage is null
                         ? null
-                        : ToResponse(result.UserMessage)
+                        : ToResponse(result.UserMessage, groupChat)
                 });
         }
 
@@ -110,16 +111,23 @@ public sealed class GroupMessagesController : ControllerBase
 
         return Ok(new SendGroupMessageResponse
         {
-            UserMessage = ToResponse(result.UserMessage),
-            AiReply = ToResponse(result.AiReply)
+            UserMessage = ToResponse(result.UserMessage, groupChat),
+            AiReply = ToResponse(result.AiReply, groupChat)
         });
     }
 
     /// <summary>
     /// 将消息实体映射为稳定的 HTTP 契约，并保留发送时的显示名快照。
     /// </summary>
-    private static GroupMessageResponse ToResponse(GroupMessage message)
+    private static GroupMessageResponse ToResponse(
+        GroupMessage message,
+        GroupChat groupChat)
     {
+        AiAccount? sender = message.SenderAiAccountId is null
+            ? null
+            : groupChat.Members.SingleOrDefault(
+                member => member.Id == message.SenderAiAccountId.Value);
+
         return new GroupMessageResponse
         {
             Id = message.Id,
@@ -127,6 +135,9 @@ public sealed class GroupMessagesController : ControllerBase
             SenderType = ToSenderTypeText(message.SenderType),
             SenderDisplayName = message.SenderDisplayName,
             SenderAiAccountId = message.SenderAiAccountId,
+            SenderAvatarUrl = sender is null
+                ? null
+                : AiAccountMediaUrls.GetAvatarUrl(sender),
             Content = message.Content,
             SentAt = message.SentAt
         };

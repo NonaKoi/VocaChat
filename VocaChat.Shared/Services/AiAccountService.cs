@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using VocaChat.Data;
@@ -14,6 +16,10 @@ namespace VocaChat.Services;
 public class AiAccountService
 {
     private const int SqliteUniqueConstraintErrorCode = 2067;
+    private const int DefaultVcNumberMinimum = 1_000_000;
+    private const int DefaultVcNumberMaximumExclusive = 10_000_000;
+    private const int DefaultVcNumberGenerationAttempts = 20;
+    private const int MaximumTagsPerType = 12;
 
     private readonly VocaChatDbContextFactory _dbContextFactory;
 
@@ -52,7 +58,32 @@ public class AiAccountService
     }
 
     /// <summary>
-    /// 验证并创建 AI 账号；成功时写入数据库，失败时返回明确错误信息。
+    /// 验证可选的自定义 VC号；留空表示创建时由系统生成默认号码。
+    /// </summary>
+    public string? ValidateVcNumber(string? vcNumber)
+    {
+        if (string.IsNullOrWhiteSpace(vcNumber))
+        {
+            return null;
+        }
+
+        string trimmedVcNumber = vcNumber.Trim();
+
+        if (trimmedVcNumber.Length > AiAccount.VcNumberMaxLength)
+        {
+            return $"VC号不能超过 {AiAccount.VcNumberMaxLength} 个字符。";
+        }
+
+        if (FindByVcNumber(trimmedVcNumber) is not null)
+        {
+            return "VC号已存在。";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 使用系统生成的默认 VC号创建 AI 账号，保留原有调用方式。
     /// </summary>
     public bool TryCreateAiAccount(
         string nickname,
@@ -62,24 +93,89 @@ public class AiAccountService
         out AiAccount? aiAccount,
         out string errorMessage)
     {
+        return TryCreateAiAccount(
+            nickname,
+            null,
+            identityDescription,
+            personality,
+            speakingStyle,
+            out aiAccount,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 验证并创建 AI 账号；VC号留空时生成唯一的 7 位随机数字号。
+    /// </summary>
+    public bool TryCreateAiAccount(
+        string nickname,
+        string? vcNumber,
+        string identityDescription,
+        string personality,
+        string speakingStyle,
+        out AiAccount? aiAccount,
+        out string errorMessage)
+    {
+        return TryCreateAiAccount(
+            new AiAccountCreationData
+            {
+                Nickname = nickname,
+                VcNumber = vcNumber,
+                IdentityDescription = identityDescription,
+                Personality = personality,
+                SpeakingStyle = speakingStyle
+            },
+            out aiAccount,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 验证并保存完整好友档案；VC号留空时生成唯一的 7 位随机数字号。
+    /// </summary>
+    public bool TryCreateAiAccount(
+        AiAccountCreationData creationData,
+        out AiAccount? aiAccount,
+        out string errorMessage)
+    {
         aiAccount = null;
 
-        string? validationError = ValidateNickname(nickname);
-
-        if (validationError is not null)
+        if (creationData is null)
         {
-            errorMessage = validationError;
+            errorMessage = "账号资料不能为空。";
             return false;
         }
 
-        string trimmedIdentityDescription = (identityDescription ?? string.Empty).Trim();
-        string trimmedPersonality = (personality ?? string.Empty).Trim();
-        string trimmedSpeakingStyle = (speakingStyle ?? string.Empty).Trim();
+        string? nicknameValidationError = ValidateNickname(creationData.Nickname);
+
+        if (nicknameValidationError is not null)
+        {
+            errorMessage = nicknameValidationError;
+            return false;
+        }
+
+        string? vcNumberValidationError = ValidateVcNumber(creationData.VcNumber);
+
+        if (vcNumberValidationError is not null)
+        {
+            errorMessage = vcNumberValidationError;
+            return false;
+        }
+
+        string trimmedIdentityDescription = creationData.IdentityDescription.Trim();
+        string trimmedPersonality = creationData.Personality.Trim();
+        string trimmedSpeakingStyle = creationData.SpeakingStyle.Trim();
+        string trimmedSignature = creationData.Signature.Trim();
+        string trimmedLocation = creationData.Location.Trim();
+        string trimmedOccupation = creationData.Occupation.Trim();
+        string trimmedHometown = creationData.Hometown.Trim();
 
         string? textLengthError = ValidateOptionalTextLengths(
             trimmedIdentityDescription,
             trimmedPersonality,
-            trimmedSpeakingStyle);
+            trimmedSpeakingStyle,
+            trimmedSignature,
+            trimmedLocation,
+            trimmedOccupation,
+            trimmedHometown);
 
         if (textLengthError is not null)
         {
@@ -87,29 +183,221 @@ public class AiAccountService
             return false;
         }
 
-        AiAccount newAiAccount = new(
-            nickname.Trim(),
-            trimmedIdentityDescription,
-            trimmedPersonality,
-            trimmedSpeakingStyle);
+        if (creationData.Birthday > DateOnly.FromDateTime(DateTime.Today))
+        {
+            errorMessage = "生日不能晚于今天。";
+            return false;
+        }
+
+        if (!Enum.IsDefined(creationData.Gender))
+        {
+            errorMessage = "性别值无效。";
+            return false;
+        }
+
+        if (!Enum.IsDefined(creationData.OnlineStatus))
+        {
+            errorMessage = "在线状态值无效。";
+            return false;
+        }
+
+        if (!TryNormalizeTags(
+                creationData.InterestTags,
+                "兴趣标签",
+                out IReadOnlyList<string> interestTags,
+                out errorMessage)
+            || !TryNormalizeTags(
+                creationData.PersonalityTags,
+                "个性标签",
+                out IReadOnlyList<string> personalityTags,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        bool shouldGenerateVcNumber = string.IsNullOrWhiteSpace(creationData.VcNumber);
+        string? trimmedCustomVcNumber = shouldGenerateVcNumber
+            ? null
+            : creationData.VcNumber!.Trim();
+        int saveAttempts = shouldGenerateVcNumber
+            ? DefaultVcNumberGenerationAttempts
+            : 1;
+
+        for (int attempt = 0; attempt < saveAttempts; attempt++)
+        {
+            string selectedVcNumber = trimmedCustomVcNumber
+                ?? GenerateDefaultVcNumber();
+
+            if (FindByVcNumber(selectedVcNumber) is not null)
+            {
+                if (shouldGenerateVcNumber)
+                {
+                    continue;
+                }
+
+                errorMessage = "VC号已存在。";
+                return false;
+            }
+
+            AiAccount newAiAccount = new(
+                selectedVcNumber,
+                creationData.Nickname.Trim(),
+                trimmedIdentityDescription,
+                trimmedPersonality,
+                trimmedSpeakingStyle,
+                trimmedSignature,
+                creationData.Birthday,
+                creationData.Gender,
+                trimmedLocation,
+                trimmedOccupation,
+                trimmedHometown,
+                creationData.OnlineStatus);
+
+            foreach (string tag in interestTags)
+            {
+                newAiAccount.AddTag(AiAccountTagType.Interest, tag);
+            }
+
+            foreach (string tag in personalityTags)
+            {
+                newAiAccount.AddTag(AiAccountTagType.Personality, tag);
+            }
+
+            using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+            dbContext.AiAccounts.Add(newAiAccount);
+            dbContext.Contacts.Add(new Contact(
+                newAiAccount.Id,
+                ContactGroup.DefaultGroupId));
+
+            try
+            {
+                dbContext.SaveChanges();
+                aiAccount = newAiAccount;
+                errorMessage = string.Empty;
+                return true;
+            }
+            catch (DbUpdateException exception)
+                when (IsUniqueConstraintViolation(exception))
+            {
+                if (IsVcNumberUniqueConstraintViolation(exception))
+                {
+                    if (shouldGenerateVcNumber)
+                    {
+                        continue;
+                    }
+
+                    errorMessage = "VC号已存在。";
+                    return false;
+                }
+
+                errorMessage = "昵称已存在。";
+                return false;
+            }
+        }
+
+        errorMessage = "暂时无法生成可用的 VC号，请重试。";
+        return false;
+    }
+
+    /// <summary>
+    /// 修改已有账号的 VC号；内部 Guid 主键和已有业务关系保持不变。
+    /// </summary>
+    public bool TryChangeVcNumber(
+        Guid aiAccountId,
+        string vcNumber,
+        out AiAccount? aiAccount,
+        out string errorMessage)
+    {
+        aiAccount = null;
+
+        if (string.IsNullOrWhiteSpace(vcNumber))
+        {
+            errorMessage = "VC号不能为空。";
+            return false;
+        }
+
+        string trimmedVcNumber = vcNumber.Trim();
+
+        if (trimmedVcNumber.Length > AiAccount.VcNumberMaxLength)
+        {
+            errorMessage = $"VC号不能超过 {AiAccount.VcNumberMaxLength} 个字符。";
+            return false;
+        }
 
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
-        dbContext.AiAccounts.Add(newAiAccount);
+        AiAccount? storedAccount = dbContext.AiAccounts
+            .SingleOrDefault(account => account.Id == aiAccountId);
+
+        if (storedAccount is null)
+        {
+            errorMessage = "AI 账号不存在。";
+            return false;
+        }
+
+        bool vcNumberExists = dbContext.AiAccounts.Any(account =>
+            account.Id != aiAccountId
+            && account.VcNumber == trimmedVcNumber);
+
+        if (vcNumberExists)
+        {
+            errorMessage = "VC号已存在。";
+            return false;
+        }
+
+        storedAccount.ChangeVcNumber(trimmedVcNumber);
 
         try
         {
             dbContext.SaveChanges();
         }
         catch (DbUpdateException exception)
-            when (IsUniqueConstraintViolation(exception))
+            when (IsVcNumberUniqueConstraintViolation(exception))
         {
-            errorMessage = "昵称已存在。";
+            errorMessage = "VC号已存在。";
             return false;
         }
 
-        aiAccount = newAiAccount;
+        aiAccount = storedAccount;
         errorMessage = string.Empty;
         return true;
+    }
+
+    /// <summary>
+    /// 将已有账号切换到新的头像媒体标识，并返回替换前的标识供文件清理使用。
+    /// </summary>
+    public bool TryChangeAvatarMediaId(
+        Guid aiAccountId,
+        string mediaId,
+        out AiAccount? aiAccount,
+        out string? previousMediaId,
+        out string errorMessage)
+    {
+        return TryChangeMediaId(
+            aiAccountId,
+            mediaId,
+            AiAccountMediaKind.Avatar,
+            out aiAccount,
+            out previousMediaId,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 将已有账号切换到新的主页封面媒体标识，并返回替换前的标识供文件清理使用。
+    /// </summary>
+    public bool TryChangeProfileCoverMediaId(
+        Guid aiAccountId,
+        string mediaId,
+        out AiAccount? aiAccount,
+        out string? previousMediaId,
+        out string errorMessage)
+    {
+        return TryChangeMediaId(
+            aiAccountId,
+            mediaId,
+            AiAccountMediaKind.ProfileCover,
+            out aiAccount,
+            out previousMediaId,
+            out errorMessage);
     }
 
     /// <summary>
@@ -120,6 +408,7 @@ public class AiAccountService
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
         return dbContext.AiAccounts
+            .Include(account => account.Tags)
             .AsNoTracking()
             .SingleOrDefault(account => account.Id == id);
     }
@@ -139,8 +428,29 @@ public class AiAccountService
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
         return dbContext.AiAccounts
+            .Include(account => account.Tags)
             .AsNoTracking()
             .SingleOrDefault(account => account.Nickname == trimmedNickname);
+    }
+
+    /// <summary>
+    /// 按面向用户展示的 VC号查找账号；英文比较忽略大小写。
+    /// </summary>
+    public AiAccount? FindByVcNumber(string vcNumber)
+    {
+        if (string.IsNullOrWhiteSpace(vcNumber))
+        {
+            return null;
+        }
+
+        string trimmedVcNumber = vcNumber.Trim();
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+
+        return dbContext.AiAccounts
+            .Include(account => account.Tags)
+            .AsNoTracking()
+            .SingleOrDefault(account => account.VcNumber == trimmedVcNumber);
     }
 
     /// <summary>
@@ -151,6 +461,7 @@ public class AiAccountService
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
         List<AiAccount> aiAccounts = dbContext.AiAccounts
+            .Include(account => account.Tags)
             .AsNoTracking()
             .OrderBy(account => account.CreatedAt)
             .ThenBy(account => account.Id)
@@ -159,13 +470,88 @@ public class AiAccountService
         return aiAccounts.AsReadOnly();
     }
 
+    private static string GenerateDefaultVcNumber()
+    {
+        int randomNumber = RandomNumberGenerator.GetInt32(
+            DefaultVcNumberMinimum,
+            DefaultVcNumberMaximumExclusive);
+
+        return randomNumber.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// 在一个短生命周期 DbContext 中更新媒体标识，数据库仍然只保存不透明标识。
+    /// </summary>
+    private bool TryChangeMediaId(
+        Guid aiAccountId,
+        string mediaId,
+        AiAccountMediaKind mediaKind,
+        out AiAccount? aiAccount,
+        out string? previousMediaId,
+        out string errorMessage)
+    {
+        aiAccount = null;
+        previousMediaId = null;
+
+        if (string.IsNullOrWhiteSpace(mediaId))
+        {
+            errorMessage = "媒体标识不能为空。";
+            return false;
+        }
+
+        string trimmedMediaId = mediaId.Trim();
+
+        if (trimmedMediaId.Length > AiAccount.MediaIdMaxLength)
+        {
+            errorMessage = $"媒体标识不能超过 {AiAccount.MediaIdMaxLength} 个字符。";
+            return false;
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        AiAccount? storedAccount = dbContext.AiAccounts
+            .Include(account => account.Tags)
+            .SingleOrDefault(account => account.Id == aiAccountId);
+
+        if (storedAccount is null)
+        {
+            errorMessage = "AI 账号不存在。";
+            return false;
+        }
+
+        if (mediaKind == AiAccountMediaKind.Avatar)
+        {
+            previousMediaId = storedAccount.AvatarMediaId;
+            storedAccount.ChangeAvatarMediaId(trimmedMediaId);
+        }
+        else
+        {
+            previousMediaId = storedAccount.ProfileCoverMediaId;
+            storedAccount.ChangeProfileCoverMediaId(trimmedMediaId);
+        }
+
+        dbContext.SaveChanges();
+        aiAccount = storedAccount;
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    private enum AiAccountMediaKind
+    {
+        Avatar,
+        ProfileCover
+    }
+
     /// <summary>
     /// 验证允许留空的描述字段仍然符合数据库长度限制。
     /// </summary>
     private static string? ValidateOptionalTextLengths(
         string identityDescription,
         string personality,
-        string speakingStyle)
+        string speakingStyle,
+        string signature,
+        string location,
+        string occupation,
+        string hometown)
     {
         if (identityDescription.Length > AiAccount.IdentityDescriptionMaxLength)
         {
@@ -182,12 +568,72 @@ public class AiAccountService
             return $"说话风格不能超过 {AiAccount.SpeakingStyleMaxLength} 个字符。";
         }
 
+        if (signature.Length > AiAccount.SignatureMaxLength)
+        {
+            return $"个性签名不能超过 {AiAccount.SignatureMaxLength} 个字符。";
+        }
+
+        if (location.Length > AiAccount.LocationMaxLength)
+        {
+            return $"所在地不能超过 {AiAccount.LocationMaxLength} 个字符。";
+        }
+
+        if (occupation.Length > AiAccount.OccupationMaxLength)
+        {
+            return $"职业不能超过 {AiAccount.OccupationMaxLength} 个字符。";
+        }
+
+        if (hometown.Length > AiAccount.HometownMaxLength)
+        {
+            return $"故乡不能超过 {AiAccount.HometownMaxLength} 个字符。";
+        }
+
         return null;
     }
 
     /// <summary>
-    /// 只将 SQLite 唯一索引冲突转换为昵称重复，其余数据库错误继续向上传递。
+    /// 清理标签空白、忽略大小写去重，并保护单个标签和标签数量限制。
     /// </summary>
+    private static bool TryNormalizeTags(
+        IReadOnlyCollection<string>? source,
+        string displayName,
+        out IReadOnlyList<string> normalizedTags,
+        out string errorMessage)
+    {
+        List<string> tags = (source ?? Array.Empty<string>())
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (tags.Count > MaximumTagsPerType)
+        {
+            normalizedTags = Array.Empty<string>();
+            errorMessage = $"{displayName}最多添加 {MaximumTagsPerType} 个。";
+            return false;
+        }
+
+        if (tags.Any(tag => tag.Length > AiAccountTag.ValueMaxLength))
+        {
+            normalizedTags = Array.Empty<string>();
+            errorMessage = $"单个{displayName}不能超过 {AiAccountTag.ValueMaxLength} 个字符。";
+            return false;
+        }
+
+        normalizedTags = tags.AsReadOnly();
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    private static bool IsVcNumberUniqueConstraintViolation(
+        DbUpdateException exception)
+    {
+        return IsUniqueConstraintViolation(exception)
+            && exception.InnerException?.Message.Contains(
+                "AiAccounts.VcNumber",
+                StringComparison.Ordinal) == true;
+    }
+
     private static bool IsUniqueConstraintViolation(DbUpdateException exception)
     {
         return exception.InnerException is SqliteException sqliteException
