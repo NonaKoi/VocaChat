@@ -5,3 +5,8 @@ AGENTS.md
 *.db-shm
 *.db-wal
 docs/DEVELOPMENT_LOG.md
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
