@@ -11,3 +11,5 @@ dist/
 .env.*
 !.env.example
 docs/DEVELOPMENT_LOG.md
+docs/PROJECT_PLAN.md
+docs/DEVELOPMENT_LOG.md
