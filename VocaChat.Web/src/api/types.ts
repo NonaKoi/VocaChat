@@ -51,6 +51,7 @@ export interface GroupChatMemberResponse {
 export interface GroupChatResponse {
   id: string
   name: string
+  includesLocalUser: boolean
   createdAt: string
   members: GroupChatMemberResponse[]
 }
@@ -99,9 +100,16 @@ export interface ContactResponse {
 
 export type ConversationKind = 'PrivateChat' | 'GroupChat'
 
+export type ConversationCategory =
+  | 'MyPrivateChat'
+  | 'FriendPrivateChat'
+  | 'MyGroupChat'
+  | 'FriendGroupChat'
+
 export interface ConversationSummaryResponse {
   id: string
   kind: ConversationKind
+  category: ConversationCategory
   displayName: string
   avatarUrl: string | null
   memberCount: number
@@ -114,8 +122,10 @@ export interface ConversationSummaryResponse {
 
 export interface PrivateChatResponse {
   id: string
-  contactId: string
-  friend: AiAccountResponse
+  category: 'MyPrivateChat' | 'FriendPrivateChat'
+  contactId: string | null
+  friend: AiAccountResponse | null
+  participants: AiAccountResponse[]
   createdAt: string
 }
 
@@ -163,4 +173,88 @@ export interface PostResponse {
   commentCount: number
   isLikedByLocalUser: boolean
   recentComments: PostCommentSummaryResponse[]
+}
+
+export type AutonomyLevel = 'Low' | 'Normal' | 'High'
+export type AutonomousInteractionFrequency = AutonomyLevel
+export type AutonomousInteractionInitiativeLevel = AutonomyLevel
+
+export interface AutonomousInteractionSettingsResponse {
+  isEnabled: boolean
+  frequency: AutonomousInteractionFrequency
+  allowPrivateChats: boolean
+  allowGroupChats: boolean
+}
+
+export interface UpdateAutonomousInteractionSettingsRequest {
+  isEnabled: boolean
+  frequency: AutonomousInteractionFrequency
+  allowPrivateChats: boolean
+  allowGroupChats: boolean
+}
+
+export interface AiAccountAutonomySettingsResponse {
+  aiAccountId: string
+  isEnabled: boolean
+  initiativeLevel: AutonomousInteractionInitiativeLevel
+  canInitiatePrivateChats: boolean
+  canInitiateGroupChats: boolean
+  canJoinGroupChats: boolean
+}
+
+export interface UpdateAiAccountAutonomySettingsRequest {
+  isEnabled: boolean
+  initiativeLevel: AutonomousInteractionInitiativeLevel
+  canInitiatePrivateChats: boolean
+  canInitiateGroupChats: boolean
+  canJoinGroupChats: boolean
+}
+
+export interface AiRelationshipResponse {
+  fromAiAccountId: string
+  toAiAccountId: string
+  familiarity: number
+  affinity: number
+  trust: number
+  interactionCount: number
+  lastInteractionAt: string | null
+  updatedAt: string | null
+}
+
+export interface UpdateAiRelationshipRequest {
+  familiarity: number
+  affinity: number
+  trust: number
+}
+
+export type AutonomousPrivateChatDecisionStage =
+  | 'Approved'
+  | 'SelfInteractionNotAllowed'
+  | 'AccountNotFound'
+  | 'GlobalDisabled'
+  | 'PrivateChatsDisabled'
+  | 'ParticipantDisabled'
+  | 'NoEligibleInitiator'
+  | 'CooldownActive'
+  | 'ScoreBelowThreshold'
+
+export interface EvaluateAutonomousPrivateChatRequest {
+  firstAiAccountId: string
+  secondAiAccountId: string
+}
+
+export interface AutonomousPrivateChatDecisionResponse {
+  isApproved: boolean
+  stage: AutonomousPrivateChatDecisionStage
+  interactionType: 'PrivateChat'
+  firstAiAccountId: string
+  secondAiAccountId: string
+  initiatorAiAccountId: string | null
+  recipientAiAccountId: string | null
+  relationshipScore: number
+  initiativeAdjustment: number
+  randomJitter: number
+  finalScore: number
+  threshold: number
+  cooldownEndsAt: string | null
 }

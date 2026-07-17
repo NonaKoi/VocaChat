@@ -9,6 +9,11 @@ namespace VocaChat.Data;
 /// </summary>
 public sealed class VocaChatDbContext : DbContext
 {
+    public DbSet<AutonomousInteractionSettings> AutonomousInteractionSettings =>
+        Set<AutonomousInteractionSettings>();
+    public DbSet<AiAccountAutonomySettings> AiAccountAutonomySettings =>
+        Set<AiAccountAutonomySettings>();
+    public DbSet<AiRelationship> AiRelationships => Set<AiRelationship>();
     public DbSet<AiAccount> AiAccounts => Set<AiAccount>();
     public DbSet<AiAccountTag> AiAccountTags => Set<AiAccountTag>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
@@ -33,6 +38,11 @@ public sealed class VocaChatDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.ApplyConfiguration(
+            new AutonomousInteractionSettingsConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiAccountAutonomySettingsConfiguration());
+        modelBuilder.ApplyConfiguration(new AiRelationshipConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountTagConfiguration());
         modelBuilder.ApplyConfiguration(new ContactGroupConfiguration());

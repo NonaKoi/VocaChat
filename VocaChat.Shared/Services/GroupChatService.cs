@@ -54,6 +54,24 @@ public class GroupChatService
         out GroupChat? groupChat,
         out string errorMessage)
     {
+        return TryCreateGroupChat(
+            name,
+            selectedAiAccountIds,
+            includesLocalUser: true,
+            out groupChat,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 使用已有 AI 账号创建群聊，并明确本地用户是否属于该群聊。
+    /// </summary>
+    public bool TryCreateGroupChat(
+        string name,
+        IEnumerable<Guid> selectedAiAccountIds,
+        bool includesLocalUser,
+        out GroupChat? groupChat,
+        out string errorMessage)
+    {
         groupChat = null;
 
         string? validationError = ValidateGroupChatName(name);
@@ -92,7 +110,7 @@ public class GroupChatService
             return false;
         }
 
-        GroupChat newGroupChat = new(name.Trim());
+        GroupChat newGroupChat = new(name.Trim(), includesLocalUser);
 
         foreach (Guid aiAccountId in distinctAiAccountIds)
         {

@@ -50,10 +50,20 @@ public class GroupMessageService
 
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
-        if (!dbContext.GroupChats.Any(storedGroupChat =>
-                storedGroupChat.Id == groupChat.Id))
+        GroupChat? storedGroupChat = dbContext.GroupChats
+            .AsNoTracking()
+            .SingleOrDefault(storedGroupChat =>
+                storedGroupChat.Id == groupChat.Id);
+
+        if (storedGroupChat is null)
         {
             errorMessage = "群聊不存在，不能保存消息。";
+            return false;
+        }
+
+        if (!storedGroupChat.IncludesLocalUser)
+        {
+            errorMessage = "你不在这个好友群聊中，不能发送用户消息。";
             return false;
         }
 

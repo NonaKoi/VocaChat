@@ -34,6 +34,9 @@ public sealed class GroupChatConfiguration : IEntityTypeConfiguration<GroupChat>
         builder.Property(groupChat => groupChat.CreatedAt)
             .IsRequired();
 
+        builder.Property(groupChat => groupChat.IncludesLocalUser)
+            .IsRequired();
+
         builder.HasMany(groupChat => groupChat.Members)
             .WithMany()
             .UsingEntity<Dictionary<string, object>>(

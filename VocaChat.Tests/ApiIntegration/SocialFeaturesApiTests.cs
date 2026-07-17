@@ -30,6 +30,9 @@ public sealed class SocialFeaturesApiTests
             $"/api/contacts/{contact.Id}/private-chat",
             new { });
         PrivateChatResponse chat = (await chatResponse.Content.ReadFromJsonAsync<PrivateChatResponse>())!;
+        Assert.Equal("MyPrivateChat", chat.Category);
+        Assert.NotNull(chat.Friend);
+        Assert.Single(chat.Participants);
         using HttpResponseMessage messageResponse = await client.PostAsJsonAsync(
             $"/api/private-chats/{chat.Id}/messages",
             new SendPrivateMessageRequest { Content = "你好，朋友。" });

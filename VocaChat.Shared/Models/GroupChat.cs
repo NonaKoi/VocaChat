@@ -15,6 +15,7 @@ public class GroupChat
     public Guid Id { get; private set; }
     public string Name { get; private set; }
     public IReadOnlyList<AiAccount> Members => _members.AsReadOnly();
+    public bool IncludesLocalUser { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>
@@ -28,10 +29,11 @@ public class GroupChat
     /// <summary>
     /// 创建一个空成员的群聊。
     /// </summary>
-    internal GroupChat(string name)
+    internal GroupChat(string name, bool includesLocalUser = true)
     {
         Id = Guid.NewGuid();
         Name = name;
+        IncludesLocalUser = includesLocalUser;
         CreatedAt = DateTime.Now;
     }
 

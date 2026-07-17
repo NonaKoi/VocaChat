@@ -21,7 +21,7 @@ const primaryNavigation = [
 const secondaryNavigation = [
   { section: 'files', label: '文件', icon: Folder },
   { section: 'favorites', label: '收藏', icon: Bookmark },
-  { section: 'settings', label: '设置', icon: Settings },
+  { section: 'settings', label: '设置', icon: Settings, enabled: true },
 ] as const
 
 interface NavigationRailProps {
@@ -72,7 +72,7 @@ export function NavigationRail({
             label={item.label}
             icon={item.icon}
             active={activeSection === item.section}
-            disabled
+            disabled={!('enabled' in item && item.enabled)}
             onSelect={onSectionChange}
           />
         ))}

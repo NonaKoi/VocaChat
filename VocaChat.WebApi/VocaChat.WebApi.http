@@ -5,6 +5,75 @@ Accept: application/json
 
 ###
 
+### 预览两个好友之间的自主私信判断
+POST {{VocaChat.WebApi_HostAddress}}/api/autonomous-interactions/private-chat/evaluate
+Content-Type: application/json
+
+{
+  "firstAiAccountId": "{{fromAiAccountId}}",
+  "secondAiAccountId": "{{toAiAccountId}}"
+}
+
+###
+
+@fromAiAccountId = 00000000-0000-0000-0000-000000000001
+@toAiAccountId = 00000000-0000-0000-0000-000000000002
+
+### 获取一个好友对其他好友的关系
+GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/{{fromAiAccountId}}/relationships
+Accept: application/json
+
+### 获取两个好友之间指定方向的关系
+GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/{{fromAiAccountId}}/relationships/{{toAiAccountId}}
+Accept: application/json
+
+### 保存两个好友之间指定方向的关系
+PUT {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/{{fromAiAccountId}}/relationships/{{toAiAccountId}}
+Content-Type: application/json
+
+{
+  "familiarity": 45,
+  "affinity": 20,
+  "trust": 35
+}
+
+###
+
+GET {{VocaChat.WebApi_HostAddress}}/api/settings/autonomous-interactions
+Accept: application/json
+
+###
+
+PUT {{VocaChat.WebApi_HostAddress}}/api/settings/autonomous-interactions
+Content-Type: application/json
+
+{
+  "isEnabled": true,
+  "frequency": "Normal",
+  "allowPrivateChats": true,
+  "allowGroupChats": true
+}
+
+###
+
+GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/00000000-0000-0000-0000-000000000000/autonomy-settings
+Accept: application/json
+
+###
+
+PUT {{VocaChat.WebApi_HostAddress}}/api/ai-accounts/00000000-0000-0000-0000-000000000000/autonomy-settings
+Content-Type: application/json
+
+{
+  "isEnabled": true,
+  "initiativeLevel": "Normal",
+  "canInitiatePrivateChats": true,
+  "canInitiateGroupChats": true,
+  "canJoinGroupChats": true
+}
+
+###
+
 GET {{VocaChat.WebApi_HostAddress}}/api/ai-accounts
 Accept: application/json
 

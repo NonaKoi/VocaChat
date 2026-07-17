@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using VocaChat.Data;
+using VocaChat.Models;
 
 namespace VocaChat.Services;
 
@@ -29,12 +30,25 @@ public sealed class ConversationService
              select new ConversationSummary
              {
                  Kind = ConversationKind.PrivateChat,
+                 Category = chat.Kind == PrivateChatKind.LocalUserAndAiAccount
+                     ? ConversationCategory.MyPrivateChat
+                     : ConversationCategory.FriendPrivateChat,
                  Id = chat.Id,
                  ContactId = chat.ContactId,
-                 DisplayName = chat.Contact.AiAccount.Nickname,
-                 AvatarAiAccountId = chat.Contact.AiAccountId,
-                 AvatarMediaId = chat.Contact.AiAccount.AvatarMediaId,
-                 MemberCount = 1,
+                 DisplayName = chat.Kind == PrivateChatKind.LocalUserAndAiAccount
+                     ? chat.Contact!.AiAccount.Nickname
+                     : chat.FirstAiAccount!.Nickname
+                         + " 与 "
+                         + chat.SecondAiAccount!.Nickname,
+                 AvatarAiAccountId = chat.Kind == PrivateChatKind.LocalUserAndAiAccount
+                     ? chat.Contact!.AiAccountId
+                     : chat.FirstAiAccountId,
+                 AvatarMediaId = chat.Kind == PrivateChatKind.LocalUserAndAiAccount
+                     ? chat.Contact!.AiAccount.AvatarMediaId
+                     : chat.FirstAiAccount!.AvatarMediaId,
+                 MemberCount = chat.Kind == PrivateChatKind.LocalUserAndAiAccount
+                     ? 1
+                     : 2,
                  LatestSenderDisplayName = latestMessage == null
                      ? null
                      : latestMessage.SenderDisplayName,
@@ -57,12 +71,16 @@ public sealed class ConversationService
              select new ConversationSummary
              {
                  Kind = ConversationKind.GroupChat,
+                 Category = chat.IncludesLocalUser
+                     ? ConversationCategory.MyGroupChat
+                     : ConversationCategory.FriendGroupChat,
                  Id = chat.Id,
                  ContactId = null,
                  DisplayName = chat.Name,
                  AvatarAiAccountId = null,
                  AvatarMediaId = null,
-                 MemberCount = chat.Members.Count,
+                 MemberCount = chat.Members.Count
+                     + (chat.IncludesLocalUser ? 1 : 0),
                  LatestSenderDisplayName = latestMessage == null
                      ? null
                      : latestMessage.SenderDisplayName,
@@ -94,6 +112,7 @@ public enum ConversationKind
 public sealed class ConversationSummary
 {
     public ConversationKind Kind { get; init; }
+    public ConversationCategory Category { get; init; }
     public Guid Id { get; init; }
     public Guid? ContactId { get; init; }
     public string DisplayName { get; init; } = string.Empty;

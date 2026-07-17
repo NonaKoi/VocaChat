@@ -126,6 +126,36 @@ namespace VocaChat.Migrations
                         });
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiAccountAutonomySettings", b =>
+                {
+                    b.Property<Guid>("AiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("CanInitiateGroupChats")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CanInitiatePrivateChats")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("CanJoinGroupChats")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InitiativeLevel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AiAccountId");
+
+                    b.ToTable("AiAccountAutonomySettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiAccountAutonomySettings_InitiativeLevel", "\"InitiativeLevel\" IN ('Low', 'Normal', 'High')");
+                        });
+                });
+
             modelBuilder.Entity("VocaChat.Models.AiAccountTag", b =>
                 {
                     b.Property<Guid>("AiAccountId")
@@ -144,6 +174,79 @@ namespace VocaChat.Migrations
                     b.HasIndex("Type", "Value");
 
                     b.ToTable("AiAccountTags", (string)null);
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiRelationship", b =>
+                {
+                    b.Property<Guid>("FromAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ToAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Affinity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Familiarity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("InteractionCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastInteractionAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Trust")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("FromAiAccountId", "ToAiAccountId");
+
+                    b.HasIndex("ToAiAccountId");
+
+                    b.ToTable("AiRelationships", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiRelationships_Affinity", "\"Affinity\" BETWEEN -100 AND 100");
+
+                            t.HasCheckConstraint("CK_AiRelationships_DifferentAccounts", "\"FromAiAccountId\" <> \"ToAiAccountId\"");
+
+                            t.HasCheckConstraint("CK_AiRelationships_Familiarity", "\"Familiarity\" BETWEEN 0 AND 100");
+
+                            t.HasCheckConstraint("CK_AiRelationships_InteractionCount", "\"InteractionCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_AiRelationships_Trust", "\"Trust\" BETWEEN 0 AND 100");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousInteractionSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowGroupChats")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowPrivateChats")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AutonomousInteractionSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_Frequency", "\"Frequency\" IN ('Low', 'Normal', 'High')");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_Singleton", "\"Id\" = 1");
+                        });
                 });
 
             modelBuilder.Entity("VocaChat.Models.Contact", b =>
@@ -216,6 +319,9 @@ namespace VocaChat.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("IncludesLocalUser")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -405,18 +511,37 @@ namespace VocaChat.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid>("ContactId")
+                    b.Property<Guid?>("ContactId")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("FirstAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("SecondAiAccountId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ContactId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"ContactId\" IS NOT NULL");
 
-                    b.ToTable("PrivateChats", (string)null);
+                    b.HasIndex("SecondAiAccountId");
+
+                    b.HasIndex("FirstAiAccountId", "SecondAiAccountId")
+                        .IsUnique()
+                        .HasFilter("\"FirstAiAccountId\" IS NOT NULL AND \"SecondAiAccountId\" IS NOT NULL");
+
+                    b.ToTable("PrivateChats", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PrivateChats_Participants_Consistency", "(\"Kind\" = 0 AND \"ContactId\" IS NOT NULL AND \"FirstAiAccountId\" IS NULL AND \"SecondAiAccountId\" IS NULL) OR (\"Kind\" = 1 AND \"ContactId\" IS NULL AND \"FirstAiAccountId\" IS NOT NULL AND \"SecondAiAccountId\" IS NOT NULL AND \"FirstAiAccountId\" <> \"SecondAiAccountId\")");
+                        });
                 });
 
             modelBuilder.Entity("VocaChat.Models.PrivateMessage", b =>
@@ -477,6 +602,15 @@ namespace VocaChat.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiAccountAutonomySettings", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", null)
+                        .WithOne()
+                        .HasForeignKey("VocaChat.Models.AiAccountAutonomySettings", "AiAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("VocaChat.Models.AiAccountTag", b =>
                 {
                     b.HasOne("VocaChat.Models.AiAccount", null)
@@ -484,6 +618,25 @@ namespace VocaChat.Migrations
                         .HasForeignKey("AiAccountId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiRelationship", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", "FromAiAccount")
+                        .WithMany()
+                        .HasForeignKey("FromAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiAccount", "ToAiAccount")
+                        .WithMany()
+                        .HasForeignKey("ToAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FromAiAccount");
+
+                    b.Navigation("ToAiAccount");
                 });
 
             modelBuilder.Entity("VocaChat.Models.Contact", b =>
@@ -572,10 +725,23 @@ namespace VocaChat.Migrations
                     b.HasOne("VocaChat.Models.Contact", "Contact")
                         .WithOne()
                         .HasForeignKey("VocaChat.Models.PrivateChat", "ContactId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.AiAccount", "FirstAiAccount")
+                        .WithMany()
+                        .HasForeignKey("FirstAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.AiAccount", "SecondAiAccount")
+                        .WithMany()
+                        .HasForeignKey("SecondAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Contact");
+
+                    b.Navigation("FirstAiAccount");
+
+                    b.Navigation("SecondAiAccount");
                 });
 
             modelBuilder.Entity("VocaChat.Models.PrivateMessage", b =>

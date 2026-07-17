@@ -46,10 +46,13 @@ public sealed class PrivateChatsController : ControllerBase
             return NotFound();
         }
 
-        AiAccount friend = privateChat.Contact.AiAccount;
+        IReadOnlyList<AiAccount> participants =
+            _privateChatService.GetAiParticipants(privateChat);
         return Ok(_privateChatService.GetOrderedChatHistory(id)
             .Select(message =>
-                PrivateChatResponseMapper.ToMessageResponse(message, friend))
+                PrivateChatResponseMapper.ToMessageResponse(
+                    message,
+                    participants))
             .ToList());
     }
 
@@ -73,7 +76,8 @@ public sealed class PrivateChatsController : ControllerBase
             _interactionService.ProcessUserMessage(
                 privateChat,
                 request.Content);
-        AiAccount friend = privateChat.Contact.AiAccount;
+        IReadOnlyList<AiAccount> participants =
+            _privateChatService.GetAiParticipants(privateChat);
 
         if (result.Status == PrivateChatInteractionStatus.UserMessageRejected)
         {
@@ -91,7 +95,7 @@ public sealed class PrivateChatsController : ControllerBase
                 {
                     Message = result.ErrorMessage,
                     SavedUserMessage = PrivateChatResponseMapper
-                        .ToMessageResponse(result.UserMessage!, friend)
+                        .ToMessageResponse(result.UserMessage!, participants)
                 });
         }
 
@@ -99,10 +103,10 @@ public sealed class PrivateChatsController : ControllerBase
         {
             UserMessage = PrivateChatResponseMapper.ToMessageResponse(
                 result.UserMessage!,
-                friend),
+                participants),
             AiReply = PrivateChatResponseMapper.ToMessageResponse(
                 result.AiReply!,
-                friend)
+                participants)
         });
     }
 }

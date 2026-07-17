@@ -10,4 +10,5 @@ public sealed class CreateGroupChatRequest
 {
     public string? Name { get; set; }
     public List<Guid> MemberAiAccountIds { get; set; } = new();
+    public bool IncludesLocalUser { get; set; } = true;
 }

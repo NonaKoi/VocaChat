@@ -32,7 +32,7 @@ public sealed class PrivateChatInteractionService
                 userMessageError);
         }
 
-        AiAccount aiAccount = privateChat.Contact.AiAccount;
+        AiAccount aiAccount = privateChat.Contact!.AiAccount;
         string replyContent = _fakeAiReplyService.GenerateReply(
             aiAccount,
             userMessage!.Content);

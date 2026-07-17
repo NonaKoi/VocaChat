@@ -23,6 +23,10 @@ public class Program
         builder.Services.AddScoped<PrivateChatService>();
         builder.Services.AddScoped<PrivateChatInteractionService>();
         builder.Services.AddScoped<ConversationService>();
+        builder.Services.AddScoped<AutonomousInteractionSettingsService>();
+        builder.Services.AddScoped<AiAccountAutonomySettingsService>();
+        builder.Services.AddScoped<AiRelationshipService>();
+        builder.Services.AddScoped<AutonomousPrivateChatJudge>();
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddSingleton<FakeAiReplyService>();

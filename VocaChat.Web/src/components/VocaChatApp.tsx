@@ -9,6 +9,7 @@ import { ConversationList } from '@/components/chat/ConversationList'
 import { ContactList } from '@/components/contacts/ContactList'
 import { AppShell } from '@/components/layout/AppShell'
 import { NavigationRail } from '@/components/layout/NavigationRail'
+import { AutonomousInteractionSettingsPage } from '@/components/settings/AutonomousInteractionSettingsPage'
 import { useAiAccounts } from '@/hooks/useAiAccounts'
 import { useContacts } from '@/hooks/useContacts'
 import { useConversations } from '@/hooks/useConversations'
@@ -25,6 +26,7 @@ export function VocaChatApp() {
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummaryResponse>()
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(() => new URLSearchParams(window.location.search).get('friend') ?? undefined)
   const [isAccountCreateOpen, setIsAccountCreateOpen] = useState(false)
+  const [hasUnsavedSettings, setHasUnsavedSettings] = useState(false)
   const [aiAccountDraft, setAiAccountDraft] = useState(emptyAiAccountDraft)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
 
@@ -50,8 +52,9 @@ export function VocaChatApp() {
   async function startPrivateChat() {
     if (!selectedContact) return
     const privateChat = await openPrivateChat(selectedContact.id)
+    if (!privateChat.friend) return
     await conversations.reload()
-    setSelectedConversation({ id: privateChat.id, kind: 'PrivateChat', displayName: privateChat.friend.nickname, avatarUrl: privateChat.friend.avatarUrl, memberCount: 1, contactId: privateChat.contactId, latestSenderDisplayName: null, latestMessageContent: null, latestMessageAt: null, createdAt: privateChat.createdAt })
+    setSelectedConversation({ id: privateChat.id, kind: 'PrivateChat', category: 'MyPrivateChat', displayName: privateChat.friend.nickname, avatarUrl: privateChat.friend.avatarUrl, memberCount: 1, contactId: privateChat.contactId, latestSenderDisplayName: null, latestMessageContent: null, latestMessageAt: null, createdAt: privateChat.createdAt })
     setActiveSection('chat')
   }
   async function uploadMedia(kind: 'avatar' | 'cover', file: File) {
@@ -73,16 +76,35 @@ export function VocaChatApp() {
   let contentPanel
   if (activeSection === 'chat') {
     const title = selectedConversation?.displayName
-    contentPanel = <ChatWorkspace conversationId={selectedConversation?.id} title={title} avatarUrl={selectedConversation?.avatarUrl} kind={selectedConversation?.kind} friend={selectedPrivateContact?.friend} groupChat={selectedGroup} messages={messageState.data} messageStatus={messageState.status} messageError={messageState.errorMessage} sendError={messageState.sendErrorMessage} isSending={messageState.isSending} draft={conversationKey ? drafts[conversationKey] ?? '' : ''} onDraftChange={(value) => conversationKey && setDrafts((current) => ({ ...current, [conversationKey]: value }))} onReloadMessages={messageState.reload} onSendMessage={async (content) => { const result = await messageState.send(content); if (result !== 'rejected') void conversations.reload(); return result }} />
+    contentPanel = <ChatWorkspace conversationId={selectedConversation?.id} title={title} avatarUrl={selectedConversation?.avatarUrl} kind={selectedConversation?.kind} category={selectedConversation?.category} friend={selectedPrivateContact?.friend} groupChat={selectedGroup} messages={messageState.data} messageStatus={messageState.status} messageError={messageState.errorMessage} sendError={messageState.sendErrorMessage} isSending={messageState.isSending} draft={conversationKey ? drafts[conversationKey] ?? '' : ''} onDraftChange={(value) => conversationKey && setDrafts((current) => ({ ...current, [conversationKey]: value }))} onReloadMessages={messageState.reload} onSendMessage={async (content) => { const result = await messageState.send(content); if (result !== 'rejected') void conversations.reload(); return result }} />
   } else if (activeSection === 'friends') {
     contentPanel = isAccountCreateOpen ? <AiAccountCreateForm values={aiAccountDraft} isSubmitting={aiAccounts.isCreating} errorMessage={aiAccounts.createErrorMessage} onValuesChange={setAiAccountDraft} onCancel={() => { setIsAccountCreateOpen(false); setAiAccountDraft(emptyAiAccountDraft) }} onCreate={createAccount} /> : <div className="h-full overflow-y-auto bg-surface-muted"><AiAccountDetails account={selectedContact?.friend} status={contacts.status} isEmpty={contacts.data.length === 0} isUploadingAvatar={aiAccounts.uploadingMedia?.accountId === selectedContact?.friend.id && aiAccounts.uploadingMedia?.kind === 'avatar'} isUploadingCover={aiAccounts.uploadingMedia?.accountId === selectedContact?.friend.id && aiAccounts.uploadingMedia?.kind === 'cover'} mediaUploadErrorMessage={aiAccounts.mediaUploadErrorMessage} onUploadAvatar={selectedContact ? (file) => uploadMedia('avatar', file) : undefined} onUploadCover={selectedContact ? (file) => uploadMedia('cover', file) : undefined} onSendMessage={selectedContact ? startPrivateChat : undefined} /></div>
   } else if (activeSection === 'activity') {
     contentPanel = <ActivityFeed posts={posts.data} status={posts.status} errorMessage={posts.errorMessage} actionError={posts.actionError} onRetry={posts.reload} onToggleLike={(id, liked) => void posts.toggleLike(id, liked)} onComment={(id, content) => void posts.addComment(id, content)} />
+  } else if (activeSection === 'settings') {
+    contentPanel = (
+      <AutonomousInteractionSettingsPage
+        contacts={contacts.data}
+        contactStatus={contacts.status}
+        contactErrorMessage={contacts.errorMessage}
+        onReloadContacts={contacts.reload}
+        onDirtyChange={setHasUnsavedSettings}
+      />
+    )
   } else {
     contentPanel = <div className="grid h-full place-content-center text-sm text-muted-foreground">该功能将在后续阶段开放</div>
   }
 
   function changeSection(section: AppSection) {
+    if (
+      activeSection === 'settings'
+      && section !== 'settings'
+      && hasUnsavedSettings
+      && !window.confirm('设置尚未保存，确定要离开吗？')
+    ) {
+      return
+    }
+
     setActiveSection(section)
     const url = new URL(window.location.href)
     url.searchParams.set('section', section)
@@ -94,5 +116,7 @@ export function VocaChatApp() {
 
 function getInitialSection(): AppSection {
   const value = new URLSearchParams(window.location.search).get('section')
-  return value === 'friends' || value === 'activity' ? value : 'chat'
+  return value === 'friends' || value === 'activity' || value === 'settings'
+    ? value
+    : 'chat'
 }

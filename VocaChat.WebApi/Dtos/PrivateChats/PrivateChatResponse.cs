@@ -6,7 +6,9 @@ namespace VocaChat.WebApi.Dtos.PrivateChats;
 public sealed class PrivateChatResponse
 {
     public Guid Id { get; init; }
-    public Guid ContactId { get; init; }
-    public AiAccountResponse Friend { get; init; } = new();
+    public string Category { get; init; } = string.Empty;
+    public Guid? ContactId { get; init; }
+    public AiAccountResponse? Friend { get; init; }
+    public List<AiAccountResponse> Participants { get; init; } = new();
     public DateTime CreatedAt { get; init; }
 }

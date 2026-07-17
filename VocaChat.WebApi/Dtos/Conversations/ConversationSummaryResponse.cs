@@ -4,6 +4,7 @@ namespace VocaChat.WebApi.Dtos.Conversations;
 public sealed class ConversationSummaryResponse
 {
     public string Kind { get; init; } = string.Empty;
+    public string Category { get; init; } = string.Empty;
     public Guid Id { get; init; }
     public Guid? ContactId { get; init; }
     public string DisplayName { get; init; } = string.Empty;

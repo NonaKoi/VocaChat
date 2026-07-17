@@ -13,6 +13,7 @@ vi.mock('@/hooks/useGroupChats', () => ({
       {
         id: 'group-1',
         name: '学习群',
+        includesLocalUser: true,
         createdAt: '2026-07-17T12:00:00',
         members: [{ id: 'account-1', nickname: '小语', avatarUrl: null }],
       },
@@ -47,9 +48,21 @@ vi.mock('@/hooks/useAiAccounts', () => ({
 }))
 
 vi.mock('@/hooks/useContacts', () => ({ useContacts: () => ({ data: [{ id: 'contact-1', contactGroupId: 'default', contactGroupName: '默认分组', createdAt: account.createdAt, friend: account }], groups: [{ id: 'default', name: '默认分组', sortOrder: 0, createdAt: account.createdAt }], status: 'success', reload: vi.fn(), reloadGroups: vi.fn() }) }))
-vi.mock('@/hooks/useConversations', () => ({ useConversations: () => ({ data: [{ id: 'group-1', kind: 'GroupChat', displayName: '学习群', avatarUrl: null, memberCount: 1, contactId: null, latestSenderDisplayName: null, latestMessageContent: null, latestMessageAt: null, createdAt: '2026-07-17T12:00:00' }], status: 'success', reload: vi.fn() }) }))
+vi.mock('@/hooks/useConversations', () => ({ useConversations: () => ({ data: [{ id: 'group-1', kind: 'GroupChat', category: 'MyGroupChat', displayName: '学习群', avatarUrl: null, memberCount: 2, contactId: null, latestSenderDisplayName: null, latestMessageContent: null, latestMessageAt: null, createdAt: '2026-07-17T12:00:00' }], status: 'success', reload: vi.fn() }) }))
 vi.mock('@/hooks/usePrivateMessages', () => ({ usePrivateMessages: () => ({ data: [], status: 'idle', isSending: false, reload: vi.fn(), send: vi.fn() }) }))
 vi.mock('@/hooks/usePosts', () => ({ usePosts: () => ({ data: [], status: 'success', reload: vi.fn(), toggleLike: vi.fn(), addComment: vi.fn() }) }))
+vi.mock('@/hooks/useAutonomousInteractionSettings', () => {
+  const data = { isEnabled: false, frequency: 'Normal', allowPrivateChats: true, allowGroupChats: true }
+  return {
+    useAutonomousInteractionSettings: () => ({
+      data,
+      status: 'success',
+      isSaving: false,
+      reload: vi.fn(),
+      save: vi.fn(),
+    }),
+  }
+})
 
 describe('VocaChatApp', () => {
   it('切换到好友区域后仍保留聊天草稿', async () => {
@@ -81,5 +94,22 @@ describe('VocaChatApp', () => {
     await user.click(screen.getByRole('button', { name: '好友' }))
 
     expect(screen.getByLabelText('昵称')).toHaveValue('尚未创建的小语')
+  })
+
+  it('设置存在未保存更改时先确认再离开', async () => {
+    const user = userEvent.setup()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<VocaChatApp />)
+
+    await user.click(screen.getByRole('button', { name: '设置' }))
+    await user.click(screen.getByRole('switch', { name: '允许好友自主互动' }))
+    await user.click(screen.getByRole('button', { name: '聊天' }))
+
+    expect(confirm).toHaveBeenCalledWith('设置尚未保存，确定要离开吗？')
+    expect(screen.getByRole('heading', { name: '好友自主互动' })).toBeInTheDocument()
+
+    confirm.mockReturnValue(true)
+    await user.click(screen.getByRole('button', { name: '聊天' }))
+    expect(screen.getByLabelText('会话列表')).toBeInTheDocument()
   })
 })

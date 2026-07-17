@@ -70,6 +70,7 @@ public class GroupChatsController : ControllerBase
         bool succeeded = _groupChatService.TryCreateGroupChat(
             request.Name ?? string.Empty,
             request.MemberAiAccountIds,
+            request.IncludesLocalUser,
             out GroupChat? groupChat,
             out string errorMessage);
 
@@ -126,6 +127,7 @@ public class GroupChatsController : ControllerBase
         {
             Id = groupChat.Id,
             Name = groupChat.Name,
+            IncludesLocalUser = groupChat.IncludesLocalUser,
             CreatedAt = groupChat.CreatedAt,
             Members = groupChat.Members
                 .Select(ToMemberResponse)

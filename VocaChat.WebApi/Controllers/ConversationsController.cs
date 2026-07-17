@@ -25,6 +25,7 @@ public sealed class ConversationsController : ControllerBase
             .Select(summary => new ConversationSummaryResponse
             {
                 Kind = summary.Kind.ToString(),
+                Category = summary.Category.ToString(),
                 Id = summary.Id,
                 ContactId = summary.ContactId,
                 DisplayName = summary.DisplayName,

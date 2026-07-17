@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using VocaChat.WebApi.Dtos.AiAccounts;
+using VocaChat.WebApi.Dtos.Conversations;
 using VocaChat.WebApi.Dtos.GroupChats;
 
 namespace VocaChat.Tests.ApiIntegration;
@@ -37,6 +38,7 @@ public sealed class GroupChatsApiTests
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         Assert.NotNull(createResponse.Headers.Location);
         Assert.NotNull(createdGroup);
+        Assert.True(createdGroup.IncludesLocalUser);
         Assert.Equal(firstAccount.Id, Assert.Single(createdGroup.Members).Id);
 
         using HttpResponseMessage initialGetResponse = await client.GetAsync(
@@ -82,6 +84,40 @@ public sealed class GroupChatsApiTests
         Assert.Equal(2, reloadedGroup.Members.Count);
         Assert.NotNull(storedAccounts);
         Assert.Equal(2, storedAccounts.Count);
+    }
+
+    [Fact]
+    public async Task CreateFriendGroup_ReturnsFriendGroupConversationCategory()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse firstAccount = await CreateAccountAsync(client, "FriendGroupAlpha");
+        AiAccountResponse secondAccount = await CreateAccountAsync(client, "FriendGroupBeta");
+
+        using HttpResponseMessage createResponse = await client.PostAsJsonAsync(
+            "/api/group-chats",
+            new CreateGroupChatRequest
+            {
+                Name = "好友群聊",
+                IncludesLocalUser = false,
+                MemberAiAccountIds = new List<Guid>
+                {
+                    firstAccount.Id,
+                    secondAccount.Id
+                }
+            });
+        GroupChatResponse? createdGroup = await createResponse.Content
+            .ReadFromJsonAsync<GroupChatResponse>();
+        List<ConversationSummaryResponse>? conversations = await client
+            .GetFromJsonAsync<List<ConversationSummaryResponse>>(
+                "/api/conversations");
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.NotNull(createdGroup);
+        Assert.False(createdGroup.IncludesLocalUser);
+        ConversationSummaryResponse summary = Assert.Single(conversations!);
+        Assert.Equal("GroupChat", summary.Kind);
+        Assert.Equal("FriendGroupChat", summary.Category);
     }
 
     private static async Task<AiAccountResponse> CreateAccountAsync(
