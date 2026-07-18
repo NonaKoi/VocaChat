@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react'
-import type { ConversationSummaryResponse, CreateAiAccountRequest } from '@/api/types'
+import type {
+  ConversationSummaryResponse,
+  CreateAiAccountRequest,
+  CreateGroupChatRequest,
+  GroupChatResponse,
+} from '@/api/types'
 import { openPrivateChat } from '@/api/contacts'
 import { AiAccountCreateForm } from '@/components/aiAccounts/AiAccountCreateForm'
 import { AiAccountDetails } from '@/components/aiAccounts/AiAccountDetails'
@@ -7,6 +12,7 @@ import { ActivityFeed } from '@/components/activity/ActivityFeed'
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace'
 import { ConversationList } from '@/components/chat/ConversationList'
 import { ContactList } from '@/components/contacts/ContactList'
+import { GroupChatCreatePanel } from '@/components/groupChats/GroupChatCreatePanel'
 import { AppShell } from '@/components/layout/AppShell'
 import { NavigationRail } from '@/components/layout/NavigationRail'
 import { AutonomousInteractionSettingsPage } from '@/components/settings/AutonomousInteractionSettingsPage'
@@ -26,6 +32,7 @@ export function VocaChatApp() {
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummaryResponse>()
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(() => new URLSearchParams(window.location.search).get('friend') ?? undefined)
   const [isAccountCreateOpen, setIsAccountCreateOpen] = useState(false)
+  const [isGroupChatCreateOpen, setIsGroupChatCreateOpen] = useState(false)
   const [hasUnsavedSettings, setHasUnsavedSettings] = useState(false)
   const [aiAccountDraft, setAiAccountDraft] = useState(emptyAiAccountDraft)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -57,6 +64,34 @@ export function VocaChatApp() {
     setSelectedConversation({ id: privateChat.id, kind: 'PrivateChat', category: 'MyPrivateChat', displayName: privateChat.friend.nickname, avatarUrl: privateChat.friend.avatarUrl, memberCount: 1, contactId: privateChat.contactId, latestSenderDisplayName: null, latestMessageContent: null, latestMessageAt: null, createdAt: privateChat.createdAt })
     setActiveSection('chat')
   }
+  function openGroupChatCreate() {
+    groupChats.clearCreateError()
+    setIsGroupChatCreateOpen(true)
+  }
+  async function createGroupChat(request: CreateGroupChatRequest) {
+    const createdGroupChat = await groupChats.create(request)
+    if (!createdGroupChat) return undefined
+
+    const refreshedConversations = await conversations.reload()
+    const createdConversation = refreshedConversations?.find(
+      (item) => item.kind === 'GroupChat' && item.id === createdGroupChat.id,
+    ) ?? toGroupConversation(createdGroupChat)
+
+    setSelectedConversation(createdConversation)
+    setIsGroupChatCreateOpen(false)
+    return createdGroupChat
+  }
+  async function addGroupChatMember(groupChatId: string, aiAccountId: string) {
+    const updatedGroupChat = await groupChats.addMember(groupChatId, aiAccountId)
+    if (!updatedGroupChat) return false
+
+    const refreshedConversations = await conversations.reload()
+    const updatedConversation = refreshedConversations?.find(
+      (item) => item.kind === 'GroupChat' && item.id === groupChatId,
+    ) ?? toGroupConversation(updatedGroupChat)
+    setSelectedConversation(updatedConversation)
+    return true
+  }
   async function uploadMedia(kind: 'avatar' | 'cover', file: File) {
     if (!selectedContact) return
     if (kind === 'avatar') await aiAccounts.uploadAvatar(selectedContact.friend.id, file)
@@ -83,13 +118,77 @@ export function VocaChatApp() {
     window.history.replaceState(null, '', url)
   }
 
-  const listPanel = activeSection === 'chat' ? <ConversationList conversations={conversations.data} status={conversations.status} selectedKey={conversationKey} errorMessage={conversations.errorMessage} onSelect={setSelectedConversation} onRetry={conversations.reload} />
-    : activeSection === 'friends' ? <ContactList contacts={contacts.data} groups={contacts.groups} status={contacts.status} selectedAccountId={selectedAccountId} isCreating={isAccountCreateOpen} errorMessage={contacts.errorMessage} onSelect={(id) => { selectAccount(id); setIsAccountCreateOpen(false); aiAccounts.clearMediaUploadError() }} onCreate={openAccountCreate} onRetry={contacts.reload} /> : undefined
+  const listPanel = activeSection === 'chat'
+    ? (
+        <ConversationList
+          conversations={conversations.data}
+          status={conversations.status}
+          selectedKey={conversationKey}
+          errorMessage={conversations.errorMessage}
+          onSelect={(conversation) => {
+            setSelectedConversation(conversation)
+            setIsGroupChatCreateOpen(false)
+          }}
+          onCreateGroupChat={openGroupChatCreate}
+          onRetry={conversations.reload}
+        />
+      )
+    : activeSection === 'friends'
+      ? <ContactList contacts={contacts.data} groups={contacts.groups} status={contacts.status} selectedAccountId={selectedAccountId} isCreating={isAccountCreateOpen} errorMessage={contacts.errorMessage} onSelect={(id) => { selectAccount(id); setIsAccountCreateOpen(false); aiAccounts.clearMediaUploadError() }} onCreate={openAccountCreate} onRetry={contacts.reload} />
+      : undefined
 
   let contentPanel
   if (activeSection === 'chat') {
     const title = selectedConversation?.displayName
-    contentPanel = <ChatWorkspace conversationId={selectedConversation?.id} title={title} avatarUrl={selectedConversation?.avatarUrl} kind={selectedConversation?.kind} category={selectedConversation?.category} friend={selectedPrivateContact?.friend} groupChat={selectedGroup} messages={messageState.data} messageStatus={messageState.status} messageError={messageState.errorMessage} sendError={messageState.sendErrorMessage} isSending={messageState.isSending} draft={conversationKey ? drafts[conversationKey] ?? '' : ''} onDraftChange={(value) => conversationKey && setDrafts((current) => ({ ...current, [conversationKey]: value }))} onReloadMessages={messageState.reload} onSendMessage={async (content) => { const result = await messageState.send(content); if (result !== 'rejected') void conversations.reload(); return result }} />
+    contentPanel = isGroupChatCreateOpen
+      ? (
+          <GroupChatCreatePanel
+            contacts={contacts.data}
+            contactStatus={contacts.status}
+            contactErrorMessage={contacts.errorMessage}
+            isSubmitting={groupChats.isCreating}
+            errorMessage={groupChats.createErrorMessage}
+            onRetryContacts={contacts.reload}
+            onCancel={() => {
+              groupChats.clearCreateError()
+              setIsGroupChatCreateOpen(false)
+            }}
+            onCreate={createGroupChat}
+          />
+        )
+      : (
+          <ChatWorkspace
+            conversationId={selectedConversation?.id}
+            title={title}
+            avatarUrl={selectedConversation?.avatarUrl}
+            kind={selectedConversation?.kind}
+            category={selectedConversation?.category}
+            friend={selectedPrivateContact?.friend}
+            groupChat={selectedGroup}
+            contacts={contacts.data}
+            contactStatus={contacts.status}
+            messages={messageState.data}
+            messageStatus={messageState.status}
+            messageError={messageState.errorMessage}
+            sendError={messageState.sendErrorMessage}
+            isSending={messageState.isSending}
+            isAddingGroupMember={groupChats.addingMemberToGroupId === selectedGroup?.id}
+            groupMemberError={groupChats.memberErrorMessage}
+            draft={conversationKey ? drafts[conversationKey] ?? '' : ''}
+            onDraftChange={(value) => conversationKey && setDrafts(
+              (current) => ({ ...current, [conversationKey]: value }),
+            )}
+            onReloadMessages={messageState.reload}
+            onRetryContacts={contacts.reload}
+            onClearGroupMemberError={groupChats.clearMemberError}
+            onAddGroupMember={addGroupChatMember}
+            onSendMessage={async (content) => {
+              const result = await messageState.send(content)
+              if (result !== 'rejected') void conversations.reload()
+              return result
+            }}
+          />
+        )
   } else if (activeSection === 'friends') {
     contentPanel = isAccountCreateOpen ? <AiAccountCreateForm values={aiAccountDraft} isSubmitting={aiAccounts.isCreating} errorMessage={aiAccounts.createErrorMessage} onValuesChange={setAiAccountDraft} onCancel={() => { setIsAccountCreateOpen(false); setAiAccountDraft(emptyAiAccountDraft) }} onCreate={createAccount} /> : <div className="h-full overflow-y-auto bg-surface-muted"><AiAccountDetails account={selectedContact?.friend} status={contacts.status} isEmpty={contacts.data.length === 0} isUploadingAvatar={aiAccounts.uploadingMedia?.accountId === selectedContact?.friend.id && aiAccounts.uploadingMedia?.kind === 'avatar'} isUploadingCover={aiAccounts.uploadingMedia?.accountId === selectedContact?.friend.id && aiAccounts.uploadingMedia?.kind === 'cover'} mediaUploadErrorMessage={aiAccounts.mediaUploadErrorMessage} onUploadAvatar={selectedContact ? (file) => uploadMedia('avatar', file) : undefined} onUploadCover={selectedContact ? (file) => uploadMedia('cover', file) : undefined} onSendMessage={selectedContact ? startPrivateChat : undefined} /></div>
   } else if (activeSection === 'activity') {
@@ -126,6 +225,22 @@ export function VocaChatApp() {
   }
 
   return <AppShell navigation={<NavigationRail activeSection={activeSection} onSectionChange={changeSection} />} listPanel={listPanel} contentPanel={contentPanel} />
+}
+
+function toGroupConversation(groupChat: GroupChatResponse): ConversationSummaryResponse {
+  return {
+    id: groupChat.id,
+    kind: 'GroupChat',
+    category: groupChat.includesLocalUser ? 'MyGroupChat' : 'FriendGroupChat',
+    displayName: groupChat.name,
+    avatarUrl: null,
+    memberCount: groupChat.members.length + (groupChat.includesLocalUser ? 1 : 0),
+    contactId: null,
+    latestSenderDisplayName: null,
+    latestMessageContent: null,
+    latestMessageAt: null,
+    createdAt: groupChat.createdAt,
+  }
 }
 
 function getInitialSection(): AppSection {

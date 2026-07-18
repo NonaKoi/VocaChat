@@ -4,51 +4,10 @@ using VocaChat.Models;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 负责从群成员中选择一个 AI 发言者，并生成本地模拟回复。
+/// 负责为已经选定的 AI 发言者生成本地模拟回复。
 /// </summary>
 public class FakeAiReplyService
 {
-    /// <summary>
-    /// 只从当前群成员中选择一个 AI；有效点名优先，否则选择第一个成员。
-    /// </summary>
-    public AiAccount? SelectAiSpeaker(
-        GroupChat groupChat,
-        string userContent,
-        out bool selectedByMention)
-    {
-        selectedByMention = false;
-
-        if (groupChat.Members.Count == 0)
-        {
-            return null;
-        }
-
-        AiAccount? mentionedMember = null;
-        int earliestMentionIndex = int.MaxValue;
-
-        foreach (AiAccount member in groupChat.Members)
-        {
-            string mentionText = $"@{member.Nickname}";
-            int mentionIndex = userContent.IndexOf(
-                mentionText,
-                StringComparison.OrdinalIgnoreCase);
-
-            if (mentionIndex >= 0 && mentionIndex < earliestMentionIndex)
-            {
-                mentionedMember = member;
-                earliestMentionIndex = mentionIndex;
-            }
-        }
-
-        if (mentionedMember is not null)
-        {
-            selectedByMention = true;
-            return mentionedMember;
-        }
-
-        return groupChat.Members[0];
-    }
-
     /// <summary>
     /// 生成不依赖网络或真实大模型的假 AI 回复文本。
     /// </summary>
@@ -67,6 +26,23 @@ public class FakeAiReplyService
         return $"我是{aiSpeaker.Nickname}，{identityDescription}，性格是{personality}，"
             + $"说话风格是{speakingStyle}。我看到了你刚才说的“{userContent}”。"
             + "这是当前由系统生成的模拟回复。";
+    }
+
+    /// <summary>
+    /// 为第二位群成员生成区别于主回复的接话文本。
+    /// </summary>
+    public string GenerateFollowUpReply(
+        AiAccount aiSpeaker,
+        AiAccount primarySpeaker,
+        string userContent)
+    {
+        string speakingStyle = string.IsNullOrWhiteSpace(aiSpeaker.SpeakingStyle)
+            ? "自然地"
+            : $"用{aiSpeaker.SpeakingStyle}的方式";
+
+        return $"我是{aiSpeaker.Nickname}。{primarySpeaker.Nickname}刚才的回应我也看到了，"
+            + $"我想{speakingStyle}补充一句：关于“{userContent}”，我也有一些想法。"
+            + "这是当前由系统生成的模拟跟进回复。";
     }
 
     /// <summary>

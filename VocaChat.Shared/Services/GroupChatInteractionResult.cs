@@ -8,6 +8,7 @@ namespace VocaChat.Services;
 public enum GroupChatInteractionStatus
 {
     Succeeded,
+    PartiallySucceeded,
     UserMessageRejected,
     AiReplyFailed
 }
@@ -30,20 +31,20 @@ public sealed class GroupChatInteractionResult
 {
     public GroupChatInteractionStatus Status { get; }
     public GroupMessage? UserMessage { get; }
-    public GroupMessage? AiReply { get; }
+    public IReadOnlyList<GroupMessage> AiReplies { get; }
     public AiSpeakerSelectionStatus SpeakerSelectionStatus { get; }
     public string ErrorMessage { get; }
 
     private GroupChatInteractionResult(
         GroupChatInteractionStatus status,
         GroupMessage? userMessage,
-        GroupMessage? aiReply,
+        IReadOnlyList<GroupMessage> aiReplies,
         AiSpeakerSelectionStatus speakerSelectionStatus,
         string errorMessage)
     {
         Status = status;
         UserMessage = userMessage;
-        AiReply = aiReply;
+        AiReplies = aiReplies;
         SpeakerSelectionStatus = speakerSelectionStatus;
         ErrorMessage = errorMessage;
     }
@@ -57,7 +58,7 @@ public sealed class GroupChatInteractionResult
         return new GroupChatInteractionResult(
             GroupChatInteractionStatus.UserMessageRejected,
             null,
-            null,
+            Array.Empty<GroupMessage>(),
             AiSpeakerSelectionStatus.NotAttempted,
             errorMessage);
     }
@@ -67,13 +68,14 @@ public sealed class GroupChatInteractionResult
     /// </summary>
     internal static GroupChatInteractionResult AiReplyFailed(
         GroupMessage userMessage,
+        IReadOnlyList<GroupMessage> savedAiReplies,
         AiSpeakerSelectionStatus speakerSelectionStatus,
         string errorMessage)
     {
         return new GroupChatInteractionResult(
             GroupChatInteractionStatus.AiReplyFailed,
             userMessage,
-            null,
+            savedAiReplies,
             speakerSelectionStatus,
             errorMessage);
     }
@@ -83,14 +85,31 @@ public sealed class GroupChatInteractionResult
     /// </summary>
     internal static GroupChatInteractionResult Succeeded(
         GroupMessage userMessage,
-        GroupMessage aiReply,
+        IReadOnlyList<GroupMessage> aiReplies,
         AiSpeakerSelectionStatus speakerSelectionStatus)
     {
         return new GroupChatInteractionResult(
             GroupChatInteractionStatus.Succeeded,
             userMessage,
-            aiReply,
+            aiReplies,
             speakerSelectionStatus,
             string.Empty);
+    }
+
+    /// <summary>
+    /// 创建至少一条 AI 回复已保存、但后续回复失败的结果。
+    /// </summary>
+    internal static GroupChatInteractionResult PartiallySucceeded(
+        GroupMessage userMessage,
+        IReadOnlyList<GroupMessage> aiReplies,
+        AiSpeakerSelectionStatus speakerSelectionStatus,
+        string errorMessage)
+    {
+        return new GroupChatInteractionResult(
+            GroupChatInteractionStatus.PartiallySucceeded,
+            userMessage,
+            aiReplies,
+            speakerSelectionStatus,
+            errorMessage);
     }
 }

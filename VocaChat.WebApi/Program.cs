@@ -30,6 +30,7 @@ public class Program
         builder.Services.AddScoped<AutonomousPrivateChatExecutionService>();
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
+        builder.Services.AddScoped<GroupChatReplyPlanner>();
         builder.Services.AddSingleton<FakeAiReplyService>();
         builder.Services.AddScoped<GroupChatInteractionService>();
         builder.Services.AddSingleton(_ =>

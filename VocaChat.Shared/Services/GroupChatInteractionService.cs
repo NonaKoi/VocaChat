@@ -10,15 +10,19 @@ public sealed class GroupChatInteractionService
 {
     private readonly GroupMessageService _groupMessageService;
     private readonly FakeAiReplyService _fakeAiReplyService;
+    private readonly GroupChatReplyPlanner _replyPlanner;
 
     public GroupChatInteractionService(
         GroupMessageService groupMessageService,
-        FakeAiReplyService fakeAiReplyService)
+        FakeAiReplyService fakeAiReplyService,
+        GroupChatReplyPlanner replyPlanner)
     {
         _groupMessageService = groupMessageService
             ?? throw new ArgumentNullException(nameof(groupMessageService));
         _fakeAiReplyService = fakeAiReplyService
             ?? throw new ArgumentNullException(nameof(fakeAiReplyService));
+        _replyPlanner = replyPlanner
+            ?? throw new ArgumentNullException(nameof(replyPlanner));
     }
 
     /// <summary>
@@ -42,60 +46,62 @@ public sealed class GroupChatInteractionService
                 userMessageError);
         }
 
-        AiAccount? aiSpeaker = _fakeAiReplyService.SelectAiSpeaker(
+        GroupChatReplyPlan replyPlan = _replyPlanner.CreatePlan(
             groupChat,
-            userMessage.Content,
-            out bool selectedByMention);
+            userMessage.Content);
 
-        if (aiSpeaker is null)
+        if (replyPlan.Candidates.Count == 0)
         {
             return GroupChatInteractionResult.AiReplyFailed(
                 userMessage,
+                Array.Empty<GroupMessage>(),
                 AiSpeakerSelectionStatus.NotAttempted,
                 "当前群聊没有 AI 成员，无法生成假回复。");
         }
 
-        AiSpeakerSelectionStatus selectionStatus = GetSelectionStatus(
-            userMessage.Content,
-            selectedByMention);
-        string fakeReply = _fakeAiReplyService.GenerateReply(
-            aiSpeaker,
-            userMessage.Content);
-        bool aiMessageSaved = _groupMessageService.TrySaveAiReply(
-            groupChat,
-            aiSpeaker,
-            fakeReply,
-            out GroupMessage? aiMessage,
-            out string aiMessageError);
+        List<GroupMessage> savedAiReplies = new();
+        AiAccount primarySpeaker = replyPlan.Candidates[0].Speaker;
 
-        if (!aiMessageSaved || aiMessage is null)
+        foreach (GroupChatReplyCandidate candidate in replyPlan.Candidates)
         {
-            return GroupChatInteractionResult.AiReplyFailed(
-                userMessage,
-                selectionStatus,
-                aiMessageError);
+            string fakeReply = candidate.Role == GroupChatReplyRole.Primary
+                ? _fakeAiReplyService.GenerateReply(
+                    candidate.Speaker,
+                    userMessage.Content)
+                : _fakeAiReplyService.GenerateFollowUpReply(
+                    candidate.Speaker,
+                    primarySpeaker,
+                    userMessage.Content);
+            bool aiMessageSaved = _groupMessageService.TrySaveAiReply(
+                groupChat,
+                candidate.Speaker,
+                fakeReply,
+                out GroupMessage? aiMessage,
+                out string aiMessageError);
+
+            if (!aiMessageSaved || aiMessage is null)
+            {
+                IReadOnlyList<GroupMessage> savedReplies =
+                    savedAiReplies.AsReadOnly();
+                return savedAiReplies.Count == 0
+                    ? GroupChatInteractionResult.AiReplyFailed(
+                        userMessage,
+                        savedReplies,
+                        replyPlan.SelectionStatus,
+                        aiMessageError)
+                    : GroupChatInteractionResult.PartiallySucceeded(
+                        userMessage,
+                        savedReplies,
+                        replyPlan.SelectionStatus,
+                        aiMessageError);
+            }
+
+            savedAiReplies.Add(aiMessage);
         }
 
         return GroupChatInteractionResult.Succeeded(
             userMessage,
-            aiMessage,
-            selectionStatus);
-    }
-
-    /// <summary>
-    /// 将现有点名选择结果转换为 Console 和 Web API 都能理解的明确状态。
-    /// </summary>
-    private static AiSpeakerSelectionStatus GetSelectionStatus(
-        string userContent,
-        bool selectedByMention)
-    {
-        if (selectedByMention)
-        {
-            return AiSpeakerSelectionStatus.MentionMatched;
-        }
-
-        return userContent.Contains('@')
-            ? AiSpeakerSelectionStatus.MentionNotMatched
-            : AiSpeakerSelectionStatus.DefaultSelection;
+            savedAiReplies.AsReadOnly(),
+            replyPlan.SelectionStatus);
     }
 }

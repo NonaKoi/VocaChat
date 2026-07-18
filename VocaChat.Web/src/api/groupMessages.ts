@@ -26,15 +26,20 @@ export function sendGroupMessage(
   )
 }
 
-/** 从部分失败响应中取得已经持久化的用户消息。 */
-export function getSavedUserMessage(
+/** 从失败响应中取得已经持久化、不能被前端丢弃的消息。 */
+export function getSavedGroupMessages(
   error: unknown,
-): GroupMessageResponse | undefined {
+): GroupMessageResponse[] {
   if (!(error instanceof ApiError) || !isFailureResponse(error.responseBody)) {
-    return undefined
+    return []
   }
 
-  return error.responseBody.savedUserMessage ?? undefined
+  return [
+    ...(error.responseBody.savedUserMessage
+      ? [error.responseBody.savedUserMessage]
+      : []),
+    ...(error.responseBody.savedAiReplies ?? []),
+  ]
 }
 
 function isFailureResponse(

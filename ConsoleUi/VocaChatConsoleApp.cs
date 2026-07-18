@@ -403,15 +403,16 @@ public class VocaChatConsoleApp
                 Console.WriteLine("没有找到被点名的群内 AI，将按默认规则选择发言者。");
             }
 
-            if (result.Status == GroupChatInteractionStatus.AiReplyFailed)
+            foreach (GroupMessage aiReply in result.AiReplies)
+            {
+                DisplayMessage(aiReply);
+            }
+
+            if (result.Status is GroupChatInteractionStatus.AiReplyFailed
+                or GroupChatInteractionStatus.PartiallySucceeded)
             {
                 Console.WriteLine(result.ErrorMessage);
                 continue;
-            }
-
-            if (result.AiReply is not null)
-            {
-                DisplayMessage(result.AiReply);
             }
         }
     }

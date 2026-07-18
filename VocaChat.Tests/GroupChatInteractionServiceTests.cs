@@ -27,13 +27,13 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             AiSpeakerSelectionStatus.DefaultSelection,
             result.SpeakerSelectionStatus);
         Assert.NotNull(result.UserMessage);
-        Assert.NotNull(result.AiReply);
+        GroupMessage aiReply = Assert.Single(result.AiReplies);
         Assert.Equal(2, history.Count);
         Assert.Equal(MessageSenderType.User, history[0].SenderType);
         Assert.Equal(MessageSenderType.AiAccount, history[1].SenderType);
         Assert.Contains(
             context.GroupChat.Members,
-            member => member.Id == result.AiReply.SenderAiAccountId);
+            member => member.Id == aiReply.SenderAiAccountId);
     }
 
     [Fact]
@@ -50,7 +50,9 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         Assert.Equal(
             AiSpeakerSelectionStatus.MentionMatched,
             result.SpeakerSelectionStatus);
-        Assert.Equal(mentionedMember.Id, result.AiReply?.SenderAiAccountId);
+        Assert.Equal(
+            mentionedMember.Id,
+            Assert.Single(result.AiReplies).SenderAiAccountId);
     }
 
     [Fact]
@@ -65,9 +67,10 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         Assert.Equal(
             AiSpeakerSelectionStatus.MentionNotMatched,
             result.SpeakerSelectionStatus);
-        Assert.Equal(
-            context.GroupChat.Members[0].Id,
-            result.AiReply?.SenderAiAccountId);
+        GroupMessage aiReply = Assert.Single(result.AiReplies);
+        Assert.Contains(
+            context.GroupChat.Members,
+            member => member.Id == aiReply.SenderAiAccountId);
     }
 
     [Fact]
@@ -85,7 +88,7 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             AiSpeakerSelectionStatus.NotAttempted,
             result.SpeakerSelectionStatus);
         Assert.Null(result.UserMessage);
-        Assert.Null(result.AiReply);
+        Assert.Empty(result.AiReplies);
         Assert.Empty(context.MessageService.GetOrderedChatHistory(context.GroupChat));
     }
 
@@ -104,9 +107,72 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
 
         Assert.Equal(GroupChatInteractionStatus.AiReplyFailed, result.Status);
         Assert.NotNull(result.UserMessage);
-        Assert.Null(result.AiReply);
+        Assert.Empty(result.AiReplies);
         Assert.Equal(result.UserMessage.Id, storedMessage.Id);
         Assert.Equal(MessageSenderType.User, storedMessage.SenderType);
+    }
+
+    [Fact]
+    public void ProcessUserMessage_WhenSecondReplyCannotBeSaved_ReturnsSavedFirstReply()
+    {
+        VocaChat.Data.VocaChatDbContextFactory dbContextFactory =
+            _database.CreateDbContextFactory();
+        AiAccountService accountService = new(dbContextFactory);
+        Assert.True(accountService.TryCreateAiAccount(
+            "Alpha",
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            out AiAccount? firstAccount,
+            out string firstAccountError), firstAccountError);
+        Assert.True(accountService.TryCreateAiAccount(
+            "Beta",
+            string.Empty,
+            string.Empty,
+            new string('s', 200),
+            out AiAccount? secondAccount,
+            out string secondAccountError), secondAccountError);
+        AiAccount primarySpeaker = Assert.IsType<AiAccount>(firstAccount);
+        AiAccount followUpSpeaker = Assert.IsType<AiAccount>(secondAccount);
+        GroupChatService groupChatService = new(dbContextFactory);
+        Assert.True(groupChatService.TryCreateGroupChat(
+            "部分回复测试群",
+            new[] { primarySpeaker.Id, followUpSpeaker.Id },
+            out GroupChat? groupChat,
+            out string groupError), groupError);
+        GroupChat storedGroupChat = Assert.IsType<GroupChat>(groupChat);
+        FakeAiReplyService fakeAiReplyService = new();
+        int primaryOverhead = fakeAiReplyService.GenerateReply(
+            primarySpeaker,
+            string.Empty).Length;
+        int followUpOverhead = fakeAiReplyService.GenerateFollowUpReply(
+            followUpSpeaker,
+            primarySpeaker,
+            string.Empty).Length;
+        Assert.True(followUpOverhead > primaryOverhead);
+        string mentions = "@Alpha @Beta ";
+        string content = mentions + new string(
+            'a',
+            GroupMessage.ContentMaxLength - primaryOverhead - mentions.Length);
+        GroupMessageService messageService = new(dbContextFactory);
+        GroupChatInteractionService interactionService = new(
+            messageService,
+            fakeAiReplyService,
+            new GroupChatReplyPlanner(dbContextFactory));
+
+        GroupChatInteractionResult result = interactionService
+            .ProcessUserMessage(storedGroupChat, content);
+        IReadOnlyList<GroupMessage> history = messageService
+            .GetOrderedChatHistory(storedGroupChat);
+
+        Assert.Equal(
+            GroupChatInteractionStatus.PartiallySucceeded,
+            result.Status);
+        Assert.NotNull(result.UserMessage);
+        GroupMessage savedReply = Assert.Single(result.AiReplies);
+        Assert.Equal(primarySpeaker.Id, savedReply.SenderAiAccountId);
+        Assert.Equal(2, history.Count);
+        Assert.Contains(history, message => message.Id == savedReply.Id);
     }
 
     /// <summary>
@@ -144,7 +210,8 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         GroupMessageService messageService = new(dbContextFactory);
         GroupChatInteractionService interactionService = new(
             messageService,
-            new FakeAiReplyService());
+            new FakeAiReplyService(),
+            new GroupChatReplyPlanner(dbContextFactory));
 
         return new TestContext(
             Assert.IsType<GroupChat>(groupChat),

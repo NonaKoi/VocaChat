@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   getGroupMessages,
-  getSavedUserMessage,
+  getSavedGroupMessages,
   sendGroupMessage,
 } from '@/api/groupMessages'
 import type { GroupMessageResponse } from '@/api/types'
@@ -75,20 +75,27 @@ export function useGroupMessages(
         })
 
         setData((current) =>
-          mergeMessages(current, [result.userMessage, result.aiReply]),
+          mergeMessages(current, [result.userMessage, ...result.aiReplies]),
         )
+        if (result.replyCompletion === 'Partial') {
+          setSendErrorMessage(
+            result.warningMessage ?? '部分好友回复失败，已保留成功发送的消息。',
+          )
+          return 'partial'
+        }
+
         return 'success'
       } catch (error: unknown) {
-        const savedUserMessage = getSavedUserMessage(error)
+        const savedMessages = getSavedGroupMessages(error)
 
-        if (savedUserMessage) {
-          setData((current) => mergeMessages(current, [savedUserMessage]))
+        if (savedMessages.length > 0) {
+          setData((current) => mergeMessages(current, savedMessages))
         }
 
         setSendErrorMessage(
           error instanceof Error ? error.message : '消息发送失败，请重试。',
         )
-        return savedUserMessage ? 'partial' : 'rejected'
+        return savedMessages.length > 0 ? 'partial' : 'rejected'
       } finally {
         setIsSending(false)
       }

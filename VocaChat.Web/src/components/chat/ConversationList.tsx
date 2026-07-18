@@ -21,6 +21,7 @@ interface Props {
   selectedKey?: string
   errorMessage?: string
   onSelect: (item: ConversationSummaryResponse) => void
+  onCreateGroupChat: () => void
   onRetry: () => void
 }
 
@@ -92,7 +93,13 @@ export function ConversationList(props: Props) {
               className="h-10 w-full rounded-lg bg-surface-muted pr-3 pl-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
-          <Button size="icon" variant="ghost" disabled aria-label="新建会话">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={props.onCreateGroupChat}
+            aria-label="创建群聊"
+            title="创建群聊"
+          >
             <Plus className="size-5" aria-hidden="true" />
           </Button>
         </div>
@@ -133,7 +140,7 @@ export function ConversationList(props: Props) {
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4">
         {(props.status === 'idle' || props.status === 'loading') && (
           <LoadingState variant="list" />
         )}

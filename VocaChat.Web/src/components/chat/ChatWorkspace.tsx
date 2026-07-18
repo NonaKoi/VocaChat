@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import type {
   AiAccountResponse,
   ChatMessageResponse,
+  ContactResponse,
   ConversationCategory,
   ConversationKind,
   GroupChatResponse,
@@ -33,14 +34,21 @@ interface Props {
   category?: ConversationCategory
   friend?: AiAccountResponse
   groupChat?: GroupChatResponse
+  contacts: ContactResponse[]
+  contactStatus: RemoteStatus
   messages: ChatMessageResponse[]
   messageStatus: RemoteStatus
   messageError?: string
   sendError?: string
   isSending: boolean
+  isAddingGroupMember: boolean
+  groupMemberError?: string
   draft: string
   onDraftChange: (value: string) => void
   onReloadMessages: () => void
+  onRetryContacts: () => void
+  onClearGroupMemberError: () => void
+  onAddGroupMember: (groupChatId: string, aiAccountId: string) => Promise<boolean>
   onSendMessage: (content: string) => Promise<MessageSendOutcome>
 }
 
@@ -162,7 +170,17 @@ export function ChatWorkspace(props: Props) {
           {infoOpen && props.groupChat && (
             <GroupInfoPanel
               groupChat={props.groupChat}
+              contacts={props.contacts}
+              contactStatus={props.contactStatus}
+              isAddingMember={props.isAddingGroupMember}
+              memberErrorMessage={props.groupMemberError}
               onClose={() => setInfoOpen(false)}
+              onRetryContacts={props.onRetryContacts}
+              onClearMemberError={props.onClearGroupMemberError}
+              onAddMember={(aiAccountId) => props.onAddGroupMember(
+                props.groupChat!.id,
+                aiAccountId,
+              )}
             />
           )}
         </div>
@@ -176,7 +194,7 @@ function ConversationMetadata(props: Props) {
     return (
       <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
         <UsersRound className="size-3.5" aria-hidden="true" />
-        {props.groupChat.members.length} 位好友
+        {props.groupChat.members.length + (props.groupChat.includesLocalUser ? 1 : 0)} 位成员
         {!props.groupChat.includesLocalUser && ' · 仅好友成员'}
       </p>
     )

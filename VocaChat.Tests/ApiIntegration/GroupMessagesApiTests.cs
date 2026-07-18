@@ -36,8 +36,10 @@ public sealed class GroupMessagesApiTests
         Assert.Equal("User", interaction.UserMessage.SenderType);
         Assert.Null(interaction.UserMessage.SenderAiAccountId);
         Assert.Equal(content, interaction.UserMessage.Content);
-        Assert.Equal("AiAccount", interaction.AiReply.SenderType);
-        Assert.Equal(member.Id, interaction.AiReply.SenderAiAccountId);
+        GroupMessageResponse aiReply = Assert.Single(interaction.AiReplies);
+        Assert.Equal("Complete", interaction.ReplyCompletion);
+        Assert.Equal("AiAccount", aiReply.SenderType);
+        Assert.Equal(member.Id, aiReply.SenderAiAccountId);
 
         List<GroupMessageResponse>? history = await client
             .GetFromJsonAsync<List<GroupMessageResponse>>(
@@ -46,7 +48,7 @@ public sealed class GroupMessagesApiTests
         Assert.NotNull(history);
         Assert.Equal(2, history.Count);
         Assert.Equal(interaction.UserMessage.Id, history[0].Id);
-        Assert.Equal(interaction.AiReply.Id, history[1].Id);
+        Assert.Equal(aiReply.Id, history[1].Id);
         Assert.True(history[0].SentAt <= history[1].SentAt);
     }
 
@@ -78,7 +80,47 @@ public sealed class GroupMessagesApiTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(interaction);
-        Assert.Equal(secondMember.Id, interaction.AiReply.SenderAiAccountId);
+        Assert.Equal(
+            secondMember.Id,
+            Assert.Single(interaction.AiReplies).SenderAiAccountId);
+    }
+
+    [Fact]
+    public async Task SendMessage_WithTwoMemberMentions_ReturnsTwoRepliesInMentionOrder()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse firstMember = await CreateAccountAsync(
+            client,
+            "DoubleMentionAlpha");
+        AiAccountResponse secondMember = await CreateAccountAsync(
+            client,
+            "DoubleMentionBeta");
+        GroupChatResponse groupChat = await CreateGroupChatAsync(
+            client,
+            "双点名测试群",
+            firstMember.Id,
+            secondMember.Id);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/group-chats/{groupChat.Id}/messages",
+            new SendGroupMessageRequest
+            {
+                Content = $"@{secondMember.Nickname} 先说，@{firstMember.Nickname} 补充"
+            });
+        SendGroupMessageResponse? interaction = await response.Content
+            .ReadFromJsonAsync<SendGroupMessageResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(interaction);
+        Assert.Equal("Complete", interaction.ReplyCompletion);
+        Assert.Equal(2, interaction.AiReplies.Count);
+        Assert.Equal(
+            secondMember.Id,
+            interaction.AiReplies[0].SenderAiAccountId);
+        Assert.Equal(
+            firstMember.Id,
+            interaction.AiReplies[1].SenderAiAccountId);
     }
 
     [Fact]
@@ -130,6 +172,7 @@ public sealed class GroupMessagesApiTests
             response.StatusCode);
         Assert.NotNull(failure);
         Assert.NotNull(failure.SavedUserMessage);
+        Assert.Empty(failure.SavedAiReplies);
         Assert.Equal(maximumLengthContent, failure.SavedUserMessage.Content);
         Assert.NotNull(history);
         GroupMessageResponse storedMessage = Assert.Single(history);

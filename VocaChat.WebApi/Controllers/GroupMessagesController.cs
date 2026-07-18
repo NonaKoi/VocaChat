@@ -57,7 +57,7 @@ public sealed class GroupMessagesController : ControllerBase
     }
 
     /// <summary>
-    /// 保存用户消息，生成并保存一条当前群成员的模拟 AI 回复。
+    /// 保存用户消息，并按本轮发言计划生成和保存一至两条群成员回复。
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(SendGroupMessageResponse), StatusCodes.Status200OK)]
@@ -95,11 +95,14 @@ public sealed class GroupMessagesController : ControllerBase
                     Message = result.ErrorMessage,
                     SavedUserMessage = result.UserMessage is null
                         ? null
-                        : ToResponse(result.UserMessage, groupChat)
+                        : ToResponse(result.UserMessage, groupChat),
+                    SavedAiReplies = result.AiReplies
+                        .Select(reply => ToResponse(reply, groupChat))
+                        .ToList()
                 });
         }
 
-        if (result.UserMessage is null || result.AiReply is null)
+        if (result.UserMessage is null || result.AiReplies.Count == 0)
         {
             return StatusCode(
                 StatusCodes.Status500InternalServerError,
@@ -112,7 +115,17 @@ public sealed class GroupMessagesController : ControllerBase
         return Ok(new SendGroupMessageResponse
         {
             UserMessage = ToResponse(result.UserMessage, groupChat),
-            AiReply = ToResponse(result.AiReply, groupChat)
+            AiReplies = result.AiReplies
+                .Select(reply => ToResponse(reply, groupChat))
+                .ToList(),
+            ReplyCompletion = result.Status
+                == GroupChatInteractionStatus.PartiallySucceeded
+                    ? "Partial"
+                    : "Complete",
+            WarningMessage = result.Status
+                == GroupChatInteractionStatus.PartiallySucceeded
+                    ? result.ErrorMessage
+                    : null
         });
     }
 

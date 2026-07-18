@@ -56,6 +56,16 @@ export interface GroupChatResponse {
   members: GroupChatMemberResponse[]
 }
 
+export interface CreateGroupChatRequest {
+  name: string
+  memberAiAccountIds: string[]
+  includesLocalUser: boolean
+}
+
+export interface AddGroupChatMemberRequest {
+  aiAccountId: string
+}
+
 export type MessageSenderType = 'User' | 'AiAccount'
 
 export interface GroupMessageResponse {
@@ -75,12 +85,15 @@ export interface SendGroupMessageRequest {
 
 export interface SendGroupMessageResponse {
   userMessage: GroupMessageResponse
-  aiReply: GroupMessageResponse
+  aiReplies: GroupMessageResponse[]
+  replyCompletion: 'Complete' | 'Partial'
+  warningMessage: string | null
 }
 
 export interface SendGroupMessageFailureResponse {
   message: string
   savedUserMessage?: GroupMessageResponse | null
+  savedAiReplies?: GroupMessageResponse[]
 }
 
 export interface ContactGroupResponse {

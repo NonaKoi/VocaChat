@@ -173,7 +173,7 @@ public sealed class AiAccountMediaApiTests
         Assert.Null(interaction.UserMessage.SenderAvatarUrl);
         Assert.Equal(
             accountWithAvatar.AvatarUrl,
-            interaction.AiReply.SenderAvatarUrl);
+            Assert.Single(interaction.AiReplies).SenderAvatarUrl);
     }
 
     private static async Task<AiAccountResponse> CreateAccountAsync(

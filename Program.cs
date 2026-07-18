@@ -22,10 +22,12 @@ public class Program
         AiAccountService aiAccountService = new(dbContextFactory);
         GroupChatService groupChatService = new(dbContextFactory);
         GroupMessageService groupMessageService = new(dbContextFactory);
+        GroupChatReplyPlanner replyPlanner = new(dbContextFactory);
         FakeAiReplyService fakeAiReplyService = new();
         GroupChatInteractionService interactionService = new(
             groupMessageService,
-            fakeAiReplyService);
+            fakeAiReplyService,
+            replyPlanner);
 
         VocaChatConsoleApp consoleApp = new(
             aiAccountService,

@@ -209,11 +209,7 @@ public class GroupMessageServiceTests : IDisposable
         IReadOnlyList<GroupMessage> historyBeforeContinuing =
             restartedMessageService.GetOrderedChatHistory(existingGroupChat);
         FakeAiReplyService fakeAiReplyService = new();
-        AiAccount? aiSpeaker = fakeAiReplyService.SelectAiSpeaker(
-            existingGroupChat,
-            "new message",
-            out _);
-        AiAccount selectedAiSpeaker = Assert.IsType<AiAccount>(aiSpeaker);
+        AiAccount selectedAiSpeaker = Assert.Single(existingGroupChat.Members);
 
         Assert.Equal(createdGroupChat.Id, existingGroupChat.Id);
         Assert.Single(existingGroupChat.Members);

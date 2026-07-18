@@ -19,6 +19,7 @@ describe('ConversationList', () => {
         conversations={conversations}
         status="success"
         onSelect={vi.fn()}
+        onCreateGroupChat={vi.fn()}
         onRetry={vi.fn()}
       />,
     )

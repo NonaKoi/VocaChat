@@ -19,6 +19,11 @@ vi.mock('@/hooks/useGroupChats', () => ({
       },
     ],
     status: 'success',
+    isCreating: false,
+    create: vi.fn(),
+    addMember: vi.fn(),
+    clearCreateError: vi.fn(),
+    clearMemberError: vi.fn(),
     reload: vi.fn(),
   }),
 }))
@@ -78,6 +83,17 @@ describe('VocaChatApp', () => {
     await user.click(screen.getByRole('button', { name: '聊天' }))
 
     expect(screen.getByLabelText('消息内容')).toHaveValue('尚未发送的草稿')
+  })
+
+  it('从会话列表进入创建群聊流程', async () => {
+    const user = userEvent.setup()
+    render(<VocaChatApp />)
+
+    await user.click(screen.getByRole('button', { name: '创建群聊' }))
+
+    expect(screen.getByRole('heading', { name: '创建群聊' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /我的群聊/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /小语/ })).toBeInTheDocument()
   })
 
   it('离开寻找新朋友页面后仍保留未提交资料', async () => {
