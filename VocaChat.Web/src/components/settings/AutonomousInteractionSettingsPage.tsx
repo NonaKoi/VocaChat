@@ -15,6 +15,7 @@ interface AutonomousInteractionSettingsPageProps {
   contactErrorMessage?: string
   onReloadContacts?: () => void | Promise<void>
   onDirtyChange?: (hasChanges: boolean) => void
+  onOpenPrivateChat?: (privateChatId: string) => void | Promise<void>
 }
 
 export function AutonomousInteractionSettingsPage({
@@ -23,6 +24,7 @@ export function AutonomousInteractionSettingsPage({
   contactErrorMessage,
   onReloadContacts = () => undefined,
   onDirtyChange,
+  onOpenPrivateChat,
 }: AutonomousInteractionSettingsPageProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialTab)
@@ -151,6 +153,7 @@ export function AutonomousInteractionSettingsPage({
                 contactErrorMessage={contactErrorMessage}
                 onReloadContacts={onReloadContacts}
                 onDirtyChange={setHasPanelChanges}
+                onOpenPrivateChat={onOpenPrivateChat}
               />
             )}
           </div>

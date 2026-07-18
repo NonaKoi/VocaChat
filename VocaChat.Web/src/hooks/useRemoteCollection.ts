@@ -7,8 +7,16 @@ export function useRemoteCollection<T>(load: () => Promise<T[]>) {
   const [errorMessage, setErrorMessage] = useState<string>()
   const reload = useCallback(async () => {
     setStatus('loading'); setErrorMessage(undefined)
-    try { setData(await load()); setStatus('success') }
-    catch (error) { setStatus('error'); setErrorMessage(error instanceof Error ? error.message : '数据加载失败。') }
+    try {
+      const loadedData = await load()
+      setData(loadedData)
+      setStatus('success')
+      return loadedData
+    } catch (error) {
+      setStatus('error')
+      setErrorMessage(error instanceof Error ? error.message : '数据加载失败。')
+      return undefined
+    }
   }, [load])
   useEffect(() => { void reload() }, [reload])
   return { data, setData, status, errorMessage, reload }

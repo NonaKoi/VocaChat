@@ -63,6 +63,19 @@ export function VocaChatApp() {
     else await aiAccounts.uploadCover(selectedContact.friend.id, file)
     await contacts.reload()
   }
+  async function openAutonomousPrivateChat(privateChatId: string) {
+    const refreshedConversations = await conversations.reload()
+    const conversation = refreshedConversations?.find(
+      (item) => item.kind === 'PrivateChat' && item.id === privateChatId,
+    )
+    if (!conversation) return
+
+    setSelectedConversation(conversation)
+    setActiveSection('chat')
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', 'chat')
+    window.history.replaceState(null, '', url)
+  }
   function selectAccount(id: string) {
     setSelectedAccountId(id)
     const url = new URL(window.location.href)
@@ -87,8 +100,9 @@ export function VocaChatApp() {
         contacts={contacts.data}
         contactStatus={contacts.status}
         contactErrorMessage={contacts.errorMessage}
-        onReloadContacts={contacts.reload}
+        onReloadContacts={async () => { await contacts.reload() }}
         onDirtyChange={setHasUnsavedSettings}
+        onOpenPrivateChat={openAutonomousPrivateChat}
       />
     )
   } else {

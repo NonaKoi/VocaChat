@@ -28,6 +28,26 @@ public class PrivateMessage
         string senderDisplayName,
         Guid? senderAiAccountId,
         string content)
+        : this(
+            privateChatId,
+            senderType,
+            senderDisplayName,
+            senderAiAccountId,
+            content,
+            DateTime.Now)
+    {
+    }
+
+    /// <summary>
+    /// 使用明确时间创建消息，供同一次自主交流稳定保存开场白和回复。
+    /// </summary>
+    internal PrivateMessage(
+        Guid privateChatId,
+        MessageSenderType senderType,
+        string senderDisplayName,
+        Guid? senderAiAccountId,
+        string content,
+        DateTime sentAt)
     {
         Id = Guid.NewGuid();
         PrivateChatId = privateChatId;
@@ -35,6 +55,6 @@ public class PrivateMessage
         SenderDisplayName = senderDisplayName;
         SenderAiAccountId = senderAiAccountId;
         Content = content;
-        SentAt = DateTime.Now;
+        SentAt = sentAt;
     }
 }

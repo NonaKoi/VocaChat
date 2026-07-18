@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using VocaChat.WebApi.Dtos.AiAccounts;
 using VocaChat.WebApi.Dtos.AutonomousInteractions;
+using VocaChat.WebApi.Dtos.PrivateChats;
 using VocaChat.WebApi.Dtos.Relationships;
 using VocaChat.WebApi.Dtos.Settings;
 
@@ -13,6 +14,74 @@ namespace VocaChat.Tests.ApiIntegration;
 /// </summary>
 public sealed class AutonomousInteractionsApiTests
 {
+    [Fact]
+    public async Task RunPrivateChat_WithStrongRelationship_PersistsExchangeAndReturnsConversation()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse first = await CreateAccount(client, "RunApiFirst");
+        AiAccountResponse second = await CreateAccount(client, "RunApiSecond");
+        await EnableAutonomousPrivateChats(client);
+        await SetStrongRelationship(client, first.Id, second.Id);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/autonomous-interactions/private-chat/run",
+            new RunAutonomousPrivateChatRequest
+            {
+                FirstAiAccountId = first.Id,
+                SecondAiAccountId = second.Id
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AutonomousPrivateChatExecutionResponse execution =
+            (await response.Content.ReadFromJsonAsync<
+                AutonomousPrivateChatExecutionResponse>())!;
+        Assert.Equal("Completed", execution.Status);
+        Assert.True(execution.Decision.IsApproved);
+        Assert.NotNull(execution.PrivateChat);
+        Assert.Equal("FriendPrivateChat", execution.PrivateChat.Category);
+        Assert.Equal(2, execution.PrivateChat.Participants.Count);
+        Assert.NotNull(execution.InitiatorMessage);
+        Assert.NotNull(execution.RecipientReply);
+
+        using HttpResponseMessage historyResponse = await client.GetAsync(
+            $"/api/private-chats/{execution.PrivateChat.Id}/messages");
+        historyResponse.EnsureSuccessStatusCode();
+        PrivateMessageResponse[] history =
+            (await historyResponse.Content.ReadFromJsonAsync<
+                PrivateMessageResponse[]>())!;
+        Assert.Equal(2, history.Length);
+        Assert.Equal(execution.InitiatorMessage.Id, history[0].Id);
+        Assert.Equal(execution.RecipientReply.Id, history[1].Id);
+    }
+
+    [Fact]
+    public async Task RunPrivateChat_WhenDecisionIsRejected_DoesNotCreateConversation()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse first = await CreateAccount(client, "RejectApiFirst");
+        AiAccountResponse second = await CreateAccount(client, "RejectApiSecond");
+        int conversationCountBefore = await GetConversationCount(client);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/autonomous-interactions/private-chat/run",
+            new RunAutonomousPrivateChatRequest
+            {
+                FirstAiAccountId = first.Id,
+                SecondAiAccountId = second.Id
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AutonomousPrivateChatExecutionResponse execution =
+            (await response.Content.ReadFromJsonAsync<
+                AutonomousPrivateChatExecutionResponse>())!;
+        Assert.Equal("DecisionRejected", execution.Status);
+        Assert.False(execution.Decision.IsApproved);
+        Assert.Null(execution.PrivateChat);
+        Assert.Equal(conversationCountBefore, await GetConversationCount(client));
+    }
+
     [Fact]
     public async Task EvaluatePrivateChat_WithStrongRelationship_ReturnsApprovedWithoutCreatingConversation()
     {
@@ -95,6 +164,36 @@ public sealed class AutonomousInteractionsApiTests
         using JsonDocument document = JsonDocument.Parse(
             await response.Content.ReadAsStringAsync());
         return document.RootElement.GetArrayLength();
+    }
+
+    private static async Task EnableAutonomousPrivateChats(HttpClient client)
+    {
+        using HttpResponseMessage response = await client.PutAsJsonAsync(
+            "/api/settings/autonomous-interactions",
+            new UpdateAutonomousInteractionSettingsRequest
+            {
+                IsEnabled = true,
+                Frequency = "Normal",
+                AllowPrivateChats = true,
+                AllowGroupChats = false
+            });
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task SetStrongRelationship(
+        HttpClient client,
+        Guid firstId,
+        Guid secondId)
+    {
+        using HttpResponseMessage response = await client.PutAsJsonAsync(
+            $"/api/ai-accounts/{firstId}/relationships/{secondId}",
+            new UpdateAiRelationshipRequest
+            {
+                Familiarity = 100,
+                Affinity = 100,
+                Trust = 100
+            });
+        response.EnsureSuccessStatusCode();
     }
 
     private static async Task<AiAccountResponse> CreateAccount(

@@ -1,11 +1,13 @@
-import { ArrowRight, CheckCircle2, Gauge, RefreshCw, XCircle } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Gauge, MessageCircleMore, RefreshCw, XCircle } from 'lucide-react'
 import type {
+  AutonomousPrivateChatExecutionResponse,
   AutonomousPrivateChatDecisionResponse,
   AutonomousPrivateChatDecisionStage,
   ContactResponse,
 } from '@/api/types'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
 import { Button } from '@/components/ui/button'
+import { useAutonomousPrivateChatExecution } from '@/hooks/useAutonomousPrivateChatExecution'
 import { useAutonomousPrivateChatPreview } from '@/hooks/useAutonomousPrivateChatPreview'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +15,7 @@ interface PrivateChatDecisionPreviewProps {
   firstContact: ContactResponse
   secondContact: ContactResponse
   hasUnsavedRelationship: boolean
+  onOpenPrivateChat?: (privateChatId: string) => void | Promise<void>
 }
 
 const stageDescriptions: Record<AutonomousPrivateChatDecisionStage, string> = {
@@ -32,12 +35,17 @@ export function PrivateChatDecisionPreview({
   firstContact,
   secondContact,
   hasUnsavedRelationship,
+  onOpenPrivateChat,
 }: PrivateChatDecisionPreviewProps) {
   const preview = useAutonomousPrivateChatPreview(
     firstContact.friend.id,
     secondContact.friend.id,
   )
-  const decision = preview.data
+  const execution = useAutonomousPrivateChatExecution(
+    firstContact.friend.id,
+    secondContact.friend.id,
+  )
+  const decision = execution.data?.decision ?? preview.data
 
   const initiator = decision?.initiatorAiAccountId === firstContact.friend.id
     ? firstContact.friend
@@ -62,22 +70,32 @@ export function PrivateChatDecisionPreview({
             读取已保存的互动设置与双向关系，预览当前是否适合发起私信。
           </p>
         </div>
-        <Button
-          variant={decision ? 'outline' : 'default'}
-          disabled={preview.status === 'loading' || hasUnsavedRelationship}
-          aria-busy={preview.status === 'loading'}
-          onClick={() => void preview.evaluate()}
-        >
-          <RefreshCw
-            className={cn('size-4', preview.status === 'loading' && 'animate-spin')}
-            aria-hidden="true"
-          />
-          {preview.status === 'loading'
-            ? '正在判断'
-            : decision
-              ? '重新判断'
-              : '预览私信判断'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            disabled={preview.status === 'loading' || execution.status === 'loading' || hasUnsavedRelationship}
+            aria-busy={preview.status === 'loading'}
+            onClick={() => void preview.evaluate()}
+          >
+            <RefreshCw
+              className={cn('size-4', preview.status === 'loading' && 'animate-spin')}
+              aria-hidden="true"
+            />
+            {preview.status === 'loading'
+              ? '正在判断'
+              : decision
+                ? '重新判断'
+                : '预览私信判断'}
+          </Button>
+          <Button
+            disabled={execution.status === 'loading' || preview.status === 'loading' || hasUnsavedRelationship}
+            aria-busy={execution.status === 'loading'}
+            onClick={() => void execution.execute()}
+          >
+            <MessageCircleMore className="size-4" aria-hidden="true" />
+            {execution.status === 'loading' ? '正在尝试' : '尝试发起一次私信'}
+          </Button>
+        </div>
       </div>
 
       <div className="px-5 py-4" aria-live="polite">
@@ -87,7 +105,7 @@ export function PrivateChatDecisionPreview({
           </p>
         )}
 
-        {!hasUnsavedRelationship && preview.status === 'idle' && (
+        {!hasUnsavedRelationship && preview.status === 'idle' && execution.status === 'idle' && (
           <div className="flex min-w-0 items-center gap-3 text-sm text-muted-foreground">
             <div className="flex shrink-0 items-center gap-1.5" aria-hidden="true">
               <EntityAvatar name={firstContact.friend.nickname} src={firstContact.friend.avatarUrl} size="small" />
@@ -106,11 +124,97 @@ export function PrivateChatDecisionPreview({
           </p>
         )}
 
-        {!hasUnsavedRelationship && preview.status === 'success' && decision && (
-          <DecisionResult decision={decision} initiatorName={initiator?.nickname} />
+        {!hasUnsavedRelationship && execution.status === 'error' && (
+          <p role="alert" className="rounded-lg border border-destructive/20 bg-danger-soft px-3 py-2 text-sm text-destructive">
+            {execution.errorMessage}
+          </p>
+        )}
+
+        {!hasUnsavedRelationship && decision && (
+          <div className="grid gap-4">
+            <DecisionResult decision={decision} initiatorName={initiator?.nickname} />
+            {execution.status === 'success' && execution.data && (
+              <ExecutionResult
+                result={execution.data}
+                onOpenPrivateChat={onOpenPrivateChat}
+              />
+            )}
+          </div>
         )}
       </div>
     </section>
+  )
+}
+
+function ExecutionResult({
+  result,
+  onOpenPrivateChat,
+}: {
+  result: AutonomousPrivateChatExecutionResponse
+  onOpenPrivateChat?: (privateChatId: string) => void | Promise<void>
+}) {
+  if (result.status === 'DecisionRejected') {
+    return (
+      <p className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+        本次判断没有通过，因此没有创建会话、发送消息或更新互动记录。
+      </p>
+    )
+  }
+
+  const initiatorMessage = result.initiatorMessage
+  const recipientReply = result.recipientReply
+  const privateChatId = result.privateChat?.id
+  const messagesWereSaved = initiatorMessage !== null && recipientReply !== null
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border px-4 py-3',
+        result.status === 'Completed'
+          ? 'border-success/20 bg-success/5'
+          : 'border-destructive/20 bg-danger-soft',
+      )}
+      role={result.status === 'Completed' ? 'status' : 'alert'}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">
+            {result.status === 'Completed'
+              ? '好友已经完成一轮私信交流'
+              : messagesWereSaved
+                ? '消息已保存，但互动记录更新失败'
+                : '本次私信没有完整保存'}
+          </p>
+          {result.errorMessage && (
+            <p className="mt-1 text-xs leading-5 text-destructive">
+              {result.errorMessage}
+            </p>
+          )}
+        </div>
+        {privateChatId && messagesWereSaved && onOpenPrivateChat && (
+          <Button
+            variant="outline"
+            onClick={() => void onOpenPrivateChat(privateChatId)}
+          >
+            查看好友私信
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </Button>
+        )}
+      </div>
+
+      {messagesWereSaved && (
+        <div className="mt-3 grid gap-2 text-xs leading-5">
+          <p className="break-words rounded-md bg-surface px-3 py-2 text-foreground">
+            <span className="font-semibold">{initiatorMessage.senderDisplayName}：</span>
+            {initiatorMessage.content}
+          </p>
+          <p className="break-words rounded-md bg-surface px-3 py-2 text-foreground">
+            <span className="font-semibold">{recipientReply.senderDisplayName}：</span>
+            {recipientReply.content}
+          </p>
+        </div>
+      )}
+    </div>
   )
 }
 

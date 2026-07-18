@@ -255,6 +255,99 @@ public sealed class PrivateChatService
             out errorMessage);
     }
 
+    /// <summary>
+    /// 在一次数据库提交中保存好友私信的开场白和回复，避免只写入半段交流。
+    /// </summary>
+    public bool TrySaveAiExchange(
+        PrivateChat privateChat,
+        AiAccount initiator,
+        string openingContent,
+        AiAccount recipient,
+        string replyContent,
+        DateTime occurredAt,
+        out PrivateMessage? openingMessage,
+        out PrivateMessage? replyMessage,
+        out string errorMessage)
+    {
+        openingMessage = null;
+        replyMessage = null;
+
+        if (privateChat.Kind != PrivateChatKind.AiAccounts)
+        {
+            errorMessage = "只有好友之间的私信可以保存自主交流。";
+            return false;
+        }
+
+        if (initiator.Id == recipient.Id)
+        {
+            errorMessage = "自主私信需要两个不同的好友。";
+            return false;
+        }
+
+        if (!TryNormalizeMessageContent(
+                openingContent,
+                out string normalizedOpeningContent,
+                out errorMessage)
+            || !TryNormalizeMessageContent(
+                replyContent,
+                out string normalizedReplyContent,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        PrivateChat? storedChat = dbContext.PrivateChats
+            .AsNoTracking()
+            .SingleOrDefault(chat => chat.Id == privateChat.Id);
+        bool participantsMatch = storedChat is not null
+            && storedChat.Kind == PrivateChatKind.AiAccounts
+            && ((storedChat.FirstAiAccountId == initiator.Id
+                    && storedChat.SecondAiAccountId == recipient.Id)
+                || (storedChat.FirstAiAccountId == recipient.Id
+                    && storedChat.SecondAiAccountId == initiator.Id));
+
+        if (!participantsMatch)
+        {
+            errorMessage = "只有当前好友私信的两位参与者可以发送自主消息。";
+            return false;
+        }
+
+        PrivateMessage newOpeningMessage = new(
+            privateChat.Id,
+            MessageSenderType.AiAccount,
+            initiator.Nickname,
+            initiator.Id,
+            normalizedOpeningContent,
+            occurredAt);
+        PrivateMessage newReplyMessage = new(
+            privateChat.Id,
+            MessageSenderType.AiAccount,
+            recipient.Nickname,
+            recipient.Id,
+            normalizedReplyContent,
+            occurredAt.AddTicks(1));
+
+        dbContext.PrivateMessages.AddRange(
+            newOpeningMessage,
+            newReplyMessage);
+
+        try
+        {
+            dbContext.SaveChanges();
+        }
+        catch (DbUpdateException)
+        {
+            errorMessage = "自主私信消息暂时无法保存，请重试。";
+            return false;
+        }
+
+        openingMessage = newOpeningMessage;
+        replyMessage = newReplyMessage;
+        errorMessage = string.Empty;
+        return true;
+    }
+
     public IReadOnlyList<PrivateMessage> GetOrderedChatHistory(
         Guid privateChatId)
     {
@@ -280,17 +373,11 @@ public sealed class PrivateChatService
     {
         message = null;
 
-        if (string.IsNullOrWhiteSpace(content))
+        if (!TryNormalizeMessageContent(
+                content,
+                out string trimmedContent,
+                out errorMessage))
         {
-            errorMessage = "消息内容不能为空。";
-            return false;
-        }
-
-        string trimmedContent = content.Trim();
-
-        if (trimmedContent.Length > PrivateMessage.ContentMaxLength)
-        {
-            errorMessage = $"消息内容不能超过 {PrivateMessage.ContentMaxLength} 个字符。";
             return false;
         }
 
@@ -311,6 +398,31 @@ public sealed class PrivateChatService
         dbContext.PrivateMessages.Add(newMessage);
         dbContext.SaveChanges();
         message = newMessage;
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    private static bool TryNormalizeMessageContent(
+        string content,
+        out string normalizedContent,
+        out string errorMessage)
+    {
+        normalizedContent = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            errorMessage = "消息内容不能为空。";
+            return false;
+        }
+
+        normalizedContent = content.Trim();
+
+        if (normalizedContent.Length > PrivateMessage.ContentMaxLength)
+        {
+            errorMessage = $"消息内容不能超过 {PrivateMessage.ContentMaxLength} 个字符。";
+            return false;
+        }
+
         errorMessage = string.Empty;
         return true;
     }

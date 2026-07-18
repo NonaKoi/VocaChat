@@ -11,7 +11,10 @@ import {
   getAiRelationship,
   updateAiRelationship,
 } from '@/api/relationships'
-import { evaluateAutonomousPrivateChat } from '@/api/autonomousInteractions'
+import {
+  evaluateAutonomousPrivateChat,
+  runAutonomousPrivateChat,
+} from '@/api/autonomousInteractions'
 import type { ContactResponse } from '@/api/types'
 import { AutonomousInteractionSettingsPage } from '@/components/settings/AutonomousInteractionSettingsPage'
 
@@ -29,6 +32,7 @@ vi.mock('@/api/relationships', () => ({
 
 vi.mock('@/api/autonomousInteractions', () => ({
   evaluateAutonomousPrivateChat: vi.fn(),
+  runAutonomousPrivateChat: vi.fn(),
 }))
 
 const getSettingsMock = vi.mocked(getAutonomousInteractionSettings)
@@ -38,6 +42,7 @@ const updateFriendSettingsMock = vi.mocked(updateAiAccountAutonomySettings)
 const getRelationshipMock = vi.mocked(getAiRelationship)
 const updateRelationshipMock = vi.mocked(updateAiRelationship)
 const evaluatePrivateChatMock = vi.mocked(evaluateAutonomousPrivateChat)
+const runPrivateChatMock = vi.mocked(runAutonomousPrivateChat)
 
 const friendId = '10000000-0000-0000-0000-000000000001'
 const secondFriendId = '10000000-0000-0000-0000-000000000002'
@@ -155,6 +160,54 @@ describe('AutonomousInteractionSettingsPage', () => {
       threshold: 50,
       cooldownEndsAt: null,
     })
+    runPrivateChatMock.mockResolvedValue({
+      status: 'Completed',
+      decision: {
+        isApproved: true,
+        stage: 'Approved',
+        interactionType: 'PrivateChat',
+        firstAiAccountId: friendId,
+        secondAiAccountId: secondFriendId,
+        initiatorAiAccountId: friendId,
+        recipientAiAccountId: secondFriendId,
+        relationshipScore: 72,
+        initiativeAdjustment: 10,
+        randomJitter: 1,
+        finalScore: 83,
+        threshold: 50,
+        cooldownEndsAt: null,
+      },
+      privateChat: {
+        id: '40000000-0000-0000-0000-000000000001',
+        category: 'FriendPrivateChat',
+        contactId: null,
+        friend: null,
+        participants: [contacts[0].friend, contacts[1].friend],
+        createdAt: '2026-07-18T12:00:00Z',
+      },
+      privateChatCreated: true,
+      initiatorMessage: {
+        id: '50000000-0000-0000-0000-000000000001',
+        privateChatId: '40000000-0000-0000-0000-000000000001',
+        senderType: 'AiAccount',
+        senderDisplayName: '林澈',
+        senderAiAccountId: friendId,
+        senderAvatarUrl: null,
+        content: '周野，刚好想到你了。',
+        sentAt: '2026-07-18T12:00:00Z',
+      },
+      recipientReply: {
+        id: '50000000-0000-0000-0000-000000000002',
+        privateChatId: '40000000-0000-0000-0000-000000000001',
+        senderType: 'AiAccount',
+        senderDisplayName: '周野',
+        senderAiAccountId: secondFriendId,
+        senderAvatarUrl: null,
+        content: '林澈，我也正想和你聊聊。',
+        sentAt: '2026-07-18T12:00:00.0000001Z',
+      },
+      errorMessage: null,
+    })
   })
 
   it('读取通用设置、启用自主互动并保存语义频率', async () => {
@@ -259,5 +312,34 @@ describe('AutonomousInteractionSettingsPage', () => {
         { familiarity: 55, affinity: 0, trust: 10 },
       )
     })
+  })
+
+  it('明确触发一次好友私信并可进入新会话', async () => {
+    const user = userEvent.setup()
+    const onOpenPrivateChat = vi.fn()
+    render(
+      <AutonomousInteractionSettingsPage
+        contacts={contacts}
+        contactStatus="success"
+        onOpenPrivateChat={onOpenPrivateChat}
+      />,
+    )
+
+    await user.click(screen.getByRole('tab', { name: '关系设置' }))
+    await user.click(screen.getByRole('button', { name: '尝试发起一次私信' }))
+
+    await waitFor(() => {
+      expect(runPrivateChatMock).toHaveBeenCalledWith({
+        firstAiAccountId: friendId,
+        secondAiAccountId: secondFriendId,
+      })
+    })
+    expect(await screen.findByText('好友已经完成一轮私信交流')).toBeInTheDocument()
+    expect(screen.getByText('周野，刚好想到你了。')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '查看好友私信' }))
+    expect(onOpenPrivateChat).toHaveBeenCalledWith(
+      '40000000-0000-0000-0000-000000000001',
+    )
   })
 })

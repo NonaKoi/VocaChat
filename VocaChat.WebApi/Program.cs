@@ -27,6 +27,7 @@ public class Program
         builder.Services.AddScoped<AiAccountAutonomySettingsService>();
         builder.Services.AddScoped<AiRelationshipService>();
         builder.Services.AddScoped<AutonomousPrivateChatJudge>();
+        builder.Services.AddScoped<AutonomousPrivateChatExecutionService>();
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddSingleton<FakeAiReplyService>();

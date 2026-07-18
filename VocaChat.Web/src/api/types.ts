@@ -258,3 +258,25 @@ export interface AutonomousPrivateChatDecisionResponse {
   threshold: number
   cooldownEndsAt: string | null
 }
+
+export type AutonomousPrivateChatExecutionStatus =
+  | 'Completed'
+  | 'DecisionRejected'
+  | 'ChatCreationFailed'
+  | 'MessagePersistenceFailed'
+  | 'RelationshipRecordFailed'
+
+export interface RunAutonomousPrivateChatRequest {
+  firstAiAccountId: string
+  secondAiAccountId: string
+}
+
+export interface AutonomousPrivateChatExecutionResponse {
+  status: AutonomousPrivateChatExecutionStatus
+  decision: AutonomousPrivateChatDecisionResponse
+  privateChat: PrivateChatResponse | null
+  privateChatCreated: boolean
+  initiatorMessage: PrivateMessageResponse | null
+  recipientReply: PrivateMessageResponse | null
+  errorMessage: string | null
+}

@@ -21,6 +21,7 @@ interface RelationshipSettingsPanelProps {
   contactErrorMessage?: string
   onReloadContacts: () => void | Promise<void>
   onDirtyChange: (hasChanges: boolean) => void
+  onOpenPrivateChat?: (privateChatId: string) => void | Promise<void>
 }
 
 /** 编辑一个好友对另一个好友形成的有方向关系。 */
@@ -30,6 +31,7 @@ export function RelationshipSettingsPanel({
   contactErrorMessage,
   onReloadContacts,
   onDirtyChange,
+  onOpenPrivateChat,
 }: RelationshipSettingsPanelProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [fromAiAccountId, setFromAiAccountId] = useState<string | undefined>(
@@ -169,8 +171,8 @@ export function RelationshipSettingsPanel({
   }
 
   return (
-    <div className="grid min-h-[540px] overflow-hidden rounded-xl border border-border bg-surface lg:grid-cols-[270px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-b border-border bg-surface lg:border-r lg:border-b-0" aria-label="关系发起方列表">
+    <div className="grid min-h-[540px] overflow-hidden rounded-xl border border-border bg-surface xl:grid-cols-[270px_minmax(0,1fr)]">
+      <aside className="flex min-h-0 flex-col border-b border-border bg-surface xl:border-r xl:border-b-0" aria-label="关系发起方列表">
         <div className="border-b border-border px-4 py-4">
           <h3 className="text-sm font-semibold text-foreground">关系发起方</h3>
           <label className="mt-3 flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-muted px-3 text-muted-foreground focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
@@ -338,6 +340,7 @@ export function RelationshipSettingsPanel({
               firstContact={fromContact}
               secondContact={toContact}
               hasUnsavedRelationship={hasChanges}
+              onOpenPrivateChat={onOpenPrivateChat}
             />
           </div>
         )}

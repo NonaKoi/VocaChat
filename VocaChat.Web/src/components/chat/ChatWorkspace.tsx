@@ -154,7 +154,7 @@ export function ChatWorkspace(props: Props) {
                   你不在这段会话中
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  当前可以查看聊天记录，好友之间的发言方式将在后续完善。
+                  这是两位好友之间的私信，你可以查看他们的交流记录。
                 </p>
               </div>
             )}

@@ -68,4 +68,35 @@ public class FakeAiReplyService
             + $"说话风格是{speakingStyle}。我看到了你刚才说的“{userContent}”。"
             + "这是当前由系统生成的模拟回复。";
     }
+
+    /// <summary>
+    /// 为一次好友自主私信生成本地模拟开场白。
+    /// </summary>
+    public string GenerateAutonomousPrivateChatOpening(
+        AiAccount initiator,
+        AiAccount recipient)
+    {
+        string topic = initiator.Tags
+            .FirstOrDefault(tag => tag.Type == AiAccountTagType.Interest)
+            ?.Value
+            ?? "最近的生活";
+
+        return $"{recipient.Nickname}，刚好想到你了。最近想和你聊聊{topic}，你这会儿怎么样？";
+    }
+
+    /// <summary>
+    /// 为好友自主私信生成接收方的本地模拟回复。
+    /// </summary>
+    public string GenerateAutonomousPrivateChatReply(
+        AiAccount recipient,
+        AiAccount initiator,
+        string openingContent)
+    {
+        string speakingStyle = string.IsNullOrWhiteSpace(recipient.SpeakingStyle)
+            ? "自然地"
+            : $"用{recipient.SpeakingStyle}的方式";
+
+        return $"{initiator.Nickname}，收到你的消息了。我会{speakingStyle}回应你："
+            + $"关于“{openingContent}”，我也正想和你聊聊。";
+    }
 }
