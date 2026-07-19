@@ -84,10 +84,10 @@ public sealed class AutonomousPrivateChatPlanningService
                     && item.ToAiAccountId == initiator.Id)
             ?? new AiRelationship(recipient.Id, initiator.Id);
         double initiatorScore =
-            AutonomousPrivateChatRelationshipScoring.Calculate(
+            AiRelationshipScoring.Calculate(
                 initiatorToRecipient);
         double recipientScore =
-            AutonomousPrivateChatRelationshipScoring.Calculate(
+            AiRelationshipScoring.Calculate(
                 recipientToInitiator);
 
         plan = new AutonomousPrivateChatPlan
@@ -99,7 +99,7 @@ public sealed class AutonomousPrivateChatPlanningService
             InitiatorToRecipientRelationshipScore = initiatorScore,
             RecipientToInitiatorRelationshipScore = recipientScore,
             MutualRelationshipScore =
-                AutonomousPrivateChatRelationshipScoring.CalculateMutual(
+                AiRelationshipScoring.CalculateMutual(
                     initiatorScore,
                     recipientScore),
             InitiatorInitiativeLevel = initiatorSettings.InitiativeLevel

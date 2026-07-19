@@ -38,6 +38,7 @@ public sealed class ConversationDirectorTests
         Assert.Equal(
             new[] { "没有本人历史依据的昨晚行程" },
             plan.ForbiddenClaims);
+        Assert.Equal(1, plan.SelectedMessageCount);
     }
 
     [Fact]
@@ -145,6 +146,85 @@ public sealed class ConversationDirectorTests
         Assert.Contains("本轮必须回应的目标消息", userPrompt);
     }
 
+    [Fact]
+    public async Task CreatePlanAsync_UsesOnlyCurrentSpeakerDirectionalMemories()
+    {
+        AiMessageGenerationRequest baseRequest = CreateTargetedRequest();
+        AiAccount other = new(
+            "7654321",
+            "小岚",
+            string.Empty,
+            string.Empty,
+            string.Empty);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            OtherParticipants = new[] { other },
+            RelevantMemories = new[]
+            {
+                new AiConversationMemory(
+                    baseRequest.Speaker.Id,
+                    other.Id,
+                    other.Nickname,
+                    AiMemoryType.Preference,
+                    "小岚更喜欢安静的展览",
+                    new DateTime(2026, 7, 10)),
+                new AiConversationMemory(
+                    other.Id,
+                    baseRequest.Speaker.Id,
+                    baseRequest.Speaker.Nickname,
+                    AiMemoryType.Habit,
+                    "反向记忆不能被当前发言者看到",
+                    new DateTime(2026, 7, 11))
+            }
+        };
+        RecordingHandler handler = new(CreateResponse(CreateDirectorJson(
+            "Answer",
+            request.ReplyTarget!.Message!.MessageId,
+            "回家时间",
+            "给出直接答案")));
+        OpenAiCompatibleConversationDirector director = CreateDirector(handler);
+
+        await director.CreatePlanAsync(request);
+
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string systemPrompt = body.RootElement.GetProperty("messages")[0]
+            .GetProperty("content")
+            .GetString()!;
+        string userPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("长期记忆只代表当前发言者", systemPrompt);
+        Assert.Contains("小岚更喜欢安静的展览", userPrompt);
+        Assert.DoesNotContain("反向记忆不能被当前发言者看到", userPrompt);
+    }
+
+    [Fact]
+    public async Task CreatePlanAsync_UserPrivateChat_SelectsCountWithinRangeAndWritesSceneBoundary()
+    {
+        AiMessageGenerationRequest request = CreateTargetedRequest() with
+        {
+            AllowedMessageCountRange = new AiMessageCountRange(1, 3)
+        };
+        RecordingHandler handler = new(CreateResponse(CreateDirectorJson(
+            "Answer",
+            request.ReplyTarget!.Message!.MessageId,
+            "回家时间",
+            "明确告诉对方预计几点回来",
+            messageCount: 2)));
+        OpenAiCompatibleConversationDirector director = CreateDirector(handler);
+
+        ConversationDirectionPlan plan = await director.CreatePlanAsync(request);
+
+        Assert.Equal(2, plan.SelectedMessageCount);
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string userPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("一对一私信", userPrompt);
+        Assert.Contains("当前频道不是群聊", userPrompt);
+        Assert.Contains("1 到 3 条", userPrompt);
+    }
+
     private static OpenAiCompatibleConversationDirector CreateDirector(
         HttpMessageHandler handler)
     {
@@ -204,13 +284,15 @@ public sealed class ConversationDirectorTests
         Guid targetMessageId,
         string topicFocus,
         string responseGoal,
-        IReadOnlyList<string>? avoidedTopics = null) =>
+        IReadOnlyList<string>? avoidedTopics = null,
+        int messageCount = 1) =>
         JsonSerializer.Serialize(new
         {
             action,
             beat = "Clarify",
             topicFocus,
             responseGoal,
+            messageCount,
             targetMessageId = targetMessageId == Guid.Empty
                 ? string.Empty
                 : targetMessageId.ToString(),

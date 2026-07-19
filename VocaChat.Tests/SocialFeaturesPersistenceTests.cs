@@ -26,7 +26,7 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
     }
 
     [Fact]
-    public async Task PrivateChat_PersistsUserAndAiMessagesAcrossServiceInstances()
+    public async Task PrivateChat_PersistsUserAndMultipleAiMessagesAcrossServiceInstances()
     {
         VocaChatDbContextFactory factory = _database.CreateDbContextFactory();
         AiAccount account = CreateAccount(factory, "小语");
@@ -40,18 +40,22 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
                 generator,
                 new RuleBasedConversationDirector(
                     new ConversationActionPlanner()))
-            .ProcessUserMessageAsync(chat!, "今天一起学习吗？");
+            .ProcessUserMessageAsync(chat!, "请分几条具体说说今天怎么一起学习");
 
         Assert.Equal(PrivateChatInteractionStatus.Succeeded, result.Status);
         IReadOnlyList<PrivateMessage> history = new PrivateChatService(factory).GetOrderedChatHistory(chat!.Id);
         Assert.Collection(history,
             message => Assert.Equal(MessageSenderType.User, message.SenderType),
+            message => Assert.Equal(account.Id, message.SenderAiAccountId),
             message => Assert.Equal(account.Id, message.SenderAiAccountId));
+        Assert.Equal(2, result.AiReplies.Count);
         AiMessageGenerationRequest request = Assert.Single(generator.Requests);
         Assert.Equal(result.UserMessage!.Id, request.ReplyTarget!.Message!.MessageId);
         Assert.Equal(ConversationAction.Answer, request.ActionPlan!.Action);
         Assert.NotNull(request.DirectionPlan);
         Assert.True(request.DirectionPlan.UsedRuleFallback);
+        Assert.Equal(2, request.DirectionPlan.SelectedMessageCount);
+        Assert.Equal(2, request.ExpectedMessageCount);
     }
 
     [Fact]

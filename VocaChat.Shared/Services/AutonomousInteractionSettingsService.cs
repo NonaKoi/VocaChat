@@ -47,6 +47,33 @@ public class AutonomousInteractionSettingsService
         out AutonomousInteractionSettings? settings,
         out string errorMessage)
     {
+        return TryUpdateSettings(
+            isEnabled,
+            frequency,
+            allowPrivateChats,
+            allowGroupChats,
+            privateChatContinuationRatePercent,
+            privateChatMaximumRounds,
+            AutonomousInteractionSettings
+                .DefaultAutonomousGroupChatMaximumMembers,
+            out settings,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 验证并保存包含自主群聊成员上限的完整全局设置。
+    /// </summary>
+    public bool TryUpdateSettings(
+        bool isEnabled,
+        AutonomousInteractionFrequency frequency,
+        bool allowPrivateChats,
+        bool allowGroupChats,
+        int privateChatContinuationRatePercent,
+        int privateChatMaximumRounds,
+        int autonomousGroupChatMaximumMembers,
+        out AutonomousInteractionSettings? settings,
+        out string errorMessage)
+    {
         settings = null;
 
         if (!Enum.IsDefined(frequency))
@@ -71,6 +98,14 @@ public class AutonomousInteractionSettingsService
             return false;
         }
 
+        if (autonomousGroupChatMaximumMembers
+                < AutonomousInteractionSettings
+                    .MinimumAutonomousGroupChatMaximumMembers)
+        {
+            errorMessage = "自主好友群聊至少需要允许 3 名好友。";
+            return false;
+        }
+
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
         AutonomousInteractionSettings storedSettings =
@@ -84,7 +119,8 @@ public class AutonomousInteractionSettingsService
             allowPrivateChats,
             allowGroupChats,
             privateChatContinuationRatePercent,
-            privateChatMaximumRounds);
+            privateChatMaximumRounds,
+            autonomousGroupChatMaximumMembers);
 
         if (dbContext.Entry(storedSettings).State == EntityState.Detached)
         {

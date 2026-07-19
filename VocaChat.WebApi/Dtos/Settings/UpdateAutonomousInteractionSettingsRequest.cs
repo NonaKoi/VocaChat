@@ -11,4 +11,5 @@ public sealed class UpdateAutonomousInteractionSettingsRequest
     public bool AllowGroupChats { get; set; }
     public int PrivateChatContinuationRatePercent { get; set; }
     public int PrivateChatMaximumRounds { get; set; }
+    public int AutonomousGroupChatMaximumMembers { get; set; } = 6;
 }

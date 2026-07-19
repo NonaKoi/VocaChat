@@ -23,6 +23,7 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal("Normal", defaults.Frequency);
         Assert.Equal(80, defaults.PrivateChatContinuationRatePercent);
         Assert.Equal(6, defaults.PrivateChatMaximumRounds);
+        Assert.Equal(6, defaults.AutonomousGroupChatMaximumMembers);
 
         using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
             "/api/settings/autonomous-interactions",
@@ -33,7 +34,8 @@ public sealed class AutonomousInteractionSettingsApiTests
                 AllowPrivateChats = false,
                 AllowGroupChats = true,
                 PrivateChatContinuationRatePercent = 70,
-                PrivateChatMaximumRounds = 8
+                PrivateChatMaximumRounds = 8,
+                AutonomousGroupChatMaximumMembers = 16
             });
         AutonomousInteractionSettingsResponse saved =
             (await updateResponse.Content.ReadFromJsonAsync<
@@ -45,6 +47,7 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.False(saved.AllowPrivateChats);
         Assert.Equal(70, saved.PrivateChatContinuationRatePercent);
         Assert.Equal(8, saved.PrivateChatMaximumRounds);
+        Assert.Equal(16, saved.AutonomousGroupChatMaximumMembers);
 
         AutonomousInteractionSettingsResponse reloaded =
             (await client.GetFromJsonAsync<AutonomousInteractionSettingsResponse>(
@@ -60,6 +63,9 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(
             saved.PrivateChatMaximumRounds,
             reloaded.PrivateChatMaximumRounds);
+        Assert.Equal(
+            saved.AutonomousGroupChatMaximumMembers,
+            reloaded.AutonomousGroupChatMaximumMembers);
     }
 
     [Fact]
@@ -77,7 +83,8 @@ public sealed class AutonomousInteractionSettingsApiTests
                 AllowPrivateChats = true,
                 AllowGroupChats = true,
                 PrivateChatContinuationRatePercent = 80,
-                PrivateChatMaximumRounds = 6
+                PrivateChatMaximumRounds = 6,
+                AutonomousGroupChatMaximumMembers = 6
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

@@ -24,6 +24,7 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
         Assert.True(settings.AllowGroupChats);
         Assert.Equal(80, settings.PrivateChatContinuationRatePercent);
         Assert.Equal(6, settings.PrivateChatMaximumRounds);
+        Assert.Equal(6, settings.AutonomousGroupChatMaximumMembers);
     }
 
     [Fact]
@@ -38,6 +39,7 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
             allowGroupChats: false,
             privateChatContinuationRatePercent: 65,
             privateChatMaximumRounds: 9,
+            autonomousGroupChatMaximumMembers: 14,
             out AutonomousInteractionSettings? savedSettings,
             out string errorMessage);
 
@@ -55,6 +57,28 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
         Assert.False(reloadedSettings.AllowGroupChats);
         Assert.Equal(65, reloadedSettings.PrivateChatContinuationRatePercent);
         Assert.Equal(9, reloadedSettings.PrivateChatMaximumRounds);
+        Assert.Equal(14, reloadedSettings.AutonomousGroupChatMaximumMembers);
+    }
+
+    [Fact]
+    public void TryUpdateSettings_WithGroupMaximumBelowThree_DoesNotSave()
+    {
+        AutonomousInteractionSettingsService service = CreateService();
+
+        bool succeeded = service.TryUpdateSettings(
+            isEnabled: true,
+            AutonomousInteractionFrequency.Normal,
+            allowPrivateChats: true,
+            allowGroupChats: true,
+            privateChatContinuationRatePercent: 80,
+            privateChatMaximumRounds: 6,
+            autonomousGroupChatMaximumMembers: 2,
+            out AutonomousInteractionSettings? settings,
+            out string errorMessage);
+
+        Assert.False(succeeded);
+        Assert.Null(settings);
+        Assert.Equal("自主好友群聊至少需要允许 3 名好友。", errorMessage);
     }
 
     [Fact]

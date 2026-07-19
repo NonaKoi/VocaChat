@@ -37,7 +37,7 @@ public sealed class PrivateChatInteractionService
         }
 
         AiAccount aiAccount = privateChat.Contact!.AiAccount;
-        string replyContent;
+        IReadOnlyList<string> replyContents;
 
         try
         {
@@ -67,6 +67,7 @@ public sealed class PrivateChatInteractionService
                         message.SentAt))
                     .ToList()
                     .AsReadOnly(),
+                AllowedMessageCountRange = new AiMessageCountRange(1, 3),
                 ExpectedMessageCount = 1
             };
             ConversationDirectionPlan directionPlan =
@@ -76,13 +77,13 @@ public sealed class PrivateChatInteractionService
             generationRequest = generationRequest with
             {
                 DirectionPlan = directionPlan,
-                ActionPlan = directionPlan.ActionPlan
+                ActionPlan = directionPlan.ActionPlan,
+                ExpectedMessageCount = directionPlan.SelectedMessageCount
             };
-            IReadOnlyList<string> generatedMessages =
+            replyContents =
                 await _messageGenerator.GenerateMessagesAsync(
                     generationRequest,
                     cancellationToken);
-            replyContent = generatedMessages.Single();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -91,11 +92,11 @@ public sealed class PrivateChatInteractionService
                 exception.Message);
         }
 
-        if (!_privateChatService.TrySaveAiReply(
+        if (!_privateChatService.TrySaveAiReplies(
                 privateChat,
                 aiAccount,
-                replyContent,
-                out PrivateMessage? aiReply,
+                replyContents,
+                out IReadOnlyList<PrivateMessage> aiReplies,
                 out string aiReplyError))
         {
             return PrivateChatInteractionResult.AiReplyFailed(
@@ -103,7 +104,7 @@ public sealed class PrivateChatInteractionService
                 aiReplyError);
         }
 
-        return PrivateChatInteractionResult.Succeeded(userMessage, aiReply!);
+        return PrivateChatInteractionResult.Succeeded(userMessage, aiReplies);
     }
 }
 
@@ -118,28 +119,28 @@ public sealed class PrivateChatInteractionResult
 {
     public PrivateChatInteractionStatus Status { get; }
     public PrivateMessage? UserMessage { get; }
-    public PrivateMessage? AiReply { get; }
+    public IReadOnlyList<PrivateMessage> AiReplies { get; }
     public string ErrorMessage { get; }
 
     private PrivateChatInteractionResult(
         PrivateChatInteractionStatus status,
         PrivateMessage? userMessage,
-        PrivateMessage? aiReply,
+        IReadOnlyList<PrivateMessage>? aiReplies,
         string errorMessage)
     {
         Status = status;
         UserMessage = userMessage;
-        AiReply = aiReply;
+        AiReplies = aiReplies ?? Array.Empty<PrivateMessage>();
         ErrorMessage = errorMessage;
     }
 
     public static PrivateChatInteractionResult Succeeded(
         PrivateMessage userMessage,
-        PrivateMessage aiReply) =>
+        IReadOnlyList<PrivateMessage> aiReplies) =>
         new(
             PrivateChatInteractionStatus.Succeeded,
             userMessage,
-            aiReply,
+            aiReplies,
             string.Empty);
 
     public static PrivateChatInteractionResult UserMessageRejected(
@@ -147,7 +148,7 @@ public sealed class PrivateChatInteractionResult
         new(
             PrivateChatInteractionStatus.UserMessageRejected,
             null,
-            null,
+            Array.Empty<PrivateMessage>(),
             errorMessage);
 
     public static PrivateChatInteractionResult AiReplyFailed(
@@ -156,6 +157,6 @@ public sealed class PrivateChatInteractionResult
         new(
             PrivateChatInteractionStatus.AiReplyFailed,
             userMessage,
-            null,
+            Array.Empty<PrivateMessage>(),
             errorMessage);
 }

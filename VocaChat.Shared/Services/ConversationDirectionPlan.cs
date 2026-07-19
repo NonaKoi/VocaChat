@@ -29,6 +29,7 @@ public sealed record ConversationDirectionPlan
     public IReadOnlyList<string> AvoidedTopics { get; }
     public IReadOnlyList<string> ForbiddenClaims { get; }
     public bool UsedRuleFallback { get; }
+    public int SelectedMessageCount { get; }
 
     public ConversationDirectionPlan(
         ConversationActionPlan actionPlan,
@@ -41,8 +42,16 @@ public sealed record ConversationDirectionPlan
         string newContribution,
         IReadOnlyList<string> avoidedTopics,
         IReadOnlyList<string> forbiddenClaims,
-        bool usedRuleFallback)
+        bool usedRuleFallback,
+        int selectedMessageCount = 1)
     {
+        if (selectedMessageCount is < 0 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selectedMessageCount),
+                "导演选择的消息数量必须在 0 到 3 之间。");
+        }
+
         ActionPlan = actionPlan
             ?? throw new ArgumentNullException(nameof(actionPlan));
         Beat = beat;
@@ -59,6 +68,7 @@ public sealed record ConversationDirectionPlan
         ForbiddenClaims = forbiddenClaims
             ?? throw new ArgumentNullException(nameof(forbiddenClaims));
         UsedRuleFallback = usedRuleFallback;
+        SelectedMessageCount = selectedMessageCount;
     }
 
     /// <summary>

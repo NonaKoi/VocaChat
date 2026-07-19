@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CircleGauge, MessageCircleMore, Save, TimerReset, UsersRound } from 'lucide-react'
+import { CircleGauge, MessageCircleMore, Save, TimerReset, Users, UsersRound } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type {
   AutonomousInteractionSettingsResponse,
@@ -44,7 +44,9 @@ export function GlobalAutonomySettingsPanel({
     && draft.privateChatContinuationRatePercent <= 95
     && Number.isInteger(draft.privateChatMaximumRounds)
     && draft.privateChatMaximumRounds >= 1
-    && draft.privateChatMaximumRounds <= 12,
+    && draft.privateChatMaximumRounds <= 12
+    && Number.isInteger(draft.autonomousGroupChatMaximumMembers)
+    && draft.autonomousGroupChatMaximumMembers >= 3,
   )
 
   useEffect(() => {
@@ -155,6 +157,17 @@ export function GlobalAutonomySettingsPanel({
             disabled={!draft.isEnabled}
             onCheckedChange={(checked) => updateDraft({ allowGroupChats: checked })}
           />
+
+          <SettingsNumberField
+            id="autonomous-group-chat-maximum-members"
+            label="单次好友群聊最大人数"
+            description="自主组成好友群聊时，至少会有 3 名好友参与；这里设置单次群聊允许的最多人数。"
+            value={draft.autonomousGroupChatMaximumMembers}
+            min={3}
+            suffix="人"
+            disabled={!draft.isEnabled || !draft.allowGroupChats}
+            onValueChange={(autonomousGroupChatMaximumMembers) => updateDraft({ autonomousGroupChatMaximumMembers })}
+          />
         </div>
 
         <SettingsSaveBar
@@ -195,6 +208,11 @@ export function GlobalAutonomySettingsPanel({
             icon={TimerReset}
             label="单次私信"
             value={`${draft.privateChatContinuationRatePercent}% · 最多 ${draft.privateChatMaximumRounds} 轮`}
+          />
+          <StatusRow
+            icon={Users}
+            label="单次好友群聊"
+            value={`3–${draft.autonomousGroupChatMaximumMembers} 人`}
           />
         </dl>
         <p className="m-4 rounded-lg bg-primary-soft p-3 text-xs leading-5 text-primary">
@@ -255,12 +273,14 @@ function SettingsNumberField({
   description: string
   value: number
   min: number
-  max: number
+  max?: number
   suffix: string
   disabled: boolean
   onValueChange: (value: number) => void
 }) {
-  const isInvalid = !Number.isInteger(value) || value < min || value > max
+  const isInvalid = !Number.isInteger(value)
+    || value < min
+    || (max !== undefined && value > max)
   const descriptionId = `${id}-description`
   const errorId = `${id}-error`
 
@@ -275,7 +295,9 @@ function SettingsNumberField({
         </p>
         {isInvalid && (
           <p id={errorId} className="mt-1 text-xs text-destructive" role="alert">
-            请输入 {min} 到 {max} 之间的整数。
+            {max === undefined
+              ? `请输入不小于 ${min} 的整数。`
+              : `请输入 ${min} 到 ${max} 之间的整数。`}
           </p>
         )}
       </div>
@@ -359,6 +381,7 @@ function areSettingsEqual(
     && first.allowGroupChats === second.allowGroupChats
     && first.privateChatContinuationRatePercent === second.privateChatContinuationRatePercent
     && first.privateChatMaximumRounds === second.privateChatMaximumRounds
+    && first.autonomousGroupChatMaximumMembers === second.autonomousGroupChatMaximumMembers
 }
 
 function getScopeLabel(settings: UpdateAutonomousInteractionSettingsRequest) {

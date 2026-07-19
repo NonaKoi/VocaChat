@@ -31,6 +31,11 @@ public sealed class AutonomousInteractionSettingsConfiguration
                 $"\"PrivateChatMaximumRounds\" BETWEEN "
                 + $"{AutonomousInteractionSettings.MinimumPrivateChatMaximumRounds} "
                 + $"AND {AutonomousInteractionSettings.MaximumPrivateChatMaximumRounds}");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_GroupChatMaximumMembers",
+                $"\"AutonomousGroupChatMaximumMembers\" >= "
+                + AutonomousInteractionSettings
+                    .MinimumAutonomousGroupChatMaximumMembers);
         });
 
         builder.HasKey(settings => settings.Id);
@@ -61,6 +66,12 @@ public sealed class AutonomousInteractionSettingsConfiguration
         builder.Property(settings => settings.PrivateChatMaximumRounds)
             .HasDefaultValue(
                 AutonomousInteractionSettings.DefaultPrivateChatMaximumRounds)
+            .IsRequired();
+
+        builder.Property(settings => settings.AutonomousGroupChatMaximumMembers)
+            .HasDefaultValue(
+                AutonomousInteractionSettings
+                    .DefaultAutonomousGroupChatMaximumMembers)
             .IsRequired();
     }
 }

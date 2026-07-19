@@ -115,6 +115,7 @@ describe('AutonomousInteractionSettingsPage', () => {
       allowGroupChats: true,
       privateChatContinuationRatePercent: 80,
       privateChatMaximumRounds: 6,
+      autonomousGroupChatMaximumMembers: 6,
     })
     updateSettingsMock.mockImplementation(async (request) => request)
     getFriendSettingsMock.mockResolvedValue({
@@ -278,6 +279,7 @@ describe('AutonomousInteractionSettingsPage', () => {
         allowGroupChats: true,
         privateChatContinuationRatePercent: 80,
         privateChatMaximumRounds: 6,
+        autonomousGroupChatMaximumMembers: 6,
       })
     })
     expect(screen.getByText('设置已保存到本地数据库。')).toBeInTheDocument()
@@ -304,6 +306,32 @@ describe('AutonomousInteractionSettingsPage', () => {
         allowGroupChats: true,
         privateChatContinuationRatePercent: 72,
         privateChatMaximumRounds: 9,
+        autonomousGroupChatMaximumMembers: 6,
+      })
+    })
+  })
+
+  it('保存单次好友群聊最大人数', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    await user.click(await screen.findByRole('switch', {
+      name: '允许好友自主互动',
+    }))
+    const maximumMembersInput = screen.getByLabelText('单次好友群聊最大人数')
+    await user.clear(maximumMembersInput)
+    await user.type(maximumMembersInput, '12')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        isEnabled: true,
+        frequency: 'Normal',
+        allowPrivateChats: true,
+        allowGroupChats: true,
+        privateChatContinuationRatePercent: 80,
+        privateChatMaximumRounds: 6,
+        autonomousGroupChatMaximumMembers: 12,
       })
     })
   })

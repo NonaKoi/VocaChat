@@ -129,6 +129,30 @@ public sealed class ConversationActionPlannerTests
         Assert.Equal(ConversationAction.Answer, plan.Action);
         Assert.Equal(ConversationDirectness.Direct, plan.Directness);
         Assert.Equal(ConversationQuestionMode.None, plan.QuestionMode);
+        Assert.False(plan.MayLeaveThoughtOpen);
+    }
+
+    [Fact]
+    public void DetailedUserQuestion_UsesModerateCompleteAnswerPlan()
+    {
+        ConversationActionPlanner planner = new(new ConstantRandom(0.99));
+        AiDialogueMessage targetMessage = new(
+            "我",
+            "你最近具体在忙什么，详细讲讲",
+            MessageSenderType.User,
+            null);
+        AiMessageGenerationRequest request = CreateRequest(
+            AiMessageGenerationScenario.UserPrivateChat) with
+        {
+            FocusContent = targetMessage.Content,
+            ReplyTarget = AiDialogueReplyTarget.ReplyTo(targetMessage)
+        };
+
+        ConversationActionPlan plan = planner.CreatePlan(request);
+
+        Assert.Equal(ConversationAction.Answer, plan.Action);
+        Assert.Equal(ConversationMessageLength.Moderate, plan.MessageLength);
+        Assert.False(plan.MayLeaveThoughtOpen);
     }
 
     [Fact]

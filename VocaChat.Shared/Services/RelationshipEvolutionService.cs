@@ -30,6 +30,63 @@ public sealed class RelationshipEvolutionService
         out IReadOnlyList<AiRelationshipChange> changes,
         out string errorMessage)
     {
+        return TryApplyCompletedSession(
+            sessionId,
+            proposal: null,
+            out changes,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 返回当前 Session 的关系演化应用状态，供后处理在调用模型前执行幂等检查。
+    /// </summary>
+    public RelationshipEvolutionStatus GetApplicationStatus(
+        Guid sessionId,
+        out IReadOnlyList<AiRelationshipChange> changes,
+        out string errorMessage)
+    {
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        AutonomousPrivateChatSession? session =
+            dbContext.AutonomousPrivateChatSessions
+                .AsNoTracking()
+                .SingleOrDefault(item => item.Id == sessionId);
+
+        if (session is null)
+        {
+            changes = Array.Empty<AiRelationshipChange>();
+            errorMessage = "自主私信 Session 不存在，不能检查关系演化状态。";
+            return RelationshipEvolutionStatus.SessionNotFound;
+        }
+
+        List<AiRelationshipChange> storedChanges =
+            GetStoredChanges(dbContext, sessionId);
+        changes = storedChanges.AsReadOnly();
+
+        if (storedChanges.Count == 0)
+        {
+            errorMessage = string.Empty;
+            return RelationshipEvolutionStatus.NotApplied;
+        }
+
+        if (HasExpectedDirections(storedChanges, session))
+        {
+            errorMessage = string.Empty;
+            return RelationshipEvolutionStatus.AlreadyApplied;
+        }
+
+        errorMessage = "自主私信的关系变化审计不完整。";
+        return RelationshipEvolutionStatus.InvalidAuditState;
+    }
+
+    /// <summary>
+    /// 应用已经由业务规则从 Session 洞察映射出的有界关系建议。
+    /// </summary>
+    internal RelationshipEvolutionStatus TryApplyCompletedSession(
+        Guid sessionId,
+        RelationshipEvolutionProposal? proposal,
+        out IReadOnlyList<AiRelationshipChange> changes,
+        out string errorMessage)
+    {
         changes = Array.Empty<AiRelationshipChange>();
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
@@ -57,11 +114,7 @@ public sealed class RelationshipEvolutionService
         }
 
         List<AiRelationshipChange> existingChanges =
-            dbContext.AiRelationshipChanges
-                .AsNoTracking()
-                .Where(change => change.SessionId == sessionId)
-                .OrderBy(change => change.FromAiAccountId)
-                .ToList();
+            GetStoredChanges(dbContext, sessionId);
 
         if (existingChanges.Count > 0)
         {
@@ -84,13 +137,15 @@ public sealed class RelationshipEvolutionService
                 session,
                 session.InitiatorAiAccountId,
                 session.RecipientAiAccountId,
-                occurredAt),
+                occurredAt,
+                proposal?.InitiatorToRecipient),
             ApplyDirection(
                 dbContext,
                 session,
                 session.RecipientAiAccountId,
                 session.InitiatorAiAccountId,
-                occurredAt)
+                occurredAt,
+                proposal?.RecipientToInitiator)
         ];
 
         dbContext.AiRelationshipChanges.AddRange(newChanges);
@@ -115,7 +170,8 @@ public sealed class RelationshipEvolutionService
         AutonomousPrivateChatSession session,
         Guid fromAiAccountId,
         Guid toAiAccountId,
-        DateTime occurredAt)
+        DateTime occurredAt,
+        RelationshipDirectionChange? proposedChange)
     {
         AiRelationship relationship = dbContext.AiRelationships
             .SingleOrDefault(item =>
@@ -131,8 +187,14 @@ public sealed class RelationshipEvolutionService
         (int familiarityDelta, int affinityDelta, int trustDelta) =
             relationship.ApplySessionOutcome(
                 familiarityDelta: 1,
-                affinityDelta: 0,
-                trustDelta: 0,
+                affinityDelta: Math.Clamp(
+                    proposedChange?.AffinityDelta ?? 0,
+                    AiRelationshipChange.MinimumAffinityDelta,
+                    AiRelationshipChange.MaximumAffinityDelta),
+                trustDelta: Math.Clamp(
+                    proposedChange?.TrustDelta ?? 0,
+                    AiRelationshipChange.MinimumTrustDelta,
+                    AiRelationshipChange.MaximumTrustDelta),
                 occurredAt);
 
         return new AiRelationshipChange(
@@ -142,8 +204,30 @@ public sealed class RelationshipEvolutionService
             familiarityDelta,
             affinityDelta,
             trustDelta,
-            CompletedInteractionReason,
+            BuildReason(proposedChange),
             occurredAt);
+    }
+
+    private static List<AiRelationshipChange> GetStoredChanges(
+        VocaChatDbContext dbContext,
+        Guid sessionId)
+    {
+        return dbContext.AiRelationshipChanges
+            .AsNoTracking()
+            .Where(change => change.SessionId == sessionId)
+            .OrderBy(change => change.FromAiAccountId)
+            .ToList();
+    }
+
+    private static string BuildReason(
+        RelationshipDirectionChange? proposedChange)
+    {
+        string reason = string.IsNullOrWhiteSpace(proposedChange?.Reason)
+            ? CompletedInteractionReason
+            : $"{CompletedInteractionReason} Session 分析：{proposedChange.Reason.Trim()}";
+        return reason.Length <= AiRelationshipChange.ReasonMaxLength
+            ? reason
+            : reason[..AiRelationshipChange.ReasonMaxLength];
     }
 
     private static bool HasExpectedDirections(

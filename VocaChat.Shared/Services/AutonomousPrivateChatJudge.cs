@@ -185,7 +185,7 @@ public sealed class AutonomousPrivateChatJudge
         AiRelationship relationship)
     {
         double relationshipScore =
-            AutonomousPrivateChatRelationshipScoring.Calculate(relationship);
+            AiRelationshipScoring.Calculate(relationship);
         int initiativeAdjustment = settings.InitiativeLevel switch
         {
             AutonomousInteractionInitiativeLevel.Low => -10,

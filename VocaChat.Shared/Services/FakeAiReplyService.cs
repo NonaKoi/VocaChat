@@ -34,7 +34,11 @@ public class FakeAiReplyService : IAiMessageGenerator
         IReadOnlyList<string> messages = request.Scenario switch
         {
             AiMessageGenerationScenario.UserPrivateChat
-                or AiMessageGenerationScenario.GroupPrimaryReply
+                => GenerateUserPrivateChatMessages(
+                    request.Speaker,
+                    targetContent,
+                    request.ExpectedMessageCount),
+            AiMessageGenerationScenario.GroupPrimaryReply
                 => new[] { GenerateReply(request.Speaker, targetContent) },
             AiMessageGenerationScenario.GroupFollowUpReply
                 => new[]
@@ -64,6 +68,27 @@ public class FakeAiReplyService : IAiMessageGenerator
         };
 
         return Task.FromResult(messages);
+    }
+
+    private IReadOnlyList<string> GenerateUserPrivateChatMessages(
+        AiAccount speaker,
+        string userContent,
+        int messageCount)
+    {
+        if (messageCount is < 1 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(messageCount),
+                "用户私信回复数量必须在 1 到 3 之间。");
+        }
+
+        string[] candidates =
+        {
+            GenerateReply(speaker, userContent),
+            $"关于“{userContent}”，我还想再补充一个相关的想法。",
+            "这几条是同一次回应中自然分开发送的消息。"
+        };
+        return candidates.Take(messageCount).ToList().AsReadOnly();
     }
 
     /// <summary>

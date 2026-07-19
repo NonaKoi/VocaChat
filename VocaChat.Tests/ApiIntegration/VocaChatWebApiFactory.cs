@@ -41,6 +41,7 @@ internal sealed class VocaChatWebApiFactory
             services.RemoveAll<LocalMediaStorageService>();
             services.RemoveAll<IAiMessageGenerator>();
             services.RemoveAll<IConversationDirector>();
+            services.RemoveAll<ISessionInsightAnalyzer>();
             services.AddSingleton(_database.CreateDbContextFactory());
             services.AddSingleton(
                 new LocalMediaStorageService(_mediaDirectory));
@@ -48,6 +49,9 @@ internal sealed class VocaChatWebApiFactory
             services.AddScoped<IConversationDirector>(serviceProvider =>
                 new RuleBasedConversationDirector(
                     serviceProvider.GetRequiredService<ConversationActionPlanner>()));
+            services.AddSingleton<
+                ISessionInsightAnalyzer,
+                RuleBasedSessionInsightAnalyzer>();
         });
     }
 

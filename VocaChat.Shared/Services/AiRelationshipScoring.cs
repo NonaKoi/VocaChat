@@ -3,9 +3,9 @@ using VocaChat.Models;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 集中计算自主私信判断与延续规则共同使用的有方向关系分。
+/// 集中计算自主互动规则共同使用的有方向和双向关系分。
 /// </summary>
-internal static class AutonomousPrivateChatRelationshipScoring
+internal static class AiRelationshipScoring
 {
     internal static double Calculate(AiRelationship relationship)
     {
@@ -16,14 +16,14 @@ internal static class AutonomousPrivateChatRelationshipScoring
     }
 
     internal static double CalculateMutual(
-        double initiatorToRecipientScore,
-        double recipientToInitiatorScore)
+        double firstToSecondScore,
+        double secondToFirstScore)
     {
         double lowerScore = Math.Min(
-            initiatorToRecipientScore,
-            recipientToInitiatorScore);
+            firstToSecondScore,
+            secondToFirstScore);
         double averageScore =
-            (initiatorToRecipientScore + recipientToInitiatorScore) / 2d;
+            (firstToSecondScore + secondToFirstScore) / 2d;
 
         return lowerScore * 0.6 + averageScore * 0.4;
     }

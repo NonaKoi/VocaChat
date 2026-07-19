@@ -16,6 +16,7 @@ public sealed class VocaChatDbContext : DbContext
     public DbSet<AiRelationship> AiRelationships => Set<AiRelationship>();
     public DbSet<AiRelationshipChange> AiRelationshipChanges =>
         Set<AiRelationshipChange>();
+    public DbSet<AiMemory> AiMemories => Set<AiMemory>();
     public DbSet<AutonomousPrivateChatSession> AutonomousPrivateChatSessions =>
         Set<AutonomousPrivateChatSession>();
     public DbSet<AutonomousPrivateChatRound> AutonomousPrivateChatRounds =>
@@ -51,6 +52,7 @@ public sealed class VocaChatDbContext : DbContext
         modelBuilder.ApplyConfiguration(new AiRelationshipConfiguration());
         modelBuilder.ApplyConfiguration(
             new AiRelationshipChangeConfiguration());
+        modelBuilder.ApplyConfiguration(new AiMemoryConfiguration());
         modelBuilder.ApplyConfiguration(
             new AutonomousPrivateChatSessionConfiguration());
         modelBuilder.ApplyConfiguration(

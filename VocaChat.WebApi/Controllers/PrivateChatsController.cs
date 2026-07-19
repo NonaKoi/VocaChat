@@ -106,9 +106,11 @@ public sealed class PrivateChatsController : ControllerBase
             UserMessage = PrivateChatResponseMapper.ToMessageResponse(
                 result.UserMessage!,
                 participants),
-            AiReply = PrivateChatResponseMapper.ToMessageResponse(
-                result.AiReply!,
-                participants)
+            AiReplies = result.AiReplies
+                .Select(reply => PrivateChatResponseMapper.ToMessageResponse(
+                    reply,
+                    participants))
+                .ToList()
         });
     }
 }

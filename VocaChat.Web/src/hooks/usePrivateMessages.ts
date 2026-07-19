@@ -44,7 +44,7 @@ export function usePrivateMessages(privateChatId?: string) {
     setIsSending(true); setSendErrorMessage(undefined)
     try {
       const result = await sendPrivateMessage(privateChatId, normalized)
-      setData((current) => merge(current, [result.userMessage, result.aiReply]))
+      setData((current) => merge(current, [result.userMessage, ...result.aiReplies]))
       return 'success'
     } catch (error) {
       const saved = getSavedPrivateUserMessage(error)

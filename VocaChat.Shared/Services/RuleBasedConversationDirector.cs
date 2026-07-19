@@ -48,7 +48,41 @@ public sealed class RuleBasedConversationDirector : IConversationDirector
             GetNewContribution(actionPlan.Action),
             Array.Empty<string>(),
             new[] { "没有资料或本人历史依据的第一人称经历" },
-            usedRuleFallback: true);
+            usedRuleFallback: true,
+            selectedMessageCount: SelectMessageCount(request, actionPlan));
+    }
+
+    /// <summary>
+    /// 模型导演不可用时，根据当前用户要求选择一个保守且足够表达的消息数量。
+    /// </summary>
+    internal static int SelectMessageCount(
+        AiMessageGenerationRequest request,
+        ConversationActionPlan actionPlan)
+    {
+        AiMessageCountRange? range = request.AllowedMessageCountRange;
+        if (range is null)
+        {
+            return request.ExpectedMessageCount;
+        }
+
+        if (range.Minimum == range.Maximum)
+        {
+            return range.Minimum;
+        }
+
+        string targetContent = request.ReplyTarget?.Message?.Content
+            ?? request.FocusContent;
+        bool explicitlyRequestsMultipleMessages = ContainsAny(
+            targetContent,
+            "多说几句", "多说一点", "分几条", "分开说", "别只回一句");
+        bool needsExpansion = actionPlan.Action == ConversationAction.Answer
+            && (actionPlan.MessageLength == ConversationMessageLength.Moderate
+                || ContainsAny(targetContent, "具体", "详细", "讲讲", "解释"));
+        int preferredCount = explicitlyRequestsMultipleMessages
+            || needsExpansion
+                ? 2
+                : 1;
+        return Math.Clamp(preferredCount, range.Minimum, range.Maximum);
     }
 
     internal static string GetTopicFocus(AiMessageGenerationRequest request)
@@ -139,6 +173,13 @@ public sealed class RuleBasedConversationDirector : IConversationDirector
             ConversationAction.Close => "使用新的简短表达自然收住，不复述结论",
             _ => "增加一个尚未在最近消息中表达的新角度或新反应"
         };
+
+    private static bool ContainsAny(
+        string value,
+        params string[] candidates) =>
+        candidates.Any(candidate => value.Contains(
+            candidate,
+            StringComparison.OrdinalIgnoreCase));
 
     private static string Truncate(string value, int maximumLength) =>
         value.Length <= maximumLength ? value : $"{value[..maximumLength]}…";

@@ -38,7 +38,9 @@ public sealed class SocialFeaturesApiTests
             new SendPrivateMessageRequest { Content = "你好，朋友。" });
         SendPrivateMessageResponse interaction = (await messageResponse.Content.ReadFromJsonAsync<SendPrivateMessageResponse>())!;
         Assert.Equal(HttpStatusCode.OK, messageResponse.StatusCode);
-        Assert.Equal(account.Id, interaction.AiReply.SenderAiAccountId);
+        Assert.Equal(
+            account.Id,
+            Assert.Single(interaction.AiReplies).SenderAiAccountId);
 
         using HttpResponseMessage postResponse = await client.PostAsJsonAsync(
             "/api/posts",

@@ -127,7 +127,8 @@ public sealed class AutonomousInteractionsApiTests
                 AllowPrivateChats = true,
                 AllowGroupChats = true,
                 PrivateChatContinuationRatePercent = 80,
-                PrivateChatMaximumRounds = 6
+                PrivateChatMaximumRounds = 6,
+                AutonomousGroupChatMaximumMembers = 6
             });
         settingsResponse.EnsureSuccessStatusCode();
 
@@ -207,7 +208,8 @@ public sealed class AutonomousInteractionsApiTests
                 AllowPrivateChats = true,
                 AllowGroupChats = false,
                 PrivateChatContinuationRatePercent = 0,
-                PrivateChatMaximumRounds = 6
+                PrivateChatMaximumRounds = 6,
+                AutonomousGroupChatMaximumMembers = 6
             });
         response.EnsureSuccessStatusCode();
     }

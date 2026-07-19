@@ -11,5 +11,6 @@ public enum RelationshipEvolutionStatus
     SessionHasNoCompletedRounds,
     AlreadyApplied,
     InvalidAuditState,
-    PersistenceFailed
+    PersistenceFailed,
+    NotApplied
 }

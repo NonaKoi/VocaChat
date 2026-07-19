@@ -14,6 +14,8 @@ public class AutonomousInteractionSettings
     internal const int DefaultPrivateChatMaximumRounds = 6;
     internal const int MinimumPrivateChatMaximumRounds = 1;
     internal const int MaximumPrivateChatMaximumRounds = 12;
+    internal const int DefaultAutonomousGroupChatMaximumMembers = 6;
+    internal const int MinimumAutonomousGroupChatMaximumMembers = 3;
 
     public int Id { get; private set; }
     public bool IsEnabled { get; private set; }
@@ -22,6 +24,7 @@ public class AutonomousInteractionSettings
     public bool AllowGroupChats { get; private set; }
     public int PrivateChatContinuationRatePercent { get; private set; }
     public int PrivateChatMaximumRounds { get; private set; }
+    public int AutonomousGroupChatMaximumMembers { get; private set; }
 
     /// <summary>
     /// 创建尚未保存的默认设置，或供 EF Core 从数据库还原设置。
@@ -36,6 +39,8 @@ public class AutonomousInteractionSettings
         PrivateChatContinuationRatePercent =
             DefaultPrivateChatContinuationRatePercent;
         PrivateChatMaximumRounds = DefaultPrivateChatMaximumRounds;
+        AutonomousGroupChatMaximumMembers =
+            DefaultAutonomousGroupChatMaximumMembers;
     }
 
     /// <summary>
@@ -47,7 +52,8 @@ public class AutonomousInteractionSettings
         bool allowPrivateChats,
         bool allowGroupChats,
         int privateChatContinuationRatePercent,
-        int privateChatMaximumRounds)
+        int privateChatMaximumRounds,
+        int autonomousGroupChatMaximumMembers)
     {
         IsEnabled = isEnabled;
         Frequency = frequency;
@@ -56,5 +62,7 @@ public class AutonomousInteractionSettings
         PrivateChatContinuationRatePercent =
             privateChatContinuationRatePercent;
         PrivateChatMaximumRounds = privateChatMaximumRounds;
+        AutonomousGroupChatMaximumMembers =
+            autonomousGroupChatMaximumMembers;
     }
 }

@@ -41,7 +41,8 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         ArgumentNullException.ThrowIfNull(request);
         ConversationActionPlan baselinePlan = _actionPlanner.CreatePlan(request);
 
-        if (request.ExpectedMessageCount == 0)
+        AiMessageCountRange messageCountRange = GetMessageCountRange(request);
+        if (messageCountRange.Maximum == 0)
         {
             return await _fallbackDirector.CreatePlanAsync(
                 request,
@@ -199,6 +200,13 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         IReadOnlyList<string> forbiddenClaims = ParseStringList(
             root,
             "forbiddenClaims");
+        int selectedMessageCount = GetRequiredInt(root, "messageCount");
+        AiMessageCountRange allowedRange = GetMessageCountRange(request);
+        if (!allowedRange.Contains(selectedMessageCount))
+        {
+            throw new AiMessageGenerationException(
+                $"导演选择的消息数量必须在 {allowedRange.Minimum} 到 {allowedRange.Maximum} 之间。");
+        }
 
         return new ConversationDirectionPlan(
             _actionPlanner.CreatePlan(request, action),
@@ -211,7 +219,8 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             newContribution,
             avoidedTopics,
             forbiddenClaims,
-            false);
+            false,
+            selectedMessageCount);
     }
 
     private static IReadOnlyList<string> ParseStringList(
@@ -256,7 +265,14 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         Guid targetMessageId = request.ReplyTarget?.Message?.MessageId
             ?? Guid.Empty;
         StringBuilder builder = new();
-        builder.AppendLine($"场景：{request.Scenario}");
+        builder.AppendLine(
+            $"场景：{AiConversationScenarioPrompt.GetDescription(request.Scenario)}");
+        builder.AppendLine("场景事实边界：");
+        foreach (string instruction in
+                 AiConversationScenarioPrompt.GetBoundaryInstructions(request))
+        {
+            builder.AppendLine($"- {instruction}");
+        }
         builder.AppendLine($"发言者：{request.Speaker.Nickname}");
         builder.AppendLine($"身份：{DisplayOrDefault(request.Speaker.IdentityDescription)}");
         builder.AppendLine($"性格：{DisplayOrDefault(request.Speaker.Personality)}");
@@ -267,7 +283,11 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         builder.AppendLine($"规则基线动作：{baselinePlan.Action}");
         builder.AppendLine($"关系距离：{baselinePlan.RelationshipTone}");
         builder.AppendLine($"关系投入对比：{baselinePlan.RelationshipBalance}");
-        builder.AppendLine($"本轮消息数量：{request.ExpectedMessageCount}");
+        AiMessageCountRange messageCountRange = GetMessageCountRange(request);
+        builder.AppendLine(
+            messageCountRange.Minimum == messageCountRange.Maximum
+                ? $"本轮消息数量：固定 {messageCountRange.Minimum} 条"
+                : $"本轮允许消息数量：{messageCountRange.Minimum} 到 {messageCountRange.Maximum} 条，由你根据回应完整性和自然聊天节奏选择");
         builder.AppendLine($"本轮目标消息 Id：{(targetMessageId == Guid.Empty ? "" : targetMessageId)}");
         builder.AppendLine("整轮互动的原始起点（后续发言仍须处理其中未完成的要求）：");
         AppendContextMessage(
@@ -295,9 +315,13 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             AppendContextMessage(builder, message);
         }
 
+        AppendMemories(builder, context.Memories);
+
         builder.AppendLine("先从整段会话判断已经表达过什么、原始要求还有什么没完成，再选择一个会话节拍和动作。");
         builder.AppendLine("newContribution 必须指出本轮相对最近消息新增的内容，不能只是换一种说法赞同上一句。");
         builder.AppendLine("forbiddenClaims 必须包含当前好友没有资料或本人历史依据、因此不能声称亲历的事实类型。");
+        builder.AppendLine("messageCount 必须在允许范围内；简单反应通常一条，需要解释或包含多个关联信息时可以自然拆成多条，不能为了凑数切碎同一句话。");
+        builder.AppendLine("用户明确要求多说几句、分开说或不要只回一句时，只要允许范围容纳，messageCount 至少选择 2。");
         return builder.ToString();
     }
 
@@ -305,7 +329,7 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         string.Join(
             Environment.NewLine,
             "你是 VocaChat 的对话导演，只制定单轮语义计划，不编写任何可见聊天台词。",
-            "业务层已经确定发言者、参与者、消息数量、轮次和目标消息；你绝不能改变这些事实。",
+            "业务层已经确定发言者、参与者、允许的消息数量范围、轮次和目标消息；你绝不能改变这些事实。",
             "可选 action 只有 Acknowledge、Answer、Ask、Share、React、Comfort、Tease、Disagree、Evade、ShiftTopic、Close。",
             "可选 beat 只有 Introduce、Develop、Contrast、Clarify、Resolve、Close，用来表示整段会话的推进位置。",
             "如果规则基线动作为 Answer 或 Close，必须保持该动作。",
@@ -314,9 +338,33 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             "coveredPoints 列出最近已经说清楚的观点；unresolvedGoals 列出原始要求中仍待完成的部分。",
             "newContribution 指定本轮必须新增的观点、决定、信息或情绪变化，不能只要求附和或复述。",
             "avoidedTopics 列出不要恢复的旧话题；forbiddenClaims 列出没有身份资料或本人历史依据、不可虚构的第一人称事实。",
+            "长期记忆只代表当前发言者过去对当前对象形成的认识。只有与本轮目标自然相关时才能用于规划，不能让记忆取代目标消息，也不能把对方经历归到当前发言者名下。",
+            "messageCount 表示本轮应独立发送几条聊天消息，必须处于业务层允许范围内。消息数量服务于完整表达和自然节奏，不用于机械切句。",
             "四个数组没有内容时返回空数组，每个数组最多五项。",
             "严格输出 json 对象，不要输出 Markdown 或额外解释。",
-            "json 示例：{\"action\":\"Answer\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"]}");
+            "json 示例：{\"action\":\"Answer\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"messageCount\":2,\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"]}");
+
+    private static AiMessageCountRange GetMessageCountRange(
+        AiMessageGenerationRequest request) =>
+        request.AllowedMessageCountRange
+        ?? new AiMessageCountRange(
+            request.ExpectedMessageCount,
+            request.ExpectedMessageCount);
+
+    private static int GetRequiredInt(
+        JsonElement root,
+        string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement element)
+            || element.ValueKind != JsonValueKind.Number
+            || !element.TryGetInt32(out int value))
+        {
+            throw new AiMessageGenerationException(
+                $"导演计划缺少有效的 {propertyName} 数字。");
+        }
+
+        return value;
+    }
 
     private static void AppendContextMessage(
         StringBuilder builder,
@@ -331,6 +379,27 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         AiDialogueMessage message = contextMessage.Message;
         builder.AppendLine(
             $"[{contextMessage.Ownership}] {message.SenderDisplayName}：{Truncate(message.Content, 400)}");
+    }
+
+    private static void AppendMemories(
+        StringBuilder builder,
+        IReadOnlyList<AiConversationMemory> memories)
+    {
+        builder.AppendLine("当前发言者对对话对象的长期记忆（仅作背景）：");
+
+        if (memories.Count == 0)
+        {
+            builder.AppendLine("（暂无）");
+            return;
+        }
+
+        foreach (AiConversationMemory memory in memories)
+        {
+            builder.AppendLine(
+                $"[{memory.Type}] 关于{memory.SubjectDisplayName}："
+                + $"{Truncate(memory.Summary, 300)}"
+                + $"（{memory.OccurredAt:yyyy-MM-dd}）");
+        }
     }
 
     private static string GetRequiredString(

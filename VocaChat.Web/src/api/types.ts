@@ -158,7 +158,7 @@ export interface PrivateMessageResponse extends ChatMessageResponse {
 
 export interface SendPrivateMessageResponse {
   userMessage: PrivateMessageResponse
-  aiReply: PrivateMessageResponse
+  aiReplies: PrivateMessageResponse[]
 }
 
 export interface PostImageResponse {
@@ -199,6 +199,7 @@ export interface AutonomousInteractionSettingsResponse {
   allowGroupChats: boolean
   privateChatContinuationRatePercent: number
   privateChatMaximumRounds: number
+  autonomousGroupChatMaximumMembers: number
 }
 
 export interface UpdateAutonomousInteractionSettingsRequest {
@@ -208,6 +209,7 @@ export interface UpdateAutonomousInteractionSettingsRequest {
   allowGroupChats: boolean
   privateChatContinuationRatePercent: number
   privateChatMaximumRounds: number
+  autonomousGroupChatMaximumMembers: number
 }
 
 export interface AiAccountAutonomySettingsResponse {

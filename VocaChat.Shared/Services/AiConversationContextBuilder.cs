@@ -26,13 +26,16 @@ public sealed class AiConversationContext
 {
     public AiConversationContextMessage? ReplyTarget { get; }
     public IReadOnlyList<AiConversationContextMessage> Messages { get; }
+    public IReadOnlyList<AiConversationMemory> Memories { get; }
 
     internal AiConversationContext(
         AiConversationContextMessage? replyTarget,
-        IReadOnlyList<AiConversationContextMessage> messages)
+        IReadOnlyList<AiConversationContextMessage> messages,
+        IReadOnlyList<AiConversationMemory> memories)
     {
         ReplyTarget = replyTarget;
         Messages = messages;
+        Memories = memories;
     }
 }
 
@@ -41,6 +44,8 @@ public sealed class AiConversationContext
 /// </summary>
 public sealed class AiConversationContextBuilder
 {
+    private const int MaximumMemoryCount = 4;
+
     public AiConversationContext Build(
         AiMessageGenerationRequest request,
         int recentMessageLimit)
@@ -67,7 +72,21 @@ public sealed class AiConversationContextBuilder
                 ResolveOwnership(message, request.Speaker.Id)))
             .ToList();
 
-        return new AiConversationContext(replyTarget, messages.AsReadOnly());
+        HashSet<Guid> participantIds = request.OtherParticipants
+            .Select(participant => participant.Id)
+            .ToHashSet();
+        List<AiConversationMemory> memories = request.RelevantMemories
+            .Where(memory =>
+                memory.OwnerAiAccountId == request.Speaker.Id
+                && participantIds.Contains(memory.SubjectAiAccountId)
+                && !string.IsNullOrWhiteSpace(memory.Summary))
+            .Take(MaximumMemoryCount)
+            .ToList();
+
+        return new AiConversationContext(
+            replyTarget,
+            messages.AsReadOnly(),
+            memories.AsReadOnly());
     }
 
     private static bool IsSameMessage(

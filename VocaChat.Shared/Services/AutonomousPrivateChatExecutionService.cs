@@ -3,10 +3,12 @@ using VocaChat.Models;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 协调一次有限的好友自主私信：判断、规划、递减概率、多轮消息、收束和关系演化。
+/// 协调一次有限的好友自主私信：判断、规划、递减概率、多轮消息、收束和 Session 后处理。
 /// </summary>
 public sealed class AutonomousPrivateChatExecutionService
 {
+    private const int MaximumContextMemoryCount = 4;
+
     private readonly AutonomousPrivateChatJudge _privateChatJudge;
     private readonly AiAccountService _aiAccountService;
     private readonly PrivateChatService _privateChatService;
@@ -18,7 +20,8 @@ public sealed class AutonomousPrivateChatExecutionService
     private readonly AutonomousPrivateChatRandomSource _randomSource;
     private readonly IAiMessageGenerator _messageGenerator;
     private readonly IConversationDirector _conversationDirector;
-    private readonly RelationshipEvolutionService _relationshipEvolutionService;
+    private readonly SessionPostProcessingService _sessionPostProcessingService;
+    private readonly AiMemoryService _memoryService;
 
     public AutonomousPrivateChatExecutionService(
         AutonomousPrivateChatJudge privateChatJudge,
@@ -32,7 +35,8 @@ public sealed class AutonomousPrivateChatExecutionService
         AutonomousPrivateChatRandomSource randomSource,
         IAiMessageGenerator messageGenerator,
         IConversationDirector conversationDirector,
-        RelationshipEvolutionService relationshipEvolutionService)
+        SessionPostProcessingService sessionPostProcessingService,
+        AiMemoryService memoryService)
     {
         _privateChatJudge = privateChatJudge;
         _aiAccountService = aiAccountService;
@@ -45,7 +49,9 @@ public sealed class AutonomousPrivateChatExecutionService
         _randomSource = randomSource;
         _messageGenerator = messageGenerator;
         _conversationDirector = conversationDirector;
-        _relationshipEvolutionService = relationshipEvolutionService;
+        _sessionPostProcessingService = sessionPostProcessingService;
+        _memoryService = memoryService
+            ?? throw new ArgumentNullException(nameof(memoryService));
     }
 
     /// <summary>
@@ -134,6 +140,9 @@ public sealed class AutonomousPrivateChatExecutionService
                 errorMessage: sessionError);
         }
 
+        AutonomousPrivateChatMemoryContext memoryContext =
+            LoadMemoryContext(initiator, recipient);
+
         List<AutonomousPrivateChatRound> rounds = new();
         List<PrivateMessage> messages = new();
         DateTime messageTime = evaluatedAt;
@@ -161,6 +170,7 @@ public sealed class AutonomousPrivateChatExecutionService
                     plan.Topic,
                     plan.InitiatorToRecipientRelationshipScore,
                     plan.RecipientToInitiatorRelationshipScore,
+                    memoryContext,
                     roundPlan,
                     isClosing: false,
                     currentOccurrenceProbability,
@@ -254,6 +264,7 @@ public sealed class AutonomousPrivateChatExecutionService
                 plan.Topic,
                 plan.InitiatorToRecipientRelationshipScore,
                 plan.RecipientToInitiatorRelationshipScore,
+                memoryContext,
                 closingPlan,
                 isClosing: true,
                 occurrenceProbability: null,
@@ -301,15 +312,16 @@ public sealed class AutonomousPrivateChatExecutionService
                 $"消息已经保存，但自主私信状态更新失败。{completionError}");
         }
 
-        RelationshipEvolutionStatus evolutionStatus =
-            _relationshipEvolutionService.TryApplyCompletedSession(
+        SessionPostProcessingResult postProcessingResult =
+            await _sessionPostProcessingService.ProcessAsync(
                 completedSession!.Id,
-                out _,
-                out string evolutionError);
+                cancellationToken);
 
-        if (evolutionStatus is not (
-                RelationshipEvolutionStatus.Success
-                or RelationshipEvolutionStatus.AlreadyApplied))
+        if (postProcessingResult.Status is
+            SessionPostProcessingStatus.SessionNotFound
+            or SessionPostProcessingStatus.SessionNotEligible
+            or SessionPostProcessingStatus.ParticipantNotFound
+            or SessionPostProcessingStatus.RelationshipPersistenceFailed)
         {
             return CreateResult(
                 AutonomousPrivateChatExecutionStatus.RelationshipEvolutionFailed,
@@ -319,7 +331,7 @@ public sealed class AutonomousPrivateChatExecutionService
                 completedSession,
                 rounds,
                 messages,
-                $"消息和自主私信 Session 已经保存，但关系演化失败。{evolutionError}");
+                $"消息和自主私信 Session 已经保存，但后处理失败。{postProcessingResult.Message}");
         }
 
         return CreateResult(
@@ -329,7 +341,11 @@ public sealed class AutonomousPrivateChatExecutionService
             privateChatCreated,
             completedSession,
             rounds,
-            messages);
+            messages,
+            postProcessingResult.Status ==
+                    SessionPostProcessingStatus.MemoryPersistencePartialFailure
+                ? postProcessingResult.Message
+                : string.Empty);
     }
 
     private async Task<RoundExecutionAttempt> TryExecuteRoundAsync(
@@ -339,6 +355,7 @@ public sealed class AutonomousPrivateChatExecutionService
         string topic,
         double initiatorToRecipientRelationshipScore,
         double recipientToInitiatorRelationshipScore,
+        AutonomousPrivateChatMemoryContext memoryContext,
         AutonomousPrivateChatRoundPlan roundPlan,
         bool isClosing,
         double? occurrenceProbability,
@@ -390,6 +407,7 @@ public sealed class AutonomousPrivateChatExecutionService
                 isClosing,
                 initiatorToRecipientRelationshipScore,
                 recipientToInitiatorRelationshipScore,
+                memoryContext.InitiatorMemories,
                 cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -434,6 +452,7 @@ public sealed class AutonomousPrivateChatExecutionService
                 isClosing,
                 recipientToInitiatorRelationshipScore,
                 initiatorToRecipientRelationshipScore,
+                memoryContext.RecipientMemories,
                 cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -490,6 +509,7 @@ public sealed class AutonomousPrivateChatExecutionService
         bool isClosing,
         double speakerToOtherRelationshipScore,
         double otherToSpeakerRelationshipScore,
+        IReadOnlyList<AiConversationMemory> relevantMemories,
         CancellationToken cancellationToken)
     {
         IReadOnlyList<PrivateMessage> recentHistory = _privateChatService
@@ -535,7 +555,8 @@ public sealed class AutonomousPrivateChatExecutionService
             IsInitiator = isInitiator,
             OtherParticipantHasResponded = latestOtherMessage is not null,
             SpeakerToOtherRelationshipScore = speakerToOtherRelationshipScore,
-            OtherToSpeakerRelationshipScore = otherToSpeakerRelationshipScore
+            OtherToSpeakerRelationshipScore = otherToSpeakerRelationshipScore,
+            RelevantMemories = relevantMemories
         };
         ConversationDirectionPlan directionPlan =
             await _conversationDirector.CreatePlanAsync(
@@ -550,6 +571,47 @@ public sealed class AutonomousPrivateChatExecutionService
         return await _messageGenerator.GenerateMessagesAsync(
             generationRequest,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// 在 Session 开始时冻结两个方向的少量记忆，避免每一轮重复查询或中途改变上下文。
+    /// </summary>
+    private AutonomousPrivateChatMemoryContext LoadMemoryContext(
+        AiAccount initiator,
+        AiAccount recipient)
+    {
+        return new AutonomousPrivateChatMemoryContext(
+            LoadDirectionalMemories(initiator, recipient),
+            LoadDirectionalMemories(recipient, initiator));
+    }
+
+    private IReadOnlyList<AiConversationMemory> LoadDirectionalMemories(
+        AiAccount owner,
+        AiAccount subject)
+    {
+        AiMemoryOperationStatus status = _memoryService.TryGetActiveMemories(
+            owner.Id,
+            subject.Id,
+            MaximumContextMemoryCount,
+            type: null,
+            out IReadOnlyList<AiMemory> memories,
+            out _);
+
+        if (status != AiMemoryOperationStatus.Success)
+        {
+            return Array.Empty<AiConversationMemory>();
+        }
+
+        return memories
+            .Select(memory => new AiConversationMemory(
+                memory.OwnerAiAccountId,
+                memory.SubjectAiAccountId,
+                subject.Nickname,
+                memory.Type,
+                memory.Summary,
+                memory.OccurredAt))
+            .ToList()
+            .AsReadOnly();
     }
 
     private static AiDialogueReplyTarget CreateAutonomousReplyTarget(
@@ -714,4 +776,8 @@ public sealed class AutonomousPrivateChatExecutionService
             DateTime messageTime) =>
             new(false, session, failureReason, errorMessage, messageTime);
     }
+
+    private sealed record AutonomousPrivateChatMemoryContext(
+        IReadOnlyList<AiConversationMemory> InitiatorMemories,
+        IReadOnlyList<AiConversationMemory> RecipientMemories);
 }

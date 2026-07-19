@@ -173,6 +173,54 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApprovedDecision_ReusesOnlyEachSpeakerDirectionalMemorySnapshot()
+    {
+        (AiAccount first, AiAccount second) = CreatePair("Memories");
+        SeedDirectionalMemories(first, second);
+        EnableAutonomousPrivateChats(
+            continuationRatePercent: 0,
+            maximumRounds: 1);
+        SetStrongRelationships(first.Id, second.Id);
+        RecordingAiMessageGenerator generator = new();
+
+        AutonomousPrivateChatExecutionResult result = await CreateService(
+            new ConstantRandom(0.5),
+            generator).ExecuteAsync(
+                first.Id,
+                second.Id,
+                new DateTime(2026, 7, 18, 12, 45, 0),
+                "周末安排");
+
+        Assert.Equal(AutonomousPrivateChatExecutionStatus.Completed, result.Status);
+        IReadOnlyList<AiMessageGenerationRequest> firstRequests = generator
+            .Requests
+            .Where(request => request.Speaker.Id == first.Id)
+            .ToList()
+            .AsReadOnly();
+        IReadOnlyList<AiMessageGenerationRequest> secondRequests = generator
+            .Requests
+            .Where(request => request.Speaker.Id == second.Id)
+            .ToList()
+            .AsReadOnly();
+        Assert.NotEmpty(firstRequests);
+        Assert.NotEmpty(secondRequests);
+        Assert.All(firstRequests, request =>
+        {
+            AiConversationMemory memory = Assert.Single(request.RelevantMemories);
+            Assert.Equal(first.Id, memory.OwnerAiAccountId);
+            Assert.Equal(second.Id, memory.SubjectAiAccountId);
+            Assert.Equal("第二位好友喜欢安静看展", memory.Summary);
+        });
+        Assert.All(secondRequests, request =>
+        {
+            AiConversationMemory memory = Assert.Single(request.RelevantMemories);
+            Assert.Equal(second.Id, memory.OwnerAiAccountId);
+            Assert.Equal(first.Id, memory.SubjectAiAccountId);
+            Assert.Equal("第一位好友习惯睡前喝茶", memory.Summary);
+        });
+    }
+
+    [Fact]
     public async Task ImmediateSecondExecution_IsRejectedByCooldownWithoutExtraMessages()
     {
         (AiAccount first, AiAccount second) = CreatePair("Cooldown");
@@ -274,6 +322,101 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
         SetStrongRelationship(secondId, firstId);
     }
 
+    private void SeedDirectionalMemories(
+        AiAccount first,
+        AiAccount second)
+    {
+        VocaChatDbContextFactory factory = _database.CreateDbContextFactory();
+        PrivateChatService privateChatService = new(factory);
+        Assert.True(privateChatService.TryGetOrCreateAiPrivateChat(
+            first.Id,
+            second.Id,
+            out PrivateChat? privateChat,
+            out _,
+            out string chatError), chatError);
+        AutonomousPrivateChatSessionService sessionService = new(factory);
+        DateTime endedAt = new(2026, 7, 17, 20, 0, 0);
+        Assert.True(sessionService.TryStartSession(
+            privateChat!.Id,
+            first.Id,
+            second.Id,
+            "彼此的习惯",
+            maximumRounds: 1,
+            continuationRatePercent: 0,
+            endedAt.AddMinutes(-3),
+            out AutonomousPrivateChatSession? session,
+            out string sessionError), sessionError);
+        Assert.True(sessionService.TryStartRound(
+            session!.Id,
+            isClosing: false,
+            occurrenceProbability: 1,
+            randomRoll: null,
+            AutonomousPrivateChatMessageMode.Single,
+            AutonomousPrivateChatMessageMode.Single,
+            initiatorMessageCount: 1,
+            recipientMessageCount: 1,
+            endedAt.AddMinutes(-2),
+            out AutonomousPrivateChatRound? round,
+            out string roundError), roundError);
+        Assert.True(sessionService.TryAppendMessage(
+            round!.Id,
+            first,
+            "我习惯睡前喝茶",
+            endedAt.AddMinutes(-1),
+            out _,
+            out _,
+            out string firstMessageError), firstMessageError);
+        Assert.True(sessionService.TryAppendMessage(
+            round.Id,
+            second,
+            "我更喜欢安静看展",
+            endedAt.AddSeconds(-45),
+            out _,
+            out _,
+            out string secondMessageError), secondMessageError);
+        Assert.True(sessionService.TryCompleteRound(
+            round.Id,
+            endedAt.AddSeconds(-30),
+            out _,
+            out string roundCompletionError), roundCompletionError);
+        Assert.True(sessionService.TryCompleteSession(
+            session.Id,
+            AutonomousPrivateChatSessionEndReason.NaturalConclusion,
+            endedAt,
+            out session,
+            out string completionError), completionError);
+
+        AiMemoryService memoryService = new(factory);
+        Assert.Equal(
+            AiMemoryOperationStatus.Success,
+            memoryService.TryCreateMemory(
+                first.Id,
+                second.Id,
+                AiMemoryType.Preference,
+                "第二位好友喜欢安静看展",
+                salience: 90,
+                privateChat.Id,
+                session!.Id,
+                endedAt,
+                out _,
+                out string firstMemoryError));
+        Assert.Equal(string.Empty, firstMemoryError);
+        Assert.Equal(
+            AiMemoryOperationStatus.Success,
+            memoryService.TryCreateMemory(
+                second.Id,
+                first.Id,
+                AiMemoryType.Habit,
+                "第一位好友习惯睡前喝茶",
+                salience: 90,
+                privateChat.Id,
+                session.Id,
+                endedAt,
+                out _,
+                out string secondMemoryError));
+        Assert.Equal(string.Empty, secondMemoryError);
+    }
+
     private void SetStrongRelationship(Guid fromId, Guid toId)
     {
         AiRelationshipService service = new(
@@ -307,7 +450,13 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
             messageGenerator ?? new FakeAiReplyService(),
             new RuleBasedConversationDirector(
                 new ConversationActionPlanner(new ConstantRandom(0.5))),
-            new RelationshipEvolutionService(factory));
+            new SessionPostProcessingService(
+                new AutonomousPrivateChatSessionService(factory),
+                new AiAccountService(factory),
+                new RuleBasedSessionInsightAnalyzer(),
+                new RelationshipEvolutionService(factory),
+                new AiMemoryService(factory)),
+            new AiMemoryService(factory));
     }
 
     public void Dispose()

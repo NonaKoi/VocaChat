@@ -287,6 +287,12 @@ public sealed class ConversationActionPlanner
                 => ConversationMessageLength.Short,
             _ => ConversationMessageLength.Short
         };
+        if (request.Scenario == AiMessageGenerationScenario.UserPrivateChat
+            && action == ConversationAction.Answer
+            && RequiresExpandedAnswer(request))
+        {
+            length = ConversationMessageLength.Moderate;
+        }
         ConversationDirectness directness = action switch
         {
             ConversationAction.Evade or ConversationAction.ShiftTopic
@@ -328,7 +334,11 @@ public sealed class ConversationActionPlanner
             $"{request.Speaker.Personality} {request.Speaker.SpeakingStyle}";
         if (ContainsAny(profile, "安静", "内向", "寡言", "冷淡"))
         {
-            length = ConversationMessageLength.VeryShort;
+            if (action != ConversationAction.Answer)
+            {
+                length = ConversationMessageLength.VeryShort;
+            }
+
             punctuationRhythm = ConversationPunctuationRhythm.Sparse;
             emotionVisibility = ConversationEmotionVisibility.Restrained;
         }
@@ -361,9 +371,19 @@ public sealed class ConversationActionPlanner
             MayOmitObviousContext: action is not ConversationAction.Ask,
             MayLeaveThoughtOpen: action is ConversationAction.React
                 or ConversationAction.Acknowledge
-                or ConversationAction.Answer
                 or ConversationAction.Evade
                 or ConversationAction.Share);
+    }
+
+    private static bool RequiresExpandedAnswer(
+        AiMessageGenerationRequest request)
+    {
+        string content = request.ReplyTarget?.Message?.Content
+            ?? request.FocusContent;
+        return ContainsAny(
+            content,
+            "具体", "详细", "展开", "讲讲", "说说", "解释",
+            "多说", "几句", "分几条", "为什么", "怎么回事");
     }
 
     private static bool LooksLikeDirectQuestion(string content)
@@ -420,7 +440,8 @@ public sealed class ConversationActionPlanner
             || ContainsAny(
                 normalized,
                 "请说", "请回答", "请告诉", "请评价", "请选",
-                "说一种", "说一个", "评价一下", "回答一下");
+                "说一种", "说一个", "说说", "讲讲", "展开讲",
+                "评价一下", "回答一下");
     }
 
     private static ConversationRelationshipTone GetRelationshipTone(

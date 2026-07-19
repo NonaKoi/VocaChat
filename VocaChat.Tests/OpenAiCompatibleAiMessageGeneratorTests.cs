@@ -213,18 +213,14 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
     }
 
     [Fact]
-    public async Task GenerateMessagesAsync_WhenMessageExceedsPlannedLength_RetriesWithReason()
+    public async Task GenerateMessagesAsync_StyleLengthDoesNotRejectCompleteReply()
     {
-        RecordingHandler handler = new(
-            CreateResponse(
-                HttpStatusCode.OK,
-                "{\"messages\":[\"这是一条明显超过当前短消息表达计划限制而且过度完整的回复内容\"]}"),
-            CreateResponse(
-                HttpStatusCode.OK,
-                "{\"messages\":[\"先歇会儿吧\"]}"));
-        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(
-            handler,
-            outputValidationRetryCount: 1);
+        const string completeReply =
+            "这是一条超过旧有十八字符限制、但仍然自然并且把当前意思表达完整的回复。";
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            $"{{\"messages\":[\"{completeReply}\"]}}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
         AiMessageGenerationRequest request = CreateRequest(1) with
         {
             ActionPlan = new ConversationActionPlan(
@@ -244,13 +240,18 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
         IReadOnlyList<string> messages = await generator
             .GenerateMessagesAsync(request);
 
-        Assert.Equal(new[] { "先歇会儿吧" }, messages);
-        Assert.Equal(2, handler.CallCount);
+        Assert.Equal(new[] { completeReply }, messages);
+        Assert.Equal(1, handler.CallCount);
         using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
-        string retryPrompt = body.RootElement.GetProperty("messages")[1]
+        string systemPrompt = body.RootElement.GetProperty("messages")[0]
             .GetProperty("content")
             .GetString()!;
-        Assert.Contains("不超过 18 个字符", retryPrompt);
+        string userPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("当前频道是一对一私信", systemPrompt);
+        Assert.Contains("仍须完成当前动作的核心内容", userPrompt);
+        Assert.DoesNotContain("不超过 18 个字符", userPrompt);
     }
 
     [Fact]
@@ -358,6 +359,93 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
             "[本地用户说过，只能视为用户的信息]",
             userPrompt);
         Assert.Contains("我昨晚去杭州看演出", userPrompt);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_WritesOnlyValidatedDirectionalMemories()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"那就别忘了带伞\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest baseRequest = CreateRequest(1);
+        AiAccount other = new(
+            "7654321",
+            "小岚",
+            string.Empty,
+            string.Empty,
+            string.Empty);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            OtherParticipants = new[] { other },
+            RelevantMemories = new[]
+            {
+                new AiConversationMemory(
+                    baseRequest.Speaker.Id,
+                    other.Id,
+                    other.Nickname,
+                    AiMemoryType.Habit,
+                    "小岚下雨天经常忘记带伞",
+                    new DateTime(2026, 7, 10)),
+                new AiConversationMemory(
+                    other.Id,
+                    baseRequest.Speaker.Id,
+                    baseRequest.Speaker.Nickname,
+                    AiMemoryType.Preference,
+                    "这是对方持有的反向记忆",
+                    new DateTime(2026, 7, 11))
+            }
+        };
+
+        await generator.GenerateMessagesAsync(request);
+
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string systemPrompt = body.RootElement.GetProperty("messages")[0]
+            .GetProperty("content")
+            .GetString()!;
+        string userPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("本人对对方的长期记忆", systemPrompt);
+        Assert.Contains("小岚下雨天经常忘记带伞", userPrompt);
+        Assert.Contains("[习惯] 关于小岚", userPrompt);
+        Assert.DoesNotContain("这是对方持有的反向记忆", userPrompt);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_SharedMemoryCanGroundPastSharedExperience()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"上次我们一起去了蓝桉剧场\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest baseRequest = CreateRequest(1);
+        AiAccount other = new(
+            "7654321",
+            "小岚",
+            string.Empty,
+            string.Empty,
+            string.Empty);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            OtherParticipants = new[] { other },
+            RelevantMemories = new[]
+            {
+                new AiConversationMemory(
+                    baseRequest.Speaker.Id,
+                    other.Id,
+                    other.Nickname,
+                    AiMemoryType.SharedExperience,
+                    "两个人上次一起去了蓝桉剧场",
+                    new DateTime(2026, 7, 10))
+            }
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(new[] { "上次我们一起去了蓝桉剧场" }, messages);
+        Assert.Equal(1, handler.CallCount);
     }
 
     [Fact]

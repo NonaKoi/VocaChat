@@ -53,12 +53,17 @@ public class Program
         builder.Services.AddScoped<
             IConversationDirector,
             OpenAiCompatibleConversationDirector>();
+        builder.Services.AddScoped<
+            ISessionInsightAnalyzer,
+            OpenAiCompatibleSessionInsightAnalyzer>();
         builder.Services.AddScoped<PrivateChatInteractionService>();
         builder.Services.AddScoped<ConversationService>();
         builder.Services.AddScoped<AutonomousInteractionSettingsService>();
         builder.Services.AddScoped<AiAccountAutonomySettingsService>();
         builder.Services.AddScoped<AiRelationshipService>();
         builder.Services.AddScoped<RelationshipEvolutionService>();
+        builder.Services.AddScoped<AiMemoryService>();
+        builder.Services.AddScoped<SessionPostProcessingService>();
         builder.Services.AddScoped<AutonomousPrivateChatJudge>();
         builder.Services.AddScoped<AutonomousPrivateChatPlanningService>();
         builder.Services.AddScoped<AutonomousPrivateChatSessionService>();
@@ -67,6 +72,8 @@ public class Program
         builder.Services.AddScoped<AutonomousPrivateChatClosurePlanner>();
         builder.Services.AddScoped<AutonomousPrivateChatRandomSource>();
         builder.Services.AddScoped<AutonomousPrivateChatExecutionService>();
+        builder.Services.AddScoped<AutonomousGroupChatJudge>();
+        builder.Services.AddScoped<AutonomousGroupChatPlanningService>();
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddScoped<GroupChatReplyPlanner>();

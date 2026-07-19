@@ -62,6 +62,7 @@ public class AutonomousInteractionSettingsController : ControllerBase
             request.AllowGroupChats,
             request.PrivateChatContinuationRatePercent,
             request.PrivateChatMaximumRounds,
+            request.AutonomousGroupChatMaximumMembers,
             out AutonomousInteractionSettings? settings,
             out string errorMessage);
 
@@ -84,7 +85,9 @@ public class AutonomousInteractionSettingsController : ControllerBase
             AllowGroupChats = settings.AllowGroupChats,
             PrivateChatContinuationRatePercent =
                 settings.PrivateChatContinuationRatePercent,
-            PrivateChatMaximumRounds = settings.PrivateChatMaximumRounds
+            PrivateChatMaximumRounds = settings.PrivateChatMaximumRounds,
+            AutonomousGroupChatMaximumMembers =
+                settings.AutonomousGroupChatMaximumMembers
         };
     }
 }

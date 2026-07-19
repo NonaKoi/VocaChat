@@ -112,6 +112,63 @@ public sealed class AiConversationContextBuilderTests
         Assert.Equal(oldMessage.MessageId, context.Messages[0].Message.MessageId);
     }
 
+    [Fact]
+    public void Build_KeepsOnlyCurrentSpeakerMemoriesAboutCurrentParticipants()
+    {
+        AiAccount speaker = CreateAccount("当前好友");
+        AiAccount other = CreateAccount("对话好友");
+        AiAccount unrelated = CreateAccount("无关好友");
+        DateTime occurredAt = new(2026, 7, 18, 9, 0, 0);
+        List<AiConversationMemory> candidates = Enumerable
+            .Range(1, 5)
+            .Select(index => new AiConversationMemory(
+                speaker.Id,
+                other.Id,
+                other.Nickname,
+                AiMemoryType.Preference,
+                $"正确方向记忆{index}",
+                occurredAt.AddMinutes(index)))
+            .ToList();
+        candidates.Add(new AiConversationMemory(
+            other.Id,
+            speaker.Id,
+            speaker.Nickname,
+            AiMemoryType.Preference,
+            "反向记忆",
+            occurredAt));
+        candidates.Add(new AiConversationMemory(
+            speaker.Id,
+            unrelated.Id,
+            unrelated.Nickname,
+            AiMemoryType.Habit,
+            "无关对象记忆",
+            occurredAt));
+
+        AiMessageGenerationRequest request = CreateRequest(speaker) with
+        {
+            OtherParticipants = new[] { other },
+            RelevantMemories = candidates
+        };
+
+        AiConversationContext context = new AiConversationContextBuilder()
+            .Build(request, recentMessageLimit: 12);
+
+        Assert.Equal(4, context.Memories.Count);
+        Assert.Equal(
+            new[]
+            {
+                "正确方向记忆1",
+                "正确方向记忆2",
+                "正确方向记忆3",
+                "正确方向记忆4"
+            },
+            context.Memories.Select(memory => memory.Summary));
+        Assert.DoesNotContain(
+            context.Memories,
+            memory => memory.OwnerAiAccountId != speaker.Id
+                || memory.SubjectAiAccountId != other.Id);
+    }
+
     private static AiMessageGenerationRequest CreateRequest(
         AiAccount speaker,
         params AiDialogueMessage[] messages)

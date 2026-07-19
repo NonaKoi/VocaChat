@@ -227,9 +227,51 @@ public sealed class PrivateChatService
         out PrivateMessage? message,
         out string errorMessage)
     {
-        using VocaChatDbContext verificationContext =
-            _dbContextFactory.CreateDbContext();
-        bool isPrivateChatParticipant = verificationContext.PrivateChats.Any(chat =>
+        bool saved = TrySaveAiReplies(
+            privateChat,
+            aiAccount,
+            new[] { content },
+            out IReadOnlyList<PrivateMessage> messages,
+            out errorMessage);
+        message = saved ? messages.Single() : null;
+        return saved;
+    }
+
+    /// <summary>
+    /// 将同一次 AI 回应的多条独立消息作为一个批次验证并保存，避免只留下半段回答。
+    /// </summary>
+    public bool TrySaveAiReplies(
+        PrivateChat privateChat,
+        AiAccount aiAccount,
+        IReadOnlyList<string> contents,
+        out IReadOnlyList<PrivateMessage> messages,
+        out string errorMessage)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
+        messages = Array.Empty<PrivateMessage>();
+
+        if (contents.Count == 0)
+        {
+            errorMessage = "AI 回复至少需要包含一条消息。";
+            return false;
+        }
+
+        List<string> normalizedContents = new(contents.Count);
+        foreach (string content in contents)
+        {
+            if (!TryNormalizeMessageContent(
+                    content,
+                    out string normalizedContent,
+                    out errorMessage))
+            {
+                return false;
+            }
+
+            normalizedContents.Add(normalizedContent);
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        bool isPrivateChatParticipant = dbContext.PrivateChats.Any(chat =>
             chat.Id == privateChat.Id
             && ((chat.Kind == PrivateChatKind.LocalUserAndAiAccount
                     && chat.Contact != null
@@ -240,19 +282,25 @@ public sealed class PrivateChatService
 
         if (!isPrivateChatParticipant)
         {
-            message = null;
             errorMessage = "只有当前私信的 AI 参与者可以发送消息。";
             return false;
         }
 
-        return TrySaveMessage(
-            privateChat,
-            MessageSenderType.AiAccount,
-            aiAccount.Nickname,
-            aiAccount.Id,
-            content,
-            out message,
-            out errorMessage);
+        DateTime firstSentAt = DateTime.Now;
+        List<PrivateMessage> newMessages = normalizedContents
+            .Select((content, index) => new PrivateMessage(
+                privateChat.Id,
+                MessageSenderType.AiAccount,
+                aiAccount.Nickname,
+                aiAccount.Id,
+                content,
+                firstSentAt.AddTicks(index)))
+            .ToList();
+        dbContext.PrivateMessages.AddRange(newMessages);
+        dbContext.SaveChanges();
+        messages = newMessages.AsReadOnly();
+        errorMessage = string.Empty;
+        return true;
     }
 
     public IReadOnlyList<PrivateMessage> GetOrderedChatHistory(

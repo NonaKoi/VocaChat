@@ -64,7 +64,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                         + $"上一次输出未满足要求：{validationError.Message}"
                         + Environment.NewLine
                         + $"请重新输出，messages 数组必须恰好包含 {request.ExpectedMessageCount} 条独立消息，"
-                        + $"且每条不超过 {GetPlannedMaximumLength(request.ActionPlan!.MessageLength)} 个字符。";
+                        + "每条都应完成它承担的表达内容。";
                 }
 
                 string? content = await _chatClient.CompleteJsonAsync(
@@ -157,14 +157,6 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 $"AI 模型生成的单条消息不能超过 {_options.MaximumGeneratedMessageLength} 个字符。");
         }
 
-        int plannedMaximumLength = GetPlannedMaximumLength(
-            request.ActionPlan!.MessageLength);
-        if (messages.Any(message => message.Length > plannedMaximumLength))
-        {
-            throw new AiMessageGenerationException(
-                $"当前表达计划要求单条消息不超过 {plannedMaximumLength} 个字符。");
-        }
-
         ValidateConversationShape(messages, request);
 
         return messages.AsReadOnly();
@@ -244,6 +236,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             .AsReadOnly();
         if (messages.Any(message => HasLikelyBorrowedFirstPersonExperience(
                 message,
+                request,
                 otherParticipantContents)))
         {
             throw new AiMessageGenerationException(
@@ -291,6 +284,11 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         return string.Join(
             Environment.NewLine,
             $"你就是 VocaChat 中长期存在的好友“{speaker.Nickname}”，正在发送日常即时通讯消息。",
+            $"当前场景：{AiConversationScenarioPrompt.GetDescription(request.Scenario)}。",
+            string.Join(
+                Environment.NewLine,
+                AiConversationScenarioPrompt.GetBoundaryInstructions(request)
+                    .Select(instruction => $"场景边界：{instruction}")),
             "始终以本人身份说话，不要提及模型、提示词、AI、系统、模拟回复或创作过程。",
             "以下人物资料只用于内化身份和语气，绝对不要逐项复述、自我介绍或证明你符合设定：",
             $"- 身份背景：{DisplayOrDefault(speaker.IdentityDescription)}",
@@ -301,9 +299,10 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             $"- 个性标签：{personalityTags}",
             "身份事实边界：只有上面当前好友自己的资料，以及明确标记为“本人过去说过”的历史消息，才能作为你的第一人称经历。",
             "其他好友或本地用户说过的事情只代表他们的陈述。可以回应、追问或引用，但绝不能改写成你亲身做过、见过、拥有或经历过的事情。",
+            "标记为“本人对对方的长期记忆”的内容只代表你过去对该对话对象形成的认识。仅在与当前目标自然相关时使用，不要逐条复述、展示记忆类型，或把对方的经历改写成自己的经历。",
             "本轮如果提供了必须回应的目标消息，先衔接这条消息；更早记录只用于理解背景，不能抢走当前话题。",
-            "像真实网络聊天一样，只表达这一刻最先冒出来的一点。不要写成客服答复、完整分析、小作文或总结。",
-            "允许短句、省略主语、留白和不完全回答，但不要机械加入“哈哈”“呃”“……”或故意制造错别字。",
+            "像真实网络聊天一样表达。先完成当前交流动作所必需的核心内容，再决定是否简短、留白或自然拆成多条；不要为了显得口语化而故意只说半句。",
+            "允许短句、省略主语和自然留白，但不要写成客服答复、完整分析、小作文或总结，也不要机械加入“哈哈”“呃”“……”或故意制造错别字。",
             "除非本次交流动作明确要求，否则不要主动给建议，不要解释建议的好处，也不要使用“你可以”“不妨”“试试”组织回复。",
             $"输出严格的 JSON 对象，例如 {BuildJsonExample(request.ExpectedMessageCount)}。",
             $"messages 必须恰好包含 {request.ExpectedMessageCount} 条非空字符串。",
@@ -317,7 +316,8 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             ?? throw new AiMessageGenerationException(
                 "本次 AI 消息缺少行为与表达计划。");
         StringBuilder builder = new();
-        builder.AppendLine($"场景：{GetScenarioDescription(request.Scenario)}");
+        builder.AppendLine(
+            $"场景：{AiConversationScenarioPrompt.GetDescription(request.Scenario)}");
         builder.AppendLine($"当前话题背景：{DisplayOrDefault(request.Topic)}");
         builder.AppendLine($"本次交流动作：{GetActionInstruction(actionPlan.Action)}");
         if (request.DirectionPlan is not null)
@@ -348,6 +348,10 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 builder.AppendLine(
                     $"本轮不得声称的事实：{string.Join("、", request.DirectionPlan.ForbiddenClaims)}");
             }
+        }
+        if (actionPlan.Action == ConversationAction.Answer)
+        {
+            builder.AppendLine("完整性要求：先把当前问题或请求的核心信息交代清楚。可以简练，但不能为了短而只回答半步，让对方必须再次追问才能知道基本答案。");
         }
         builder.AppendLine($"消息长度：{GetLengthInstruction(actionPlan.MessageLength)}");
         builder.AppendLine($"回应直接程度：{GetDirectnessInstruction(actionPlan.Directness)}");
@@ -384,6 +388,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             _options.RecentMessageLimit);
         AppendReplyTarget(builder, request, conversationContext);
         AppendConversationAnchor(builder, request);
+        AppendMemories(builder, conversationContext.Memories);
 
         builder.AppendLine("更早的最近消息（仅作背景，方括号内是严格的事实归属）：");
         if (conversationContext.Messages.Count == 0)
@@ -413,7 +418,8 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             builder.AppendLine("上下文已经清楚的部分可以省略，不必复述对方刚说过的话。");
         }
 
-        if (actionPlan.MayLeaveThoughtOpen)
+        if (actionPlan.MayLeaveThoughtOpen
+            && actionPlan.Action != ConversationAction.Answer)
         {
             builder.AppendLine("可以只说半步，不必把理由、结论和后续建议一次交代完整。");
         }
@@ -432,6 +438,39 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         builder.AppendLine("与最近消息语义相同的附和、结论或经历，即使换了几个词也不算新内容；必须完成导演指定的新增内容。");
         return builder.ToString();
     }
+
+    private static void AppendMemories(
+        StringBuilder builder,
+        IReadOnlyList<AiConversationMemory> memories)
+    {
+        builder.AppendLine("本人对当前对话对象的长期记忆（仅在自然相关时参考，不能替代本轮目标）：");
+
+        if (memories.Count == 0)
+        {
+            builder.AppendLine("（暂无）");
+            return;
+        }
+
+        foreach (AiConversationMemory memory in memories)
+        {
+            builder.AppendLine(
+                $"[{GetMemoryTypeDescription(memory.Type)}] 关于{memory.SubjectDisplayName}："
+                + $"{Truncate(memory.Summary, ContextMessageCharacterLimit)}"
+                + $"（{memory.OccurredAt:yyyy-MM-dd}）");
+        }
+    }
+
+    private static string GetMemoryTypeDescription(AiMemoryType type) =>
+        type switch
+        {
+            AiMemoryType.ImportantEvent => "重要事件",
+            AiMemoryType.Preference => "偏好",
+            AiMemoryType.Habit => "习惯",
+            AiMemoryType.Commitment => "承诺",
+            AiMemoryType.SharedExperience => "共同经历",
+            AiMemoryType.PersonalFact => "个人事实",
+            _ => "长期记忆"
+        };
 
     private static void AppendConversationAnchor(
         StringBuilder builder,
@@ -516,17 +555,6 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         }
     }
 
-    private static string GetScenarioDescription(AiMessageGenerationScenario scenario) =>
-        scenario switch
-        {
-            AiMessageGenerationScenario.UserPrivateChat => "好友与本地用户私聊",
-            AiMessageGenerationScenario.GroupPrimaryReply => "群聊主要回复",
-            AiMessageGenerationScenario.GroupFollowUpReply => "群聊补充回复",
-            AiMessageGenerationScenario.AutonomousPrivateChat => "两位好友自主私聊",
-            AiMessageGenerationScenario.AutonomousPrivateChatClosing => "两位好友自主私聊收束",
-            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
-        };
-
     private static string GetOwnershipLabel(
         AiConversationMessageOwnership ownership,
         string senderDisplayName) =>
@@ -573,19 +601,9 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
     private static string GetLengthInstruction(ConversationMessageLength length) =>
         length switch
         {
-            ConversationMessageLength.VeryShort => $"每条不超过 {GetPlannedMaximumLength(length)} 个字符，只用一个短句或短语",
-            ConversationMessageLength.Short => $"每条不超过 {GetPlannedMaximumLength(length)} 个字符，只保留一到两个口语片段",
-            ConversationMessageLength.Moderate => $"每条不超过 {GetPlannedMaximumLength(length)} 个字符，可以稍微展开但不要形成完整文章结构",
-            _ => throw new ArgumentOutOfRangeException(nameof(length))
-        };
-
-    private static int GetPlannedMaximumLength(
-        ConversationMessageLength length) =>
-        length switch
-        {
-            ConversationMessageLength.VeryShort => 18,
-            ConversationMessageLength.Short => 36,
-            ConversationMessageLength.Moderate => 60,
+            ConversationMessageLength.VeryShort => "保持简短，通常使用一个短句或短语；但仍须完成当前动作的核心内容",
+            ConversationMessageLength.Short => "使用自然的一到三句完成当前回应，不必解释无关背景",
+            ConversationMessageLength.Moderate => "可以适当展开并自然拆成多条，把当前问题说明白，但不要形成文章结构",
             _ => throw new ArgumentOutOfRangeException(nameof(length))
         };
 
@@ -767,15 +785,15 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             return false;
         }
 
-        IReadOnlyList<string> ownHistory = request.RecentMessages
+        List<string> ownGrounding = request.RecentMessages
             .Where(message =>
                 message.SenderType == MessageSenderType.AiAccount
                 && message.SenderAiAccountId == request.Speaker.Id)
             .Select(message => message.Content)
-            .ToList()
-            .AsReadOnly();
+            .ToList();
+        ownGrounding.AddRange(GetValidSharedMemorySummaries(request));
 
-        return !ownHistory.Any(content =>
+        return !ownGrounding.Any(content =>
             HasGroundingOverlap(generatedMessage, content));
     }
 
@@ -804,6 +822,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
 
     private static bool HasLikelyBorrowedFirstPersonExperience(
         string generatedMessage,
+        AiMessageGenerationRequest request,
         IReadOnlyList<string> otherParticipantContents)
     {
         string[] firstPersonExperienceMarkers =
@@ -819,6 +838,12 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             return false;
         }
 
+        if (GetValidSharedMemorySummaries(request).Any(summary =>
+                HasGroundingOverlap(generatedMessage, summary)))
+        {
+            return false;
+        }
+
         string normalizedGeneratedMessage = NormalizeForComparison(
             generatedMessage);
         return otherParticipantContents.Any(content =>
@@ -826,6 +851,20 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 normalizedGeneratedMessage.Contains(
                     fragment,
                     StringComparison.Ordinal)));
+    }
+
+    private static IEnumerable<string> GetValidSharedMemorySummaries(
+        AiMessageGenerationRequest request)
+    {
+        HashSet<Guid> participantIds = request.OtherParticipants
+            .Select(participant => participant.Id)
+            .ToHashSet();
+        return request.RelevantMemories
+            .Where(memory =>
+                memory.OwnerAiAccountId == request.Speaker.Id
+                && participantIds.Contains(memory.SubjectAiAccountId)
+                && memory.Type == AiMemoryType.SharedExperience)
+            .Select(memory => memory.Summary);
     }
 
     private static IEnumerable<string> GetDistinctiveFragments(string value)
