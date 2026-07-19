@@ -8,7 +8,8 @@ public enum AiMessageGenerationScenario
     GroupPrimaryReply,
     GroupFollowUpReply,
     AutonomousPrivateChat,
-    AutonomousPrivateChatClosing
+    AutonomousPrivateChatClosing,
+    AutonomousGroupChat
 }
 
 /// <summary>

@@ -17,6 +17,8 @@ internal static class AiConversationScenarioPrompt
                 "两位好友自主一对一私信",
             AiMessageGenerationScenario.AutonomousPrivateChatClosing =>
                 "两位好友自主一对一私信收束",
+            AiMessageGenerationScenario.AutonomousGroupChat =>
+                "只有 AI 好友参与的自主群聊",
             _ => throw new ArgumentOutOfRangeException(nameof(scenario))
         };
 
@@ -48,6 +50,12 @@ internal static class AiConversationScenarioPrompt
                     $"当前频道是群聊，AI 参与者为{BuildAiParticipantList(request)}。",
                     "只能把明确列出的群成员和本地用户视为当前群聊参与者，不得虚构额外在场者。"
                 },
+            AiMessageGenerationScenario.AutonomousGroupChat => new[]
+            {
+                $"当前频道是只有 AI 好友参与的群聊，实际参与者为{BuildAiParticipantList(request)}。",
+                "本地用户不在当前群聊中，不得把用户说成正在发言或旁听。",
+                "只回应当前群聊中的真实消息，不得虚构未列出的成员、发言或共同经历。"
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(request.Scenario))
         };
     }

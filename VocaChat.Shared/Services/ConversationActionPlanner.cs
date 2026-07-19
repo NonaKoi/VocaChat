@@ -160,6 +160,31 @@ public sealed class ConversationActionPlanner
                 [ConversationAction.Evade] = 4,
                 [ConversationAction.ShiftTopic] = 3
             },
+            AiMessageGenerationScenario.AutonomousGroupChat when
+                request.IsInitiator => new()
+            {
+                [ConversationAction.Acknowledge] = 3,
+                [ConversationAction.Ask] = 18,
+                [ConversationAction.Share] = 42,
+                [ConversationAction.React] = 7,
+                [ConversationAction.Comfort] = 3,
+                [ConversationAction.Tease] = 9,
+                [ConversationAction.Disagree] = 4,
+                [ConversationAction.Evade] = 2,
+                [ConversationAction.ShiftTopic] = 12
+            },
+            AiMessageGenerationScenario.AutonomousGroupChat => new()
+            {
+                [ConversationAction.Acknowledge] = 10,
+                [ConversationAction.Ask] = 10,
+                [ConversationAction.Share] = 24,
+                [ConversationAction.React] = 25,
+                [ConversationAction.Comfort] = 5,
+                [ConversationAction.Tease] = 10,
+                [ConversationAction.Disagree] = 11,
+                [ConversationAction.Evade] = 2,
+                [ConversationAction.ShiftTopic] = 3
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(request.Scenario))
         };
     }

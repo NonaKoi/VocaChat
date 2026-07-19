@@ -50,7 +50,9 @@ public sealed class GroupMessagesController : ControllerBase
 
         List<GroupMessageResponse> response = _groupMessageService
             .GetOrderedChatHistory(groupChat)
-            .Select(message => ToResponse(message, groupChat))
+            .Select(message => GroupMessageResponseMapper.ToResponse(
+                message,
+                groupChat.Members))
             .ToList();
 
         return Ok(response);
@@ -99,9 +101,13 @@ public sealed class GroupMessagesController : ControllerBase
                     Message = result.ErrorMessage,
                     SavedUserMessage = result.UserMessage is null
                         ? null
-                        : ToResponse(result.UserMessage, groupChat),
+                        : GroupMessageResponseMapper.ToResponse(
+                            result.UserMessage,
+                            groupChat.Members),
                     SavedAiReplies = result.AiReplies
-                        .Select(reply => ToResponse(reply, groupChat))
+                        .Select(reply => GroupMessageResponseMapper.ToResponse(
+                            reply,
+                            groupChat.Members))
                         .ToList()
                 });
         }
@@ -118,9 +124,13 @@ public sealed class GroupMessagesController : ControllerBase
 
         return Ok(new SendGroupMessageResponse
         {
-            UserMessage = ToResponse(result.UserMessage, groupChat),
+            UserMessage = GroupMessageResponseMapper.ToResponse(
+                result.UserMessage,
+                groupChat.Members),
             AiReplies = result.AiReplies
-                .Select(reply => ToResponse(reply, groupChat))
+                .Select(reply => GroupMessageResponseMapper.ToResponse(
+                    reply,
+                    groupChat.Members))
                 .ToList(),
             ReplyCompletion = result.Status
                 == GroupChatInteractionStatus.PartiallySucceeded
@@ -133,43 +143,4 @@ public sealed class GroupMessagesController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// 将消息实体映射为稳定的 HTTP 契约，并保留发送时的显示名快照。
-    /// </summary>
-    private static GroupMessageResponse ToResponse(
-        GroupMessage message,
-        GroupChat groupChat)
-    {
-        AiAccount? sender = message.SenderAiAccountId is null
-            ? null
-            : groupChat.Members.SingleOrDefault(
-                member => member.Id == message.SenderAiAccountId.Value);
-
-        return new GroupMessageResponse
-        {
-            Id = message.Id,
-            GroupChatId = message.GroupChatId,
-            SenderType = ToSenderTypeText(message.SenderType),
-            SenderDisplayName = message.SenderDisplayName,
-            SenderAiAccountId = message.SenderAiAccountId,
-            SenderAvatarUrl = sender is null
-                ? null
-                : AiAccountMediaUrls.GetAvatarUrl(sender),
-            Content = message.Content,
-            SentAt = message.SentAt
-        };
-    }
-
-    /// <summary>
-    /// 使用明确字符串表示发送者类型，避免 HTTP 契约依赖枚举数字。
-    /// </summary>
-    private static string ToSenderTypeText(MessageSenderType senderType)
-    {
-        return senderType switch
-        {
-            MessageSenderType.User => "User",
-            MessageSenderType.AiAccount => "AiAccount",
-            _ => throw new InvalidOperationException("无法识别群消息发送者类型。")
-        };
-    }
 }

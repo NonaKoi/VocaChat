@@ -18,17 +18,23 @@ public sealed class AutonomousInteractionsController : ControllerBase
     private readonly AutonomousPrivateChatExecutionService _executionService;
     private readonly AutonomousPrivateChatSessionService _sessionService;
     private readonly PrivateChatService _privateChatService;
+    private readonly AutonomousGroupChatJudge _groupChatJudge;
+    private readonly AutonomousGroupChatExecutionService _groupExecutionService;
 
     public AutonomousInteractionsController(
         AutonomousPrivateChatJudge privateChatJudge,
         AutonomousPrivateChatExecutionService executionService,
         AutonomousPrivateChatSessionService sessionService,
-        PrivateChatService privateChatService)
+        PrivateChatService privateChatService,
+        AutonomousGroupChatJudge groupChatJudge,
+        AutonomousGroupChatExecutionService groupExecutionService)
     {
         _privateChatJudge = privateChatJudge;
         _executionService = executionService;
         _sessionService = sessionService;
         _privateChatService = privateChatService;
+        _groupChatJudge = groupChatJudge;
+        _groupExecutionService = groupExecutionService;
     }
 
     /// <summary>
@@ -153,6 +159,86 @@ public sealed class AutonomousInteractionsController : ControllerBase
         };
     }
 
+    /// <summary>
+    /// 评估至少三位好友当前是否适合组成自主好友群聊。
+    /// </summary>
+    [HttpPost("group-chat/evaluate")]
+    [ProducesResponseType(
+        typeof(AutonomousGroupChatDecisionResponse),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<AutonomousGroupChatDecisionResponse> EvaluateGroupChat(
+        [FromBody] EvaluateAutonomousGroupChatRequest request)
+    {
+        AutonomousGroupChatDecision decision = _groupChatJudge.Evaluate(
+            request.ParticipantAiAccountIds,
+            Random.Shared.NextDouble() * 20 - 10);
+
+        return decision.Stage switch
+        {
+            AutonomousGroupChatDecisionStage.TooFewParticipants
+                or AutonomousGroupChatDecisionStage.TooManyParticipants
+                or AutonomousGroupChatDecisionStage.DuplicateParticipant
+                => BadRequest(ToResponse(decision)),
+            AutonomousGroupChatDecisionStage.AccountNotFound => NotFound(),
+            _ => Ok(ToResponse(decision))
+        };
+    }
+
+    /// <summary>
+    /// 判断通过时创建或复用好友群聊，并让发起者和两位回应者完成一次受控交流。
+    /// </summary>
+    [HttpPost("group-chat/run")]
+    [ProducesResponseType(
+        typeof(AutonomousGroupChatExecutionResponse),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(AutonomousGroupChatExecutionResponse),
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(
+        typeof(AutonomousGroupChatExecutionResponse),
+        StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<AutonomousGroupChatExecutionResponse>>
+        RunGroupChat(
+            [FromBody] RunAutonomousGroupChatRequest request,
+            CancellationToken cancellationToken)
+    {
+        AutonomousGroupChatExecutionResult result =
+            await _groupExecutionService.ExecuteAsync(
+                request.ParticipantAiAccountIds,
+                DateTime.Now,
+                Random.Shared.NextDouble() * 20 - 10,
+                request.Topic,
+                cancellationToken);
+
+        if (result.Decision.Stage
+            is AutonomousGroupChatDecisionStage.TooFewParticipants
+                or AutonomousGroupChatDecisionStage.TooManyParticipants
+                or AutonomousGroupChatDecisionStage.DuplicateParticipant)
+        {
+            return BadRequest(ToResponse(result));
+        }
+
+        if (result.Decision.Stage
+            == AutonomousGroupChatDecisionStage.AccountNotFound)
+        {
+            return NotFound();
+        }
+
+        AutonomousGroupChatExecutionResponse response = ToResponse(result);
+        return result.Status switch
+        {
+            AutonomousGroupChatExecutionStatus.Completed
+                or AutonomousGroupChatExecutionStatus.DecisionRejected
+                => Ok(response),
+            AutonomousGroupChatExecutionStatus.PlanningFailed
+                => BadRequest(response),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, response)
+        };
+    }
+
     private static AutonomousPrivateChatDecisionResponse ToResponse(
         AutonomousPrivateChatDecision decision)
     {
@@ -170,6 +256,69 @@ public sealed class AutonomousInteractionsController : ControllerBase
             FinalScore = decision.FinalScore,
             Threshold = decision.Threshold,
             CooldownEndsAt = decision.CooldownEndsAt
+        };
+    }
+
+    private static AutonomousGroupChatDecisionResponse ToResponse(
+        AutonomousGroupChatDecision decision)
+    {
+        return new AutonomousGroupChatDecisionResponse
+        {
+            IsApproved = decision.IsApproved,
+            Stage = decision.Stage.ToString(),
+            ParticipantAiAccountIds = decision.ParticipantAiAccountIds,
+            InitiatorAiAccountId = decision.InitiatorAiAccountId,
+            MaximumMembers = decision.MaximumMembers,
+            AverageRelationshipScore = decision.AverageRelationshipScore,
+            WeakestRelationshipScore = decision.WeakestRelationshipScore,
+            SharedInterestBonus = decision.SharedInterestBonus,
+            InitiativeAdjustment = decision.InitiativeAdjustment,
+            RandomJitter = decision.RandomJitter,
+            FinalScore = decision.FinalScore,
+            Threshold = decision.Threshold
+        };
+    }
+
+    private static AutonomousGroupChatExecutionResponse ToResponse(
+        AutonomousGroupChatExecutionResult result)
+    {
+        IReadOnlyList<AiAccount> members = result.GroupChat?.Members
+            ?? Array.Empty<AiAccount>();
+        return new AutonomousGroupChatExecutionResponse
+        {
+            Status = result.Status.ToString(),
+            Decision = ToResponse(result.Decision),
+            GroupChat = result.GroupChat is null
+                ? null
+                : GroupChatResponseMapper.ToResponse(result.GroupChat),
+            GroupChatCreated = result.GroupChatCreated,
+            Session = result.Session is null
+                ? null
+                : new AutonomousGroupChatSessionResponse
+                {
+                    Id = result.Session.Id,
+                    GroupChatId = result.Session.GroupChatId,
+                    InitiatorAiAccountId = result.Session.InitiatorAiAccountId,
+                    Topic = result.Session.Topic,
+                    ParticipantAiAccountIds = result.Session.Participants
+                        .Select(account => account.Id)
+                        .ToList()
+                        .AsReadOnly(),
+                    Status = result.Session.Status.ToString(),
+                    EndReason = result.Session.EndReason?.ToString(),
+                    StartedAt = result.Session.StartedAt,
+                    LastActivityAt = result.Session.LastActivityAt,
+                    EndedAt = result.Session.EndedAt
+                },
+            Messages = result.Messages
+                .Select(message => GroupMessageResponseMapper.ToResponse(
+                    message,
+                    members))
+                .ToList()
+                .AsReadOnly(),
+            ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? null
+                : result.ErrorMessage
         };
     }
 

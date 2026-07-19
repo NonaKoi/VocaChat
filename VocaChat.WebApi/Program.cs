@@ -74,6 +74,9 @@ public class Program
         builder.Services.AddScoped<AutonomousPrivateChatExecutionService>();
         builder.Services.AddScoped<AutonomousGroupChatJudge>();
         builder.Services.AddScoped<AutonomousGroupChatPlanningService>();
+        builder.Services.AddScoped<AutonomousGroupChatSpeakerPlanner>();
+        builder.Services.AddScoped<AutonomousGroupChatSessionService>();
+        builder.Services.AddScoped<AutonomousGroupChatExecutionService>();
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddScoped<GroupChatReplyPlanner>();

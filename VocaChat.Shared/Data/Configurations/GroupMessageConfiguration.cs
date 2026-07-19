@@ -65,11 +65,17 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
             .HasForeignKey(message => message.SenderAiAccountId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<AutonomousGroupChatSession>()
+            .WithMany()
+            .HasForeignKey(message => message.AutonomousGroupChatSessionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(message => new
         {
             message.GroupChatId,
             message.SentAt,
             message.Id
         });
+        builder.HasIndex(message => message.AutonomousGroupChatSessionId);
     }
 }

@@ -111,6 +111,22 @@ export function VocaChatApp() {
     url.searchParams.set('section', 'chat')
     window.history.replaceState(null, '', url)
   }
+  async function openAutonomousGroupChat(groupChatId: string) {
+    const [, refreshedConversations] = await Promise.all([
+      groupChats.reload(),
+      conversations.reload(),
+    ])
+    const conversation = refreshedConversations?.find(
+      (item) => item.kind === 'GroupChat' && item.id === groupChatId,
+    )
+    if (!conversation) return
+
+    setSelectedConversation(conversation)
+    setActiveSection('chat')
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', 'chat')
+    window.history.replaceState(null, '', url)
+  }
   function selectAccount(id: string) {
     setSelectedAccountId(id)
     const url = new URL(window.location.href)
@@ -203,6 +219,7 @@ export function VocaChatApp() {
         onReloadContacts={async () => { await contacts.reload() }}
         onDirtyChange={setHasUnsavedSettings}
         onOpenPrivateChat={openAutonomousPrivateChat}
+        onOpenGroupChat={openAutonomousGroupChat}
       />
     )
   } else {

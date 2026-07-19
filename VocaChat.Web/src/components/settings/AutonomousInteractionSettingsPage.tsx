@@ -3,11 +3,12 @@ import { Bot, Search } from 'lucide-react'
 import type { ContactResponse } from '@/api/types'
 import { FriendAutonomySettingsPanel } from '@/components/settings/FriendAutonomySettingsPanel'
 import { GlobalAutonomySettingsPanel } from '@/components/settings/GlobalAutonomySettingsPanel'
+import { AutonomousGroupChatPanel } from '@/components/settings/AutonomousGroupChatPanel'
 import { RelationshipSettingsPanel } from '@/components/settings/RelationshipSettingsPanel'
 import { cn } from '@/lib/utils'
 import type { RemoteStatus } from '@/types/remoteStatus'
 
-type SettingsTab = 'general' | 'friends' | 'relationships'
+type SettingsTab = 'general' | 'friends' | 'relationships' | 'groupChats'
 
 interface AutonomousInteractionSettingsPageProps {
   contacts?: ContactResponse[]
@@ -16,6 +17,7 @@ interface AutonomousInteractionSettingsPageProps {
   onReloadContacts?: () => void | Promise<void>
   onDirtyChange?: (hasChanges: boolean) => void
   onOpenPrivateChat?: (privateChatId: string) => void | Promise<void>
+  onOpenGroupChat?: (groupChatId: string) => void | Promise<void>
 }
 
 export function AutonomousInteractionSettingsPage({
@@ -25,6 +27,7 @@ export function AutonomousInteractionSettingsPage({
   onReloadContacts = () => undefined,
   onDirtyChange,
   onOpenPrivateChat,
+  onOpenGroupChat,
 }: AutonomousInteractionSettingsPageProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialTab)
@@ -116,26 +119,41 @@ export function AutonomousInteractionSettingsPage({
 
           <div className="mt-6 flex gap-1 border-b border-border" role="tablist" aria-label="好友自主互动设置范围">
             <SettingsTabButton
+              tab="general"
               selected={activeTab === 'general'}
               onClick={() => changeTab('general')}
             >
               通用设置
             </SettingsTabButton>
             <SettingsTabButton
+              tab="friends"
               selected={activeTab === 'friends'}
               onClick={() => changeTab('friends')}
             >
               好友设置
             </SettingsTabButton>
             <SettingsTabButton
+              tab="relationships"
               selected={activeTab === 'relationships'}
               onClick={() => changeTab('relationships')}
             >
               关系设置
             </SettingsTabButton>
+            <SettingsTabButton
+              tab="groupChats"
+              selected={activeTab === 'groupChats'}
+              onClick={() => changeTab('groupChats')}
+            >
+              好友群聊
+            </SettingsTabButton>
           </div>
 
-          <div className="mt-5" role="tabpanel">
+          <div
+            id="autonomy-settings-tabpanel"
+            className="mt-5"
+            role="tabpanel"
+            aria-labelledby={`autonomy-settings-tab-${activeTab}`}
+          >
             {activeTab === 'general' ? (
               <GlobalAutonomySettingsPanel onDirtyChange={setHasPanelChanges} />
             ) : activeTab === 'friends' ? (
@@ -146,7 +164,7 @@ export function AutonomousInteractionSettingsPage({
                 onReloadContacts={onReloadContacts}
                 onDirtyChange={setHasPanelChanges}
               />
-            ) : (
+            ) : activeTab === 'relationships' ? (
               <RelationshipSettingsPanel
                 contacts={contacts}
                 contactStatus={contactStatus}
@@ -154,6 +172,14 @@ export function AutonomousInteractionSettingsPage({
                 onReloadContacts={onReloadContacts}
                 onDirtyChange={setHasPanelChanges}
                 onOpenPrivateChat={onOpenPrivateChat}
+              />
+            ) : (
+              <AutonomousGroupChatPanel
+                contacts={contacts}
+                contactStatus={contactStatus}
+                contactErrorMessage={contactErrorMessage}
+                onReloadContacts={onReloadContacts}
+                onOpenGroupChat={onOpenGroupChat}
               />
             )}
           </div>
@@ -164,10 +190,12 @@ export function AutonomousInteractionSettingsPage({
 }
 
 function SettingsTabButton({
+  tab,
   selected,
   onClick,
   children,
 }: {
+  tab: SettingsTab
   selected: boolean
   onClick: () => void
   children: string
@@ -175,8 +203,11 @@ function SettingsTabButton({
   return (
     <button
       type="button"
+      id={`autonomy-settings-tab-${tab}`}
       role="tab"
       aria-selected={selected}
+      aria-controls="autonomy-settings-tabpanel"
+      tabIndex={selected ? 0 : -1}
       onClick={onClick}
       className={cn(
         'relative px-4 py-2.5 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
@@ -190,6 +221,6 @@ function SettingsTabButton({
 
 function getInitialTab(): SettingsTab {
   const tab = new URLSearchParams(window.location.search).get('settingsTab')
-  if (tab === 'friends' || tab === 'relationships') return tab
+  if (tab === 'friends' || tab === 'relationships' || tab === 'groupChats') return tab
   return 'general'
 }

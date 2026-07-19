@@ -128,6 +128,58 @@ public class GroupChatService
     }
 
     /// <summary>
+    /// 按完整成员集合复用已有好友群聊；没有匹配群聊时创建一个不含本地用户的新群聊。
+    /// </summary>
+    public bool TryGetOrCreateFriendGroupChat(
+        string name,
+        IEnumerable<Guid> memberAiAccountIds,
+        out GroupChat? groupChat,
+        out bool groupChatCreated,
+        out string errorMessage)
+    {
+        List<Guid> distinctMemberIds = memberAiAccountIds is null
+            ? new List<Guid>()
+            : memberAiAccountIds.Distinct().ToList();
+
+        if (distinctMemberIds.Count == 0)
+        {
+            groupChat = null;
+            groupChatCreated = false;
+            errorMessage = "好友群聊至少需要一个成员。";
+            return false;
+        }
+
+        HashSet<Guid> expectedMemberIds = distinctMemberIds.ToHashSet();
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        GroupChat? existingGroupChat = dbContext.GroupChats
+            .AsNoTracking()
+            .Include(storedGroupChat => storedGroupChat.Members)
+            .Where(storedGroupChat => !storedGroupChat.IncludesLocalUser)
+            .AsEnumerable()
+            .FirstOrDefault(storedGroupChat =>
+                storedGroupChat.Members.Count == expectedMemberIds.Count
+                && storedGroupChat.Members.All(member =>
+                    expectedMemberIds.Contains(member.Id)));
+
+        if (existingGroupChat is not null)
+        {
+            groupChat = existingGroupChat;
+            groupChatCreated = false;
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        bool created = TryCreateGroupChat(
+            name,
+            distinctMemberIds,
+            includesLocalUser: false,
+            out groupChat,
+            out errorMessage);
+        groupChatCreated = created;
+        return created;
+    }
+
+    /// <summary>
     /// 将数据库中已有的 AI 账号加入已保存群聊，并阻止重复加入。
     /// </summary>
     public bool TryAddMember(

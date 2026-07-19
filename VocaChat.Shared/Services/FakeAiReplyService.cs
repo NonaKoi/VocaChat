@@ -64,6 +64,14 @@ public class FakeAiReplyService : IAiMessageGenerator
                     request.Topic,
                     request.ExpectedMessageCount,
                     request.IsInitiator),
+            AiMessageGenerationScenario.AutonomousGroupChat
+                => GenerateAutonomousGroupChatMessages(
+                    request.Speaker,
+                    otherParticipant,
+                    request.Topic,
+                    targetContent,
+                    request.ExpectedMessageCount,
+                    request.IsInitiator),
             _ => throw new ArgumentOutOfRangeException(nameof(request.Scenario))
         };
 
@@ -269,6 +277,42 @@ public class FakeAiReplyService : IAiMessageGenerator
             {
                 $"好呀，今天聊{topic}挺开心的。",
                 $"回头再聊，{otherParticipant.Nickname}。"
+            };
+
+        return candidates.Take(messageCount).ToList().AsReadOnly();
+    }
+
+    private static IReadOnlyList<string> GenerateAutonomousGroupChatMessages(
+        AiAccount speaker,
+        AiAccount otherParticipant,
+        string topic,
+        string targetContent,
+        int messageCount,
+        bool isInitiator)
+    {
+        if (messageCount is < 1 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(messageCount),
+                "自主好友群聊单次消息数量必须在 1 到 3 之间。");
+        }
+
+        string normalizedTopic = string.IsNullOrWhiteSpace(topic)
+            ? "最近的生活"
+            : topic.Trim();
+        string targetSummary = Summarize(targetContent);
+        string[] candidates = isInitiator
+            ? new[]
+            {
+                $"刚才想到{normalizedTopic}，你们最近有遇到相关的事吗？",
+                "我先说说自己的想法，不过也想听听你们的。",
+                "不用按顺序，谁先想到就谁先说。"
+            }
+            : new[]
+            {
+                $"{otherParticipant.Nickname}刚才说的“{targetSummary}”让我想到一点。",
+                $"如果换成我的角度，我会从{normalizedTopic}的另一面看。",
+                $"{speaker.Nickname}还有个小细节想补充。"
             };
 
         return candidates.Take(messageCount).ToList().AsReadOnly();

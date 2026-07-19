@@ -33,6 +33,8 @@ vi.mock('@/api/relationships', () => ({
 vi.mock('@/api/autonomousInteractions', () => ({
   evaluateAutonomousPrivateChat: vi.fn(),
   runAutonomousPrivateChat: vi.fn(),
+  evaluateAutonomousGroupChat: vi.fn(),
+  runAutonomousGroupChat: vi.fn(),
 }))
 
 const getSettingsMock = vi.mocked(getAutonomousInteractionSettings)

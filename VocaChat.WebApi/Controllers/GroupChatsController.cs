@@ -33,7 +33,7 @@ public class GroupChatsController : ControllerBase
     {
         IReadOnlyList<GroupChat> groupChats = _groupChatService.GetAllGroupChats();
         List<GroupChatResponse> response = groupChats
-            .Select(ToResponse)
+            .Select(GroupChatResponseMapper.ToResponse)
             .ToList();
 
         return Ok(response);
@@ -55,7 +55,7 @@ public class GroupChatsController : ControllerBase
             return NotFound();
         }
 
-        return Ok(ToResponse(groupChat));
+        return Ok(GroupChatResponseMapper.ToResponse(groupChat));
     }
 
     /// <summary>
@@ -79,7 +79,7 @@ public class GroupChatsController : ControllerBase
             return BadRequest(new { message = errorMessage });
         }
 
-        GroupChatResponse response = ToResponse(groupChat);
+        GroupChatResponse response = GroupChatResponseMapper.ToResponse(groupChat);
 
         return CreatedAtAction(
             nameof(GetById),
@@ -115,36 +115,6 @@ public class GroupChatsController : ControllerBase
             return BadRequest(new { message = errorMessage });
         }
 
-        return Ok(ToResponse(groupChat));
-    }
-
-    /// <summary>
-    /// 将内部群聊实体转换为稳定的 HTTP 响应 DTO。
-    /// </summary>
-    private static GroupChatResponse ToResponse(GroupChat groupChat)
-    {
-        return new GroupChatResponse
-        {
-            Id = groupChat.Id,
-            Name = groupChat.Name,
-            IncludesLocalUser = groupChat.IncludesLocalUser,
-            CreatedAt = groupChat.CreatedAt,
-            Members = groupChat.Members
-                .Select(ToMemberResponse)
-                .ToList()
-        };
-    }
-
-    /// <summary>
-    /// 只返回群聊展示所需的 AI 账号 Id 和昵称。
-    /// </summary>
-    private static GroupChatMemberResponse ToMemberResponse(AiAccount aiAccount)
-    {
-        return new GroupChatMemberResponse
-        {
-            Id = aiAccount.Id,
-            Nickname = aiAccount.Nickname,
-            AvatarUrl = AiAccountMediaUrls.GetAvatarUrl(aiAccount)
-        };
+        return Ok(GroupChatResponseMapper.ToResponse(groupChat));
     }
 }

@@ -188,6 +188,76 @@ public sealed class AutonomousInteractionsApiTests
         Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task RunGroupChat_WithStrongGroup_PersistsThreeSpeakersAndReusesConversation()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse[] accounts =
+        {
+            await CreateAccount(client, "GroupApiFirst"),
+            await CreateAccount(client, "GroupApiSecond"),
+            await CreateAccount(client, "GroupApiThird")
+        };
+        await EnableAutonomousGroupChats(client);
+        foreach (AiAccountResponse from in accounts)
+        {
+            foreach (AiAccountResponse to in accounts.Where(item => item.Id != from.Id))
+            {
+                await SetStrongRelationship(client, from.Id, to.Id);
+            }
+        }
+
+        using HttpResponseMessage firstResponse = await client.PostAsJsonAsync(
+            "/api/autonomous-interactions/group-chat/run",
+            new RunAutonomousGroupChatRequest
+            {
+                ParticipantAiAccountIds = accounts.Select(account => account.Id).ToList(),
+                Topic = "HTTP 好友群聊验收"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        AutonomousGroupChatExecutionResponse firstExecution =
+            (await firstResponse.Content.ReadFromJsonAsync<
+                AutonomousGroupChatExecutionResponse>())!;
+        Assert.Equal("Completed", firstExecution.Status);
+        Assert.True(firstExecution.GroupChatCreated);
+        Assert.NotNull(firstExecution.GroupChat);
+        Assert.False(firstExecution.GroupChat.IncludesLocalUser);
+        Assert.Equal(3, firstExecution.GroupChat.Members.Count);
+        Assert.NotNull(firstExecution.Session);
+        Assert.Equal("Completed", firstExecution.Session.Status);
+        Assert.Equal(3, firstExecution.Session.ParticipantAiAccountIds.Count);
+        Assert.Equal(
+            3,
+            firstExecution.Messages
+                .Select(message => message.SenderAiAccountId)
+                .Distinct()
+                .Count());
+
+        using HttpResponseMessage historyResponse = await client.GetAsync(
+            $"/api/group-chats/{firstExecution.GroupChat.Id}/messages");
+        historyResponse.EnsureSuccessStatusCode();
+        VocaChat.WebApi.Dtos.GroupMessages.GroupMessageResponse[] history =
+            (await historyResponse.Content.ReadFromJsonAsync<
+                VocaChat.WebApi.Dtos.GroupMessages.GroupMessageResponse[]>())!;
+        Assert.Equal(firstExecution.Messages.Count, history.Length);
+
+        using HttpResponseMessage secondResponse = await client.PostAsJsonAsync(
+            "/api/autonomous-interactions/group-chat/run",
+            new RunAutonomousGroupChatRequest
+            {
+                ParticipantAiAccountIds = accounts.Select(account => account.Id).ToList(),
+                Topic = "HTTP 好友群聊复用验收"
+            });
+        secondResponse.EnsureSuccessStatusCode();
+        AutonomousGroupChatExecutionResponse secondExecution =
+            (await secondResponse.Content.ReadFromJsonAsync<
+                AutonomousGroupChatExecutionResponse>())!;
+        Assert.False(secondExecution.GroupChatCreated);
+        Assert.Equal(firstExecution.GroupChat.Id, secondExecution.GroupChat!.Id);
+    }
+
     private static async Task<int> GetConversationCount(HttpClient client)
     {
         using HttpResponseMessage response = await client.GetAsync("/api/conversations");
@@ -208,6 +278,23 @@ public sealed class AutonomousInteractionsApiTests
                 AllowPrivateChats = true,
                 AllowGroupChats = false,
                 PrivateChatContinuationRatePercent = 0,
+                PrivateChatMaximumRounds = 6,
+                AutonomousGroupChatMaximumMembers = 6
+            });
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task EnableAutonomousGroupChats(HttpClient client)
+    {
+        using HttpResponseMessage response = await client.PutAsJsonAsync(
+            "/api/settings/autonomous-interactions",
+            new UpdateAutonomousInteractionSettingsRequest
+            {
+                IsEnabled = true,
+                Frequency = "High",
+                AllowPrivateChats = true,
+                AllowGroupChats = true,
+                PrivateChatContinuationRatePercent = 80,
                 PrivateChatMaximumRounds = 6,
                 AutonomousGroupChatMaximumMembers = 6
             });

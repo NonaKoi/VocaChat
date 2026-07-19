@@ -356,3 +356,79 @@ export interface AutonomousPrivateChatExecutionResponse {
   messages: PrivateMessageResponse[]
   errorMessage: string | null
 }
+
+export type AutonomousGroupChatDecisionStage =
+  | 'Approved'
+  | 'TooFewParticipants'
+  | 'TooManyParticipants'
+  | 'DuplicateParticipant'
+  | 'AccountNotFound'
+  | 'GlobalDisabled'
+  | 'GroupChatsDisabled'
+  | 'ParticipantDisabled'
+  | 'ParticipantCannotJoin'
+  | 'NoEligibleInitiator'
+  | 'ScoreBelowThreshold'
+
+export interface EvaluateAutonomousGroupChatRequest {
+  participantAiAccountIds: string[]
+}
+
+export interface RunAutonomousGroupChatRequest {
+  participantAiAccountIds: string[]
+  topic?: string
+}
+
+export interface AutonomousGroupChatDecisionResponse {
+  isApproved: boolean
+  stage: AutonomousGroupChatDecisionStage
+  participantAiAccountIds: string[]
+  initiatorAiAccountId: string | null
+  maximumMembers: number
+  averageRelationshipScore: number
+  weakestRelationshipScore: number
+  sharedInterestBonus: number
+  initiativeAdjustment: number
+  randomJitter: number
+  finalScore: number
+  threshold: number
+}
+
+export type AutonomousGroupChatExecutionStatus =
+  | 'Completed'
+  | 'DecisionRejected'
+  | 'PlanningFailed'
+  | 'GroupChatCreationFailed'
+  | 'SessionCreationFailed'
+  | 'ParticipantUnavailable'
+  | 'GenerationFailed'
+  | 'MessagePersistenceFailed'
+  | 'SessionFinalizationFailed'
+
+export interface AutonomousGroupChatSessionResponse {
+  id: string
+  groupChatId: string
+  initiatorAiAccountId: string
+  topic: string
+  participantAiAccountIds: string[]
+  status: 'Running' | 'Completed' | 'Failed'
+  endReason:
+    | 'Completed'
+    | 'ParticipantUnavailable'
+    | 'GenerationFailed'
+    | 'MessagePersistenceFailed'
+    | null
+  startedAt: string
+  lastActivityAt: string
+  endedAt: string | null
+}
+
+export interface AutonomousGroupChatExecutionResponse {
+  status: AutonomousGroupChatExecutionStatus
+  decision: AutonomousGroupChatDecisionResponse
+  groupChat: GroupChatResponse | null
+  groupChatCreated: boolean
+  session: AutonomousGroupChatSessionResponse | null
+  messages: GroupMessageResponse[]
+  errorMessage: string | null
+}
