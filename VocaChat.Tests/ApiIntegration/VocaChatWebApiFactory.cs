@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using VocaChat.Data;
+using VocaChat.Services;
 using VocaChat.Tests.TestSupport;
 using VocaChat.WebApi.Services;
 
@@ -38,9 +39,15 @@ internal sealed class VocaChatWebApiFactory
         {
             services.RemoveAll<VocaChatDbContextFactory>();
             services.RemoveAll<LocalMediaStorageService>();
+            services.RemoveAll<IAiMessageGenerator>();
+            services.RemoveAll<IConversationDirector>();
             services.AddSingleton(_database.CreateDbContextFactory());
             services.AddSingleton(
                 new LocalMediaStorageService(_mediaDirectory));
+            services.AddSingleton<IAiMessageGenerator, FakeAiReplyService>();
+            services.AddScoped<IConversationDirector>(serviceProvider =>
+                new RuleBasedConversationDirector(
+                    serviceProvider.GetRequiredService<ConversationActionPlanner>()));
         });
     }
 

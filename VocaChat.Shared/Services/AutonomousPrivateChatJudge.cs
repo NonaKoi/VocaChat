@@ -184,10 +184,8 @@ public sealed class AutonomousPrivateChatJudge
         AiAccountAutonomySettings settings,
         AiRelationship relationship)
     {
-        double normalizedAffinity = (relationship.Affinity + 100) / 2d;
-        double relationshipScore = relationship.Familiarity * 0.3
-            + normalizedAffinity * 0.4
-            + relationship.Trust * 0.3;
+        double relationshipScore =
+            AutonomousPrivateChatRelationshipScoring.Calculate(relationship);
         int initiativeAdjustment = settings.InitiativeLevel switch
         {
             AutonomousInteractionInitiativeLevel.Low => -10,

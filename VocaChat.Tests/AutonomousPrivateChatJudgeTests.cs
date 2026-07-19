@@ -198,6 +198,8 @@ public sealed class AutonomousPrivateChatJudgeTests : IDisposable
             frequency,
             allowPrivateChats: true,
             allowGroupChats: true,
+            privateChatContinuationRatePercent: 80,
+            privateChatMaximumRounds: 6,
             out _,
             out string errorMessage), errorMessage);
     }

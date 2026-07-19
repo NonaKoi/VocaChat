@@ -20,7 +20,7 @@ export function useAutonomousPrivateChatExecution(
     setErrorMessage(undefined)
   }, [firstAiAccountId, secondAiAccountId])
 
-  const execute = useCallback(async () => {
+  const execute = useCallback(async (topic?: string) => {
     if (!firstAiAccountId || !secondAiAccountId) return undefined
 
     const currentVersion = ++requestVersion.current
@@ -31,6 +31,7 @@ export function useAutonomousPrivateChatExecution(
       const result = await runAutonomousPrivateChat({
         firstAiAccountId,
         secondAiAccountId,
+        topic: topic?.trim() || undefined,
       })
       if (currentVersion !== requestVersion.current) return undefined
 

@@ -3,7 +3,7 @@ import type { GroupMessageResponse } from '@/api/types'
 import { buildMessageTimeline } from '@/components/chat/messageTimeline'
 
 describe('buildMessageTimeline', () => {
-  it('按日期分隔消息，并合并五分钟内同一发送者的连续消息', () => {
+  it('按日期分隔消息，并保留同一发送者的每条连续消息', () => {
     const messages = [
       createMessage('1', 'AiAccount', '小语', 'ai-1', '2026-07-16T10:00:00'),
       createMessage('2', 'AiAccount', '小语', 'ai-1', '2026-07-16T10:03:00'),
@@ -15,30 +15,20 @@ describe('buildMessageTimeline', () => {
 
     expect(timeline.map((item) => item.kind)).toEqual([
       'date-divider',
-      'message-group',
-      'message-group',
+      'message',
+      'message',
+      'message',
       'date-divider',
-      'message-group',
+      'message',
     ])
     expect(timeline[0]).toMatchObject({ label: '昨天' })
     expect(timeline[1]).toMatchObject({
-      senderDisplayName: '小语',
-      messages: [{ id: '1' }, { id: '2' }],
+      message: { id: '1', senderDisplayName: '小语' },
     })
-    expect(timeline[3]).toMatchObject({ label: '今天' })
-  })
-
-  it('同一发送者间隔超过五分钟时创建新分组', () => {
-    const messages = [
-      createMessage('1', 'AiAccount', '小语', 'ai-1', '2026-07-17T10:00:00'),
-      createMessage('2', 'AiAccount', '小语', 'ai-1', '2026-07-17T10:06:00'),
-    ]
-
-    const groups = buildMessageTimeline(messages).filter(
-      (item) => item.kind === 'message-group',
-    )
-
-    expect(groups).toHaveLength(2)
+    expect(timeline[2]).toMatchObject({
+      message: { id: '2', senderDisplayName: '小语' },
+    })
+    expect(timeline[4]).toMatchObject({ label: '今天' })
   })
 })
 

@@ -16,16 +16,59 @@ public sealed class AutonomousInteractionsController : ControllerBase
 {
     private readonly AutonomousPrivateChatJudge _privateChatJudge;
     private readonly AutonomousPrivateChatExecutionService _executionService;
+    private readonly AutonomousPrivateChatSessionService _sessionService;
     private readonly PrivateChatService _privateChatService;
 
     public AutonomousInteractionsController(
         AutonomousPrivateChatJudge privateChatJudge,
         AutonomousPrivateChatExecutionService executionService,
+        AutonomousPrivateChatSessionService sessionService,
         PrivateChatService privateChatService)
     {
         _privateChatJudge = privateChatJudge;
         _executionService = executionService;
+        _sessionService = sessionService;
         _privateChatService = privateChatService;
+    }
+
+    /// <summary>
+    /// 根据 Id 返回一次好友自主私信 Session。
+    /// </summary>
+    [HttpGet("private-chat/sessions/{sessionId}")]
+    [ProducesResponseType(
+        typeof(AutonomousPrivateChatSessionResponse),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<AutonomousPrivateChatSessionResponse> GetSessionById(
+        Guid sessionId)
+    {
+        AutonomousPrivateChatSession? session =
+            _sessionService.FindById(sessionId);
+
+        return session is null
+            ? NotFound()
+            : Ok(ToResponse(session));
+    }
+
+    /// <summary>
+    /// 返回指定好友私信最近开始的一次自主交流 Session。
+    /// </summary>
+    [HttpGet("private-chat/{privateChatId}/sessions/latest")]
+    [ProducesResponseType(
+        typeof(AutonomousPrivateChatSessionResponse),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<AutonomousPrivateChatSessionResponse>
+        GetLatestSession(Guid privateChatId)
+    {
+        AutonomousPrivateChatSession? session =
+            _sessionService.FindLatestByPrivateChatId(privateChatId);
+
+        return session is null
+            ? NotFound()
+            : Ok(ToResponse(session));
     }
 
     /// <summary>
@@ -70,17 +113,18 @@ public sealed class AutonomousInteractionsController : ControllerBase
     [ProducesResponseType(
         typeof(AutonomousPrivateChatExecutionResponse),
         StatusCodes.Status500InternalServerError)]
-    public ActionResult<AutonomousPrivateChatExecutionResponse>
+    public async Task<ActionResult<AutonomousPrivateChatExecutionResponse>>
         RunPrivateChat(
-            [FromBody] RunAutonomousPrivateChatRequest request)
+            [FromBody] RunAutonomousPrivateChatRequest request,
+            CancellationToken cancellationToken)
     {
-        double randomJitter = Random.Shared.NextDouble() * 20 - 10;
         AutonomousPrivateChatExecutionResult result =
-            _executionService.Execute(
+            await _executionService.ExecuteAsync(
                 request.FirstAiAccountId,
                 request.SecondAiAccountId,
                 DateTime.Now,
-                randomJitter);
+                request.Topic,
+                cancellationToken);
 
         if (result.Decision.Stage
             == AutonomousPrivateChatDecisionStage.SelfInteractionNotAllowed)
@@ -96,12 +140,17 @@ public sealed class AutonomousInteractionsController : ControllerBase
 
         AutonomousPrivateChatExecutionResponse response = ToResponse(result);
 
-        return result.Status is AutonomousPrivateChatExecutionStatus.Completed
-            or AutonomousPrivateChatExecutionStatus.DecisionRejected
-                ? Ok(response)
-                : StatusCode(
+        return result.Status switch
+        {
+            AutonomousPrivateChatExecutionStatus.Completed
+                or AutonomousPrivateChatExecutionStatus.DecisionRejected
+                => Ok(response),
+            AutonomousPrivateChatExecutionStatus.PlanningFailed
+                => BadRequest(response),
+            _ => StatusCode(
                     StatusCodes.Status500InternalServerError,
-                    response);
+                    response)
+        };
     }
 
     private static AutonomousPrivateChatDecisionResponse ToResponse(
@@ -139,19 +188,60 @@ public sealed class AutonomousInteractionsController : ControllerBase
                 ? null
                 : PrivateChatResponseMapper.ToResponse(result.PrivateChat),
             PrivateChatCreated = result.PrivateChatCreated,
-            InitiatorMessage = result.InitiatorMessage is null
+            Session = result.Session is null
                 ? null
-                : PrivateChatResponseMapper.ToMessageResponse(
-                    result.InitiatorMessage,
-                    participants),
-            RecipientReply = result.RecipientReply is null
-                ? null
-                : PrivateChatResponseMapper.ToMessageResponse(
-                    result.RecipientReply,
-                    participants),
+                : ToResponse(result.Session),
+            Rounds = result.Rounds.Select(ToResponse).ToList().AsReadOnly(),
+            Messages = result.Messages
+                .Select(message =>
+                    PrivateChatResponseMapper.ToMessageResponse(
+                        message,
+                        participants))
+                .ToList()
+                .AsReadOnly(),
             ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
                 ? null
                 : result.ErrorMessage
+        };
+    }
+
+    private static AutonomousPrivateChatSessionResponse ToResponse(
+        AutonomousPrivateChatSession session)
+    {
+        return new AutonomousPrivateChatSessionResponse
+        {
+            Id = session.Id,
+            PrivateChatId = session.PrivateChatId,
+            InitiatorAiAccountId = session.InitiatorAiAccountId,
+            RecipientAiAccountId = session.RecipientAiAccountId,
+            Topic = session.Topic,
+            MaximumRounds = session.MaximumRounds,
+            ContinuationRatePercent = session.ContinuationRatePercent,
+            CompletedRounds = session.CompletedRounds,
+            Status = session.Status.ToString(),
+            EndReason = session.EndReason?.ToString(),
+            StartedAt = session.StartedAt,
+            LastActivityAt = session.LastActivityAt,
+            EndedAt = session.EndedAt
+        };
+    }
+
+    private static AutonomousPrivateChatRoundResponse ToResponse(
+        AutonomousPrivateChatRound round)
+    {
+        return new AutonomousPrivateChatRoundResponse
+        {
+            Id = round.Id,
+            RoundNumber = round.RoundNumber,
+            IsClosing = round.IsClosing,
+            OccurrenceProbability = round.OccurrenceProbability,
+            RandomRoll = round.RandomRoll,
+            InitiatorMessageMode = round.InitiatorMessageMode.ToString(),
+            RecipientMessageMode = round.RecipientMessageMode.ToString(),
+            InitiatorMessageCount = round.InitiatorMessageCount,
+            RecipientMessageCount = round.RecipientMessageCount,
+            StartedAt = round.StartedAt,
+            CompletedAt = round.CompletedAt
         };
     }
 }

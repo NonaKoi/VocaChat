@@ -8,19 +8,23 @@ namespace VocaChat.Services;
 public sealed class PrivateChatInteractionService
 {
     private readonly PrivateChatService _privateChatService;
-    private readonly FakeAiReplyService _fakeAiReplyService;
+    private readonly IAiMessageGenerator _messageGenerator;
+    private readonly IConversationDirector _conversationDirector;
 
     public PrivateChatInteractionService(
         PrivateChatService privateChatService,
-        FakeAiReplyService fakeAiReplyService)
+        IAiMessageGenerator messageGenerator,
+        IConversationDirector conversationDirector)
     {
         _privateChatService = privateChatService;
-        _fakeAiReplyService = fakeAiReplyService;
+        _messageGenerator = messageGenerator;
+        _conversationDirector = conversationDirector;
     }
 
-    public PrivateChatInteractionResult ProcessUserMessage(
+    public async Task<PrivateChatInteractionResult> ProcessUserMessageAsync(
         PrivateChat privateChat,
-        string content)
+        string content,
+        CancellationToken cancellationToken = default)
     {
         if (!_privateChatService.TrySaveUserMessage(
                 privateChat,
@@ -33,9 +37,59 @@ public sealed class PrivateChatInteractionService
         }
 
         AiAccount aiAccount = privateChat.Contact!.AiAccount;
-        string replyContent = _fakeAiReplyService.GenerateReply(
-            aiAccount,
-            userMessage!.Content);
+        string replyContent;
+
+        try
+        {
+            AiDialogueMessage replyTarget = new(
+                userMessage!.SenderDisplayName,
+                userMessage.Content,
+                userMessage.SenderType,
+                userMessage.SenderAiAccountId,
+                userMessage.Id,
+                userMessage.SentAt);
+            AiMessageGenerationRequest generationRequest = new()
+            {
+                Scenario = AiMessageGenerationScenario.UserPrivateChat,
+                Speaker = aiAccount,
+                FocusContent = replyTarget.Content,
+                ReplyTarget = AiDialogueReplyTarget.ReplyTo(replyTarget),
+                ConversationAnchor = replyTarget,
+                RecentMessages = _privateChatService
+                    .GetOrderedChatHistory(privateChat.Id)
+                    .TakeLast(12)
+                    .Select(message => new AiDialogueMessage(
+                        message.SenderDisplayName,
+                        message.Content,
+                        message.SenderType,
+                        message.SenderAiAccountId,
+                        message.Id,
+                        message.SentAt))
+                    .ToList()
+                    .AsReadOnly(),
+                ExpectedMessageCount = 1
+            };
+            ConversationDirectionPlan directionPlan =
+                await _conversationDirector.CreatePlanAsync(
+                    generationRequest,
+                    cancellationToken);
+            generationRequest = generationRequest with
+            {
+                DirectionPlan = directionPlan,
+                ActionPlan = directionPlan.ActionPlan
+            };
+            IReadOnlyList<string> generatedMessages =
+                await _messageGenerator.GenerateMessagesAsync(
+                    generationRequest,
+                    cancellationToken);
+            replyContent = generatedMessages.Single();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return PrivateChatInteractionResult.AiReplyFailed(
+                userMessage!,
+                exception.Message);
+        }
 
         if (!_privateChatService.TrySaveAiReply(
                 privateChat,

@@ -9,4 +9,6 @@ public sealed class UpdateAutonomousInteractionSettingsRequest
     public string? Frequency { get; set; }
     public bool AllowPrivateChats { get; set; }
     public bool AllowGroupChats { get; set; }
+    public int PrivateChatContinuationRatePercent { get; set; }
+    public int PrivateChatMaximumRounds { get; set; }
 }

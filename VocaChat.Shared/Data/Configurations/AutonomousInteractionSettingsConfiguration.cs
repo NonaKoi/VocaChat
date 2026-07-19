@@ -21,6 +21,16 @@ public sealed class AutonomousInteractionSettingsConfiguration
             tableBuilder.HasCheckConstraint(
                 "CK_AutonomousInteractionSettings_Frequency",
                 "\"Frequency\" IN ('Low', 'Normal', 'High')");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_PrivateChatContinuationRate",
+                $"\"PrivateChatContinuationRatePercent\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumPrivateChatContinuationRatePercent} "
+                + $"AND {AutonomousInteractionSettings.MaximumPrivateChatContinuationRatePercent}");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_PrivateChatMaximumRounds",
+                $"\"PrivateChatMaximumRounds\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumPrivateChatMaximumRounds} "
+                + $"AND {AutonomousInteractionSettings.MaximumPrivateChatMaximumRounds}");
         });
 
         builder.HasKey(settings => settings.Id);
@@ -40,6 +50,17 @@ public sealed class AutonomousInteractionSettingsConfiguration
             .IsRequired();
 
         builder.Property(settings => settings.AllowGroupChats)
+            .IsRequired();
+
+        builder.Property(settings => settings.PrivateChatContinuationRatePercent)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultPrivateChatContinuationRatePercent)
+            .HasSentinel(-1)
+            .IsRequired();
+
+        builder.Property(settings => settings.PrivateChatMaximumRounds)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultPrivateChatMaximumRounds)
             .IsRequired();
     }
 }

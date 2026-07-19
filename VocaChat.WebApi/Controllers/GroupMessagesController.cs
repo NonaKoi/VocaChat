@@ -64,9 +64,10 @@ public sealed class GroupMessagesController : ControllerBase
     [ProducesResponseType(typeof(SendGroupMessageFailureResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(SendGroupMessageFailureResponse), StatusCodes.Status500InternalServerError)]
-    public ActionResult<SendGroupMessageResponse> Send(
+    public async Task<ActionResult<SendGroupMessageResponse>> Send(
         Guid groupChatId,
-        [FromBody] SendGroupMessageRequest request)
+        [FromBody] SendGroupMessageRequest request,
+        CancellationToken cancellationToken)
     {
         GroupChat? groupChat = _groupChatService.FindById(groupChatId);
 
@@ -75,8 +76,11 @@ public sealed class GroupMessagesController : ControllerBase
             return NotFound();
         }
 
-        GroupChatInteractionResult result = _interactionService
-            .ProcessUserMessage(groupChat, request.Content ?? string.Empty);
+        GroupChatInteractionResult result = await _interactionService
+            .ProcessUserMessageAsync(
+                groupChat,
+                request.Content ?? string.Empty,
+                cancellationToken);
 
         if (result.Status == GroupChatInteractionStatus.UserMessageRejected)
         {

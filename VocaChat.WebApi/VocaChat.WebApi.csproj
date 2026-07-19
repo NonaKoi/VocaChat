@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>VocaChat-WebApi-1ad4b1b3-7d93-4d09-8fba-6bb8e5c36907</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

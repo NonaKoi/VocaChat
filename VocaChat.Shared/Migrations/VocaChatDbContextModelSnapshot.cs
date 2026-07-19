@@ -239,13 +239,157 @@ namespace VocaChat.Migrations
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("PrivateChatContinuationRatePercent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(80);
+
+                    b.Property<int>("PrivateChatMaximumRounds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(6);
+
                     b.HasKey("Id");
 
                     b.ToTable("AutonomousInteractionSettings", null, t =>
                         {
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_Frequency", "\"Frequency\" IN ('Low', 'Normal', 'High')");
 
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_PrivateChatContinuationRate", "\"PrivateChatContinuationRatePercent\" BETWEEN 0 AND 95");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_PrivateChatMaximumRounds", "\"PrivateChatMaximumRounds\" BETWEEN 1 AND 12");
+
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_Singleton", "\"Id\" = 1");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousPrivateChatRound", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("InitiatorMessageCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("InitiatorMessageMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsClosing")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("OccurrenceProbability")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("RandomRoll")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("RecipientMessageCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RecipientMessageMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RoundNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "RoundNumber")
+                        .IsUnique();
+
+                    b.ToTable("AutonomousPrivateChatRounds", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatRounds_ClosingProbability", "(\"IsClosing\" = 1 AND \"OccurrenceProbability\" IS NULL AND \"RandomRoll\" IS NULL) OR \"IsClosing\" = 0");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatRounds_InitiatorSpeaksInNormalRound", "\"IsClosing\" = 1 OR \"InitiatorMessageMode\" <> 0");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatRounds_MessageCounts", "\"InitiatorMessageCount\" BETWEEN 0 AND 3 AND \"RecipientMessageCount\" BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatRounds_Probability", "\"OccurrenceProbability\" IS NULL OR \"OccurrenceProbability\" BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatRounds_RandomRoll", "\"RandomRoll\" IS NULL OR \"RandomRoll\" BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatRounds_RoundNumber", "\"RoundNumber\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousPrivateChatSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CompletedRounds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ContinuationRatePercent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(80);
+
+                    b.Property<int?>("EndReason")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InitiatorAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastActivityAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MaximumRounds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("PrivateChatId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RecipientAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Topic")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InitiatorAiAccountId");
+
+                    b.HasIndex("PrivateChatId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0");
+
+                    b.HasIndex("RecipientAiAccountId");
+
+                    b.HasIndex("PrivateChatId", "StartedAt");
+
+                    b.HasIndex("Status", "LastActivityAt");
+
+                    b.ToTable("AutonomousPrivateChatSessions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatSessions_ContinuationRate", "\"ContinuationRatePercent\" BETWEEN 0 AND 95");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatSessions_DifferentParticipants", "\"InitiatorAiAccountId\" <> \"RecipientAiAccountId\"");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatSessions_RoundLimits", "\"MaximumRounds\" BETWEEN 1 AND 12 AND \"CompletedRounds\" BETWEEN 0 AND \"MaximumRounds\"");
+
+                            t.HasCheckConstraint("CK_AutonomousPrivateChatSessions_StateConsistency", "(\"Status\" = 0 AND \"EndReason\" IS NULL AND \"EndedAt\" IS NULL) OR (\"Status\" IN (1, 2, 3) AND \"EndReason\" IS NOT NULL AND \"EndedAt\" IS NOT NULL)");
                         });
                 });
 
@@ -549,6 +693,15 @@ namespace VocaChat.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("AutonomousPrivateChatRoundId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("AutonomousPrivateChatSessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AutonomousSequenceNumber")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -573,12 +726,25 @@ namespace VocaChat.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AutonomousPrivateChatRoundId");
+
                     b.HasIndex("SenderAiAccountId");
+
+                    b.HasIndex("AutonomousPrivateChatSessionId", "AutonomousSequenceNumber")
+                        .IsUnique()
+                        .HasFilter("\"AutonomousSequenceNumber\" IS NOT NULL");
+
+                    b.HasIndex("AutonomousPrivateChatSessionId", "SentAt", "Id")
+                        .HasFilter("\"AutonomousPrivateChatSessionId\" IS NOT NULL");
 
                     b.HasIndex("PrivateChatId", "SentAt", "Id");
 
                     b.ToTable("PrivateMessages", null, t =>
                         {
+                            t.HasCheckConstraint("CK_PrivateMessages_AutonomousRound_Consistency", "\"AutonomousPrivateChatRoundId\" IS NULL OR (\"AutonomousPrivateChatSessionId\" IS NOT NULL AND \"AutonomousSequenceNumber\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_PrivateMessages_AutonomousSequence_Positive", "\"AutonomousSequenceNumber\" IS NULL OR \"AutonomousSequenceNumber\" > 0");
+
                             t.HasCheckConstraint("CK_PrivateMessages_Content_NotBlank", "length(trim(\"Content\")) > 0");
 
                             t.HasCheckConstraint("CK_PrivateMessages_SenderDisplayName_NotBlank", "length(trim(\"SenderDisplayName\")) > 0");
@@ -637,6 +803,36 @@ namespace VocaChat.Migrations
                     b.Navigation("FromAiAccount");
 
                     b.Navigation("ToAiAccount");
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousPrivateChatRound", b =>
+                {
+                    b.HasOne("VocaChat.Models.AutonomousPrivateChatSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousPrivateChatSession", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", null)
+                        .WithMany()
+                        .HasForeignKey("InitiatorAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.PrivateChat", null)
+                        .WithMany()
+                        .HasForeignKey("PrivateChatId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiAccount", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("VocaChat.Models.Contact", b =>
@@ -746,6 +942,16 @@ namespace VocaChat.Migrations
 
             modelBuilder.Entity("VocaChat.Models.PrivateMessage", b =>
                 {
+                    b.HasOne("VocaChat.Models.AutonomousPrivateChatRound", null)
+                        .WithMany()
+                        .HasForeignKey("AutonomousPrivateChatRoundId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.AutonomousPrivateChatSession", null)
+                        .WithMany()
+                        .HasForeignKey("AutonomousPrivateChatSessionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("VocaChat.Models.PrivateChat", null)
                         .WithMany()
                         .HasForeignKey("PrivateChatId")

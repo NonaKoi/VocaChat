@@ -15,6 +15,7 @@ import type {
   ConversationCategory,
   ConversationKind,
   GroupChatResponse,
+  PrivateChatResponse,
 } from '@/api/types'
 import { GroupInfoPanel } from '@/components/chat/GroupInfoPanel'
 import { MessageComposer } from '@/components/chat/MessageComposer'
@@ -33,6 +34,7 @@ interface Props {
   kind?: ConversationKind
   category?: ConversationCategory
   friend?: AiAccountResponse
+  privateChat?: PrivateChatResponse
   groupChat?: GroupChatResponse
   contacts: ContactResponse[]
   contactStatus: RemoteStatus
@@ -59,6 +61,9 @@ export function ChatWorkspace(props: Props) {
   const selected = Boolean(props.conversationId)
   const canLocalUserSend = props.category === 'MyPrivateChat'
     || props.category === 'MyGroupChat'
+  const rightAlignedAiAccountId = props.category === 'FriendPrivateChat'
+    ? props.privateChat?.participants[1]?.id
+    : undefined
 
   return (
     <section
@@ -146,6 +151,7 @@ export function ChatWorkspace(props: Props) {
             <MessageList
               conversationId={props.conversationId!}
               messages={props.messages}
+              rightAlignedAiAccountId={rightAlignedAiAccountId}
             />
             {canLocalUserSend ? (
               <MessageComposer

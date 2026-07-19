@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CircleGauge, MessageCircleMore, Save, UsersRound } from 'lucide-react'
+import { CircleGauge, MessageCircleMore, Save, TimerReset, UsersRound } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type {
   AutonomousInteractionSettingsResponse,
@@ -36,6 +36,15 @@ export function GlobalAutonomySettingsPanel({
       && !areSettingsEqual(draft, settings.data),
     ),
     [draft, settings.data],
+  )
+  const settingsAreValid = Boolean(
+    draft
+    && Number.isInteger(draft.privateChatContinuationRatePercent)
+    && draft.privateChatContinuationRatePercent >= 0
+    && draft.privateChatContinuationRatePercent <= 95
+    && Number.isInteger(draft.privateChatMaximumRounds)
+    && draft.privateChatMaximumRounds >= 1
+    && draft.privateChatMaximumRounds <= 12,
   )
 
   useEffect(() => {
@@ -114,6 +123,30 @@ export function GlobalAutonomySettingsPanel({
             onCheckedChange={(checked) => updateDraft({ allowPrivateChats: checked })}
           />
 
+          <SettingsNumberField
+            id="private-chat-continuation-rate"
+            label="下一轮概率保留比例"
+            description="每完成一轮后，下一轮的基础概率按此比例递减；关系和回应情况还会继续修正。"
+            value={draft.privateChatContinuationRatePercent}
+            min={0}
+            max={95}
+            suffix="%"
+            disabled={!draft.isEnabled || !draft.allowPrivateChats}
+            onValueChange={(privateChatContinuationRatePercent) => updateDraft({ privateChatContinuationRatePercent })}
+          />
+
+          <SettingsNumberField
+            id="private-chat-maximum-rounds"
+            label="单次私信最大轮数"
+            description="即使概率判断持续通过，普通交流达到此轮数后也会进入收束。"
+            value={draft.privateChatMaximumRounds}
+            min={1}
+            max={12}
+            suffix="轮"
+            disabled={!draft.isEnabled || !draft.allowPrivateChats}
+            onValueChange={(privateChatMaximumRounds) => updateDraft({ privateChatMaximumRounds })}
+          />
+
           <SettingsToggle
             id="autonomous-group-chats-enabled"
             label="允许好友自主组成群聊"
@@ -126,6 +159,7 @@ export function GlobalAutonomySettingsPanel({
 
         <SettingsSaveBar
           hasChanges={hasChanges}
+          canSave={settingsAreValid}
           didSave={didSave}
           isSaving={settings.isSaving}
           errorMessage={settings.saveErrorMessage}
@@ -157,6 +191,11 @@ export function GlobalAutonomySettingsPanel({
             label="频率档位"
             value={getLevelLabel(draft.frequency)}
           />
+          <StatusRow
+            icon={TimerReset}
+            label="单次私信"
+            value={`${draft.privateChatContinuationRatePercent}% · 最多 ${draft.privateChatMaximumRounds} 轮`}
+          />
         </dl>
         <p className="m-4 rounded-lg bg-primary-soft p-3 text-xs leading-5 text-primary">
           总开关优先于好友设置。关闭后，所有好友的专有设置都会暂停生效。
@@ -168,12 +207,14 @@ export function GlobalAutonomySettingsPanel({
 
 export function SettingsSaveBar({
   hasChanges,
+  canSave = true,
   didSave,
   isSaving,
   errorMessage,
   onSave,
 }: {
   hasChanges: boolean
+  canSave?: boolean
   didSave: boolean
   isSaving: boolean
   errorMessage?: string
@@ -190,10 +231,75 @@ export function SettingsSaveBar({
             ? '有尚未保存的更改。'
             : '当前没有未保存的更改。'}
       </p>
-      <Button onClick={onSave} disabled={!hasChanges || isSaving}>
+      <Button onClick={onSave} disabled={!hasChanges || !canSave || isSaving}>
         <Save className="size-4" strokeWidth={1.8} aria-hidden="true" />
         {isSaving ? '正在保存…' : '保存更改'}
       </Button>
+    </div>
+  )
+}
+
+function SettingsNumberField({
+  id,
+  label,
+  description,
+  value,
+  min,
+  max,
+  suffix,
+  disabled,
+  onValueChange,
+}: {
+  id: string
+  label: string
+  description: string
+  value: number
+  min: number
+  max: number
+  suffix: string
+  disabled: boolean
+  onValueChange: (value: number) => void
+}) {
+  const isInvalid = !Number.isInteger(value) || value < min || value > max
+  const descriptionId = `${id}-description`
+  const errorId = `${id}-error`
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <label htmlFor={id} className="text-sm font-medium text-foreground">
+          {label}
+        </label>
+        <p id={descriptionId} className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+          {description}
+        </p>
+        {isInvalid && (
+          <p id={errorId} className="mt-1 text-xs text-destructive" role="alert">
+            请输入 {min} 到 {max} 之间的整数。
+          </p>
+        )}
+      </div>
+      <div className="flex h-9 w-28 shrink-0 items-center overflow-hidden rounded-lg border border-border bg-surface focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-ring/30">
+        <input
+          id={id}
+          name={id}
+          type="number"
+          inputMode="numeric"
+          autoComplete="off"
+          min={min}
+          max={max}
+          step={1}
+          value={value}
+          disabled={disabled}
+          aria-invalid={isInvalid}
+          aria-describedby={`${descriptionId}${isInvalid ? ` ${errorId}` : ''}`}
+          onChange={(event) => onValueChange(Number(event.target.value))}
+          className="min-w-0 flex-1 bg-transparent px-3 text-right text-sm tabular-nums text-foreground outline-none disabled:cursor-not-allowed disabled:text-muted-foreground"
+        />
+        <span className="border-l border-border px-2 text-xs text-muted-foreground" aria-hidden="true">
+          {suffix}
+        </span>
+      </div>
     </div>
   )
 }
@@ -251,6 +357,8 @@ function areSettingsEqual(
     && first.frequency === second.frequency
     && first.allowPrivateChats === second.allowPrivateChats
     && first.allowGroupChats === second.allowGroupChats
+    && first.privateChatContinuationRatePercent === second.privateChatContinuationRatePercent
+    && first.privateChatMaximumRounds === second.privateChatMaximumRounds
 }
 
 function getScopeLabel(settings: UpdateAutonomousInteractionSettingsRequest) {

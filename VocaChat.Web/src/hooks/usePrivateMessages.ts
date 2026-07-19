@@ -1,20 +1,38 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getPrivateMessages, getSavedPrivateUserMessage, sendPrivateMessage } from '@/api/privateChats'
-import type { PrivateMessageResponse } from '@/api/types'
+import {
+  getPrivateChat,
+  getPrivateMessages,
+  getSavedPrivateUserMessage,
+  sendPrivateMessage,
+} from '@/api/privateChats'
+import type { PrivateChatResponse, PrivateMessageResponse } from '@/api/types'
 import type { MessageSendOutcome } from '@/types/messageSendOutcome'
 import type { RemoteStatus } from '@/types/remoteStatus'
 
 export function usePrivateMessages(privateChatId?: string) {
   const [data, setData] = useState<PrivateMessageResponse[]>([])
+  const [privateChat, setPrivateChat] = useState<PrivateChatResponse>()
   const [status, setStatus] = useState<RemoteStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string>()
   const [sendErrorMessage, setSendErrorMessage] = useState<string>()
   const [isSending, setIsSending] = useState(false)
   const reload = useCallback(() => {
-    if (!privateChatId) { setData([]); setStatus('idle'); return }
-    setStatus('loading'); setErrorMessage(undefined)
-    void getPrivateMessages(privateChatId).then((messages) => {
-      setData(sort(messages)); setStatus('success')
+    if (!privateChatId) {
+      setData([])
+      setPrivateChat(undefined)
+      setStatus('idle')
+      return
+    }
+    setPrivateChat(undefined)
+    setStatus('loading')
+    setErrorMessage(undefined)
+    void Promise.all([
+      getPrivateChat(privateChatId),
+      getPrivateMessages(privateChatId),
+    ]).then(([loadedPrivateChat, messages]) => {
+      setPrivateChat(loadedPrivateChat)
+      setData(sort(messages))
+      setStatus('success')
     }).catch((error: unknown) => {
       setStatus('error'); setErrorMessage(error instanceof Error ? error.message : '私聊记录加载失败。')
     })
@@ -35,7 +53,16 @@ export function usePrivateMessages(privateChatId?: string) {
       return saved ? 'partial' : 'rejected'
     } finally { setIsSending(false) }
   }, [privateChatId, isSending])
-  return { data, status, errorMessage, sendErrorMessage, isSending, reload, send }
+  return {
+    data,
+    privateChat,
+    status,
+    errorMessage,
+    sendErrorMessage,
+    isSending,
+    reload,
+    send,
+  }
 }
 
 function merge(current: PrivateMessageResponse[], incoming: PrivateMessageResponse[]) {

@@ -6,8 +6,66 @@ namespace VocaChat.Services;
 /// <summary>
 /// 负责为已经选定的 AI 发言者生成本地模拟回复。
 /// </summary>
-public class FakeAiReplyService
+public class FakeAiReplyService : IAiMessageGenerator
 {
+    /// <summary>
+    /// 为测试和离线验证提供与真实生成器相同的异步契约。
+    /// </summary>
+    public Task<IReadOnlyList<string>> GenerateMessagesAsync(
+        AiMessageGenerationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (request.ExpectedMessageCount == 0)
+        {
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        }
+
+        if (request.ActionPlan is null)
+        {
+            throw new InvalidOperationException("本次 AI 消息缺少行为与表达计划。");
+        }
+
+        AiAccount otherParticipant = request.OtherParticipants.FirstOrDefault()
+            ?? request.Speaker;
+        string targetContent = request.ReplyTarget?.Message?.Content
+            ?? request.FocusContent;
+        IReadOnlyList<string> messages = request.Scenario switch
+        {
+            AiMessageGenerationScenario.UserPrivateChat
+                or AiMessageGenerationScenario.GroupPrimaryReply
+                => new[] { GenerateReply(request.Speaker, targetContent) },
+            AiMessageGenerationScenario.GroupFollowUpReply
+                => new[]
+                {
+                    GenerateFollowUpReply(
+                        request.Speaker,
+                        request.PrimarySpeaker ?? request.Speaker,
+                        targetContent)
+                },
+            AiMessageGenerationScenario.AutonomousPrivateChat
+                => GenerateAutonomousPrivateChatMessages(
+                    request.Speaker,
+                    otherParticipant,
+                    request.Topic,
+                    targetContent,
+                    request.ExpectedMessageCount,
+                    request.RoundNumber ?? 1,
+                    request.IsInitiator),
+            AiMessageGenerationScenario.AutonomousPrivateChatClosing
+                => GenerateAutonomousPrivateChatClosingMessages(
+                    request.Speaker,
+                    otherParticipant,
+                    request.Topic,
+                    request.ExpectedMessageCount,
+                    request.IsInitiator),
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Scenario))
+        };
+
+        return Task.FromResult(messages);
+    }
+
     /// <summary>
     /// 生成不依赖网络或真实大模型的假 AI 回复文本。
     /// </summary>
@@ -46,18 +104,44 @@ public class FakeAiReplyService
     }
 
     /// <summary>
+    /// 从发起者已有兴趣中选择本地模拟自主私信使用的话题。
+    /// </summary>
+    public string GetAutonomousPrivateChatTopic(AiAccount initiator)
+    {
+        return initiator.Tags
+            .FirstOrDefault(tag => tag.Type == AiAccountTagType.Interest)
+            ?.Value
+            ?? "最近的生活";
+    }
+
+    /// <summary>
     /// 为一次好友自主私信生成本地模拟开场白。
     /// </summary>
     public string GenerateAutonomousPrivateChatOpening(
         AiAccount initiator,
         AiAccount recipient)
     {
-        string topic = initiator.Tags
-            .FirstOrDefault(tag => tag.Type == AiAccountTagType.Interest)
-            ?.Value
-            ?? "最近的生活";
+        string topic = GetAutonomousPrivateChatTopic(initiator);
 
-        return $"{recipient.Nickname}，刚好想到你了。最近想和你聊聊{topic}，你这会儿怎么样？";
+        return GenerateAutonomousPrivateChatOpening(
+            initiator,
+            recipient,
+            topic);
+    }
+
+    /// <summary>
+    /// 使用已经保存到 Session 计划中的话题生成本地模拟开场白。
+    /// </summary>
+    public string GenerateAutonomousPrivateChatOpening(
+        AiAccount initiator,
+        AiAccount recipient,
+        string topic)
+    {
+        string normalizedTopic = string.IsNullOrWhiteSpace(topic)
+            ? "最近的生活"
+            : topic.Trim();
+
+        return $"{recipient.Nickname}，刚好想到你了。最近想和你聊聊{normalizedTopic}，你这会儿怎么样？";
     }
 
     /// <summary>
@@ -74,5 +158,113 @@ public class FakeAiReplyService
 
         return $"{initiator.Nickname}，收到你的消息了。我会{speakingStyle}回应你："
             + $"关于“{openingContent}”，我也正想和你聊聊。";
+    }
+
+    /// <summary>
+    /// 按轮次计划生成一个参与者的独立消息列表，不通过标点机械拆分长文本。
+    /// </summary>
+    public IReadOnlyList<string> GenerateAutonomousPrivateChatMessages(
+        AiAccount speaker,
+        AiAccount otherParticipant,
+        string topic,
+        string previousMessageContent,
+        int messageCount,
+        int roundNumber,
+        bool isInitiator)
+    {
+        if (messageCount is < 0 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(messageCount),
+                "普通轮单方消息数量必须在 0 到 3 之间。");
+        }
+
+        if (messageCount == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        string normalizedTopic = string.IsNullOrWhiteSpace(topic)
+            ? "最近的生活"
+            : topic.Trim();
+        string previousSummary = Summarize(previousMessageContent);
+        string[] candidates = isInitiator
+            ? roundNumber == 1
+                ? new[]
+                {
+                    $"{otherParticipant.Nickname}，刚好想到你了。最近想和你聊聊{normalizedTopic}。",
+                    $"我这两天正好又遇到一点和{normalizedTopic}有关的事。",
+                    "想到你可能会有不一样的看法，就来问问你。"
+                }
+                : new[]
+                {
+                    $"你刚才说的“{previousSummary}”让我又想到一点。",
+                    $"如果继续说{normalizedTopic}，我还挺想听听你的经历。",
+                    "不用急着给结论，想到什么就说什么。"
+                }
+            : new[]
+            {
+                $"{otherParticipant.Nickname}，收到啦。关于{normalizedTopic}，我确实有些想法。",
+                $"你刚才提到“{previousSummary}”，这部分我挺有共鸣的。",
+                $"换成我的角度，我可能会{GetSpeakingStyleDescription(speaker)}说得更直接一点。"
+            };
+
+        return candidates.Take(messageCount).ToList().AsReadOnly();
+    }
+
+    /// <summary>
+    /// 为已经确定需要发言的一方生成简短收束消息。
+    /// </summary>
+    public IReadOnlyList<string> GenerateAutonomousPrivateChatClosingMessages(
+        AiAccount speaker,
+        AiAccount otherParticipant,
+        string topic,
+        int messageCount,
+        bool isInitiator)
+    {
+        if (messageCount is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(messageCount),
+                "收束轮单方消息数量必须在 0 到 2 之间。");
+        }
+
+        if (messageCount == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        string[] candidates = isInitiator
+            ? new[]
+            {
+                $"那关于{topic}我们先聊到这里，之后想到新的再和你说。",
+                $"你先忙吧，{otherParticipant.Nickname}，回头聊。"
+            }
+            : new[]
+            {
+                $"好呀，今天聊{topic}挺开心的。",
+                $"回头再聊，{otherParticipant.Nickname}。"
+            };
+
+        return candidates.Take(messageCount).ToList().AsReadOnly();
+    }
+
+    private static string Summarize(string content)
+    {
+        const int maximumLength = 60;
+        string normalizedContent = string.IsNullOrWhiteSpace(content)
+            ? "刚才的话题"
+            : content.Trim();
+
+        return normalizedContent.Length <= maximumLength
+            ? normalizedContent
+            : $"{normalizedContent[..maximumLength]}…";
+    }
+
+    private static string GetSpeakingStyleDescription(AiAccount speaker)
+    {
+        return string.IsNullOrWhiteSpace(speaker.SpeakingStyle)
+            ? "自然地"
+            : $"用{speaker.SpeakingStyle}的方式";
     }
 }

@@ -29,7 +29,8 @@ public sealed class AutonomousInteractionsApiTests
             new RunAutonomousPrivateChatRequest
             {
                 FirstAiAccountId = first.Id,
-                SecondAiAccountId = second.Id
+                SecondAiAccountId = second.Id,
+                Topic = "HTTP 验收话题"
             });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -39,10 +40,19 @@ public sealed class AutonomousInteractionsApiTests
         Assert.Equal("Completed", execution.Status);
         Assert.True(execution.Decision.IsApproved);
         Assert.NotNull(execution.PrivateChat);
+        Assert.NotNull(execution.Session);
+        Assert.Equal("Completed", execution.Session.Status);
+        Assert.Equal("ContinuationProbabilityDeclined", execution.Session.EndReason);
+        Assert.Equal(1, execution.Session.CompletedRounds);
+        Assert.Equal(6, execution.Session.MaximumRounds);
+        Assert.Equal(0, execution.Session.ContinuationRatePercent);
+        Assert.Equal("HTTP 验收话题", execution.Session.Topic);
         Assert.Equal("FriendPrivateChat", execution.PrivateChat.Category);
         Assert.Equal(2, execution.PrivateChat.Participants.Count);
-        Assert.NotNull(execution.InitiatorMessage);
-        Assert.NotNull(execution.RecipientReply);
+        Assert.Equal(2, execution.Rounds.Count);
+        Assert.False(execution.Rounds[0].IsClosing);
+        Assert.True(execution.Rounds[1].IsClosing);
+        Assert.NotEmpty(execution.Messages);
 
         using HttpResponseMessage historyResponse = await client.GetAsync(
             $"/api/private-chats/{execution.PrivateChat.Id}/messages");
@@ -50,9 +60,26 @@ public sealed class AutonomousInteractionsApiTests
         PrivateMessageResponse[] history =
             (await historyResponse.Content.ReadFromJsonAsync<
                 PrivateMessageResponse[]>())!;
-        Assert.Equal(2, history.Length);
-        Assert.Equal(execution.InitiatorMessage.Id, history[0].Id);
-        Assert.Equal(execution.RecipientReply.Id, history[1].Id);
+        Assert.Equal(execution.Messages.Count, history.Length);
+        Assert.Equal(
+            execution.Messages.Select(message => message.Id),
+            history.Select(message => message.Id));
+
+        using HttpResponseMessage sessionResponse = await client.GetAsync(
+            $"/api/autonomous-interactions/private-chat/sessions/{execution.Session.Id}");
+        sessionResponse.EnsureSuccessStatusCode();
+        AutonomousPrivateChatSessionResponse storedSession =
+            (await sessionResponse.Content.ReadFromJsonAsync<
+                AutonomousPrivateChatSessionResponse>())!;
+        Assert.Equal(execution.Session.Id, storedSession.Id);
+
+        using HttpResponseMessage latestResponse = await client.GetAsync(
+            $"/api/autonomous-interactions/private-chat/{execution.PrivateChat.Id}/sessions/latest");
+        latestResponse.EnsureSuccessStatusCode();
+        AutonomousPrivateChatSessionResponse latestSession =
+            (await latestResponse.Content.ReadFromJsonAsync<
+                AutonomousPrivateChatSessionResponse>())!;
+        Assert.Equal(execution.Session.Id, latestSession.Id);
     }
 
     [Fact]
@@ -79,6 +106,7 @@ public sealed class AutonomousInteractionsApiTests
         Assert.Equal("DecisionRejected", execution.Status);
         Assert.False(execution.Decision.IsApproved);
         Assert.Null(execution.PrivateChat);
+        Assert.Null(execution.Session);
         Assert.Equal(conversationCountBefore, await GetConversationCount(client));
     }
 
@@ -97,7 +125,9 @@ public sealed class AutonomousInteractionsApiTests
                 IsEnabled = true,
                 Frequency = "Normal",
                 AllowPrivateChats = true,
-                AllowGroupChats = true
+                AllowGroupChats = true,
+                PrivateChatContinuationRatePercent = 80,
+                PrivateChatMaximumRounds = 6
             });
         settingsResponse.EnsureSuccessStatusCode();
 
@@ -175,7 +205,9 @@ public sealed class AutonomousInteractionsApiTests
                 IsEnabled = true,
                 Frequency = "Normal",
                 AllowPrivateChats = true,
-                AllowGroupChats = false
+                AllowGroupChats = false,
+                PrivateChatContinuationRatePercent = 0,
+                PrivateChatMaximumRounds = 6
             });
         response.EnsureSuccessStatusCode();
     }

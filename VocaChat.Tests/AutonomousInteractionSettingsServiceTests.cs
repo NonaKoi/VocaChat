@@ -22,6 +22,8 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
         Assert.Equal(AutonomousInteractionFrequency.Normal, settings.Frequency);
         Assert.True(settings.AllowPrivateChats);
         Assert.True(settings.AllowGroupChats);
+        Assert.Equal(80, settings.PrivateChatContinuationRatePercent);
+        Assert.Equal(6, settings.PrivateChatMaximumRounds);
     }
 
     [Fact]
@@ -34,6 +36,8 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
             AutonomousInteractionFrequency.High,
             allowPrivateChats: true,
             allowGroupChats: false,
+            privateChatContinuationRatePercent: 65,
+            privateChatMaximumRounds: 9,
             out AutonomousInteractionSettings? savedSettings,
             out string errorMessage);
 
@@ -49,6 +53,8 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
             reloadedSettings.Frequency);
         Assert.True(reloadedSettings.AllowPrivateChats);
         Assert.False(reloadedSettings.AllowGroupChats);
+        Assert.Equal(65, reloadedSettings.PrivateChatContinuationRatePercent);
+        Assert.Equal(9, reloadedSettings.PrivateChatMaximumRounds);
     }
 
     [Fact]
@@ -61,12 +67,40 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
             (AutonomousInteractionFrequency)999,
             allowPrivateChats: false,
             allowGroupChats: false,
+            privateChatContinuationRatePercent: 80,
+            privateChatMaximumRounds: 6,
             out AutonomousInteractionSettings? settings,
             out string errorMessage);
 
         Assert.False(succeeded);
         Assert.Null(settings);
         Assert.Equal("自主互动频率无效。", errorMessage);
+        Assert.False(service.GetSettings().IsEnabled);
+    }
+
+    [Theory]
+    [InlineData(-1, 6)]
+    [InlineData(96, 6)]
+    [InlineData(80, 0)]
+    [InlineData(80, 13)]
+    public void TryUpdateSettings_WithInvalidConversationLimits_DoesNotSave(
+        int continuationRatePercent,
+        int maximumRounds)
+    {
+        AutonomousInteractionSettingsService service = CreateService();
+
+        bool succeeded = service.TryUpdateSettings(
+            isEnabled: true,
+            AutonomousInteractionFrequency.Normal,
+            allowPrivateChats: true,
+            allowGroupChats: false,
+            continuationRatePercent,
+            maximumRounds,
+            out AutonomousInteractionSettings? settings,
+            out _);
+
+        Assert.False(succeeded);
+        Assert.Null(settings);
         Assert.False(service.GetSettings().IsEnabled);
     }
 

@@ -9,7 +9,10 @@ public sealed class AutonomousPrivateChatExecutionResponse
     public AutonomousPrivateChatDecisionResponse Decision { get; init; } = new();
     public PrivateChatResponse? PrivateChat { get; init; }
     public bool PrivateChatCreated { get; init; }
-    public PrivateMessageResponse? InitiatorMessage { get; init; }
-    public PrivateMessageResponse? RecipientReply { get; init; }
+    public AutonomousPrivateChatSessionResponse? Session { get; init; }
+    public IReadOnlyList<AutonomousPrivateChatRoundResponse> Rounds { get; init; } =
+        Array.Empty<AutonomousPrivateChatRoundResponse>();
+    public IReadOnlyList<PrivateMessageResponse> Messages { get; init; } =
+        Array.Empty<PrivateMessageResponse>();
     public string? ErrorMessage { get; init; }
 }

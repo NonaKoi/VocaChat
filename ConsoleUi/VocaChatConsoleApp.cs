@@ -35,7 +35,7 @@ public class VocaChatConsoleApp
     /// <summary>
     /// 按顺序执行账号准备、群聊选择或创建，以及群消息流程。
     /// </summary>
-    public void Run()
+    public async Task RunAsync()
     {
         Console.InputEncoding = Encoding.UTF8;
         Console.OutputEncoding = Encoding.UTF8;
@@ -50,7 +50,7 @@ public class VocaChatConsoleApp
         DisplayGroupChat(groupChat);
 
         DisplayChatHistory(groupChat);
-        EnterGroupChat(groupChat);
+        await EnterGroupChatAsync(groupChat);
         DisplayChatHistory(groupChat);
     }
 
@@ -366,7 +366,7 @@ public class VocaChatConsoleApp
     /// <summary>
     /// 处理聊天输入，并调用共享交互 Service 保存用户消息和模拟 AI 回复。
     /// </summary>
-    private void EnterGroupChat(GroupChat groupChat)
+    private async Task EnterGroupChatAsync(GroupChat groupChat)
     {
         Console.WriteLine();
         Console.WriteLine($"进入群聊：{groupChat.Name}");
@@ -383,8 +383,8 @@ public class VocaChatConsoleApp
                 break;
             }
 
-            GroupChatInteractionResult result = _interactionService
-                .ProcessUserMessage(groupChat, content);
+            GroupChatInteractionResult result = await _interactionService
+                .ProcessUserMessageAsync(groupChat, content);
 
             if (result.Status == GroupChatInteractionStatus.UserMessageRejected)
             {

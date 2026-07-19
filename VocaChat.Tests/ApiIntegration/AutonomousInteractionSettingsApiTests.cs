@@ -21,6 +21,8 @@ public sealed class AutonomousInteractionSettingsApiTests
 
         Assert.False(defaults.IsEnabled);
         Assert.Equal("Normal", defaults.Frequency);
+        Assert.Equal(80, defaults.PrivateChatContinuationRatePercent);
+        Assert.Equal(6, defaults.PrivateChatMaximumRounds);
 
         using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
             "/api/settings/autonomous-interactions",
@@ -29,7 +31,9 @@ public sealed class AutonomousInteractionSettingsApiTests
                 IsEnabled = true,
                 Frequency = "High",
                 AllowPrivateChats = false,
-                AllowGroupChats = true
+                AllowGroupChats = true,
+                PrivateChatContinuationRatePercent = 70,
+                PrivateChatMaximumRounds = 8
             });
         AutonomousInteractionSettingsResponse saved =
             (await updateResponse.Content.ReadFromJsonAsync<
@@ -39,6 +43,8 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.True(saved.IsEnabled);
         Assert.Equal("High", saved.Frequency);
         Assert.False(saved.AllowPrivateChats);
+        Assert.Equal(70, saved.PrivateChatContinuationRatePercent);
+        Assert.Equal(8, saved.PrivateChatMaximumRounds);
 
         AutonomousInteractionSettingsResponse reloaded =
             (await client.GetFromJsonAsync<AutonomousInteractionSettingsResponse>(
@@ -48,6 +54,12 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(saved.Frequency, reloaded.Frequency);
         Assert.Equal(saved.AllowPrivateChats, reloaded.AllowPrivateChats);
         Assert.Equal(saved.AllowGroupChats, reloaded.AllowGroupChats);
+        Assert.Equal(
+            saved.PrivateChatContinuationRatePercent,
+            reloaded.PrivateChatContinuationRatePercent);
+        Assert.Equal(
+            saved.PrivateChatMaximumRounds,
+            reloaded.PrivateChatMaximumRounds);
     }
 
     [Fact]
@@ -63,7 +75,9 @@ public sealed class AutonomousInteractionSettingsApiTests
                 IsEnabled = true,
                 Frequency = "EveryMinute",
                 AllowPrivateChats = true,
-                AllowGroupChats = true
+                AllowGroupChats = true,
+                PrivateChatContinuationRatePercent = 80,
+                PrivateChatMaximumRounds = 6
             });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

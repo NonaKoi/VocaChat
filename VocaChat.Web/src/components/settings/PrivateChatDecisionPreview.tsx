@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
 import { ArrowRight, CheckCircle2, Gauge, MessageCircleMore, RefreshCw, XCircle } from 'lucide-react'
 import type {
   AutonomousPrivateChatExecutionResponse,
   AutonomousPrivateChatDecisionResponse,
   AutonomousPrivateChatDecisionStage,
+  AutonomousPrivateChatSessionEndReason,
   ContactResponse,
 } from '@/api/types'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
@@ -30,6 +32,19 @@ const stageDescriptions: Record<AutonomousPrivateChatDecisionStage, string> = {
   ScoreBelowThreshold: '本次关系分数没有达到当前互动频率的发起门槛。',
 }
 
+const sessionEndReasonDescriptions: Record<AutonomousPrivateChatSessionEndReason, string> = {
+  NaturalConclusion: '自然结束',
+  PlannedLimitReached: '达到本次计划轮数',
+  HardLimitReached: '达到系统轮数上限',
+  ParticipantUnavailable: '参与者当前不可用',
+  InteractionDisabled: '自主互动已关闭',
+  GenerationFailed: '消息生成失败',
+  MessagePersistenceFailed: '消息保存失败',
+  RelationshipUpdateFailed: '互动记录更新失败',
+  CancelledByUser: '已由用户取消',
+  ContinuationProbabilityDeclined: '下一轮概率未通过',
+}
+
 /** 展示一次可解释的自主私信判断；该操作只读数据，不会真正发送消息。 */
 export function PrivateChatDecisionPreview({
   firstContact,
@@ -45,7 +60,12 @@ export function PrivateChatDecisionPreview({
     firstContact.friend.id,
     secondContact.friend.id,
   )
+  const [topic, setTopic] = useState('')
   const decision = execution.data?.decision ?? preview.data
+
+  useEffect(() => {
+    setTopic('')
+  }, [firstContact.friend.id, secondContact.friend.id])
 
   const initiator = decision?.initiatorAiAccountId === firstContact.friend.id
     ? firstContact.friend
@@ -90,7 +110,7 @@ export function PrivateChatDecisionPreview({
           <Button
             disabled={execution.status === 'loading' || preview.status === 'loading' || hasUnsavedRelationship}
             aria-busy={execution.status === 'loading'}
-            onClick={() => void execution.execute()}
+            onClick={() => void execution.execute(topic)}
           >
             <MessageCircleMore className="size-4" aria-hidden="true" />
             {execution.status === 'loading' ? '正在尝试' : '尝试发起一次私信'}
@@ -99,6 +119,22 @@ export function PrivateChatDecisionPreview({
       </div>
 
       <div className="px-5 py-4" aria-live="polite">
+        <label className="mb-4 block" htmlFor="autonomous-private-chat-topic">
+          <span className="text-xs font-medium text-foreground">本次话题</span>
+          <span className="ml-2 text-[11px] text-muted-foreground">选填</span>
+          <input
+            id="autonomous-private-chat-topic"
+            name="autonomousPrivateChatTopic"
+            type="text"
+            autoComplete="off"
+            value={topic}
+            maxLength={200}
+            disabled={execution.status === 'loading' || hasUnsavedRelationship}
+            onChange={(event) => setTopic(event.target.value)}
+            placeholder="例如：最近看的电影；留空时由系统从双方兴趣中选择…"
+            className="mt-2 h-10 w-full rounded-lg border border-border bg-surface-muted px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50 focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </label>
         {hasUnsavedRelationship && (
           <p className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
             请先保存当前关系，判断器才会读取到最新数值。
@@ -161,10 +197,8 @@ function ExecutionResult({
     )
   }
 
-  const initiatorMessage = result.initiatorMessage
-  const recipientReply = result.recipientReply
   const privateChatId = result.privateChat?.id
-  const messagesWereSaved = initiatorMessage !== null && recipientReply !== null
+  const messagesWereSaved = result.messages.length > 0
 
   return (
     <div
@@ -180,9 +214,9 @@ function ExecutionResult({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">
             {result.status === 'Completed'
-              ? '好友已经完成一轮私信交流'
+              ? `好友已完成 ${result.session?.completedRounds ?? 0} 轮私信交流`
               : messagesWereSaved
-                ? '消息已保存，但互动记录更新失败'
+                ? `已有 ${result.messages.length} 条消息保存，后续流程未完成`
                 : '本次私信没有完整保存'}
           </p>
           {result.errorMessage && (
@@ -202,16 +236,43 @@ function ExecutionResult({
         )}
       </div>
 
+      {result.session && (
+        <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-border/70 pt-3 text-xs leading-5">
+          <div className="flex min-w-0 gap-1.5">
+            <dt className="text-muted-foreground">话题</dt>
+            <dd className="max-w-64 truncate text-foreground">{result.session.topic}</dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">进度</dt>
+            <dd className="tabular-nums text-foreground">
+              已完成 {result.session.completedRounds} / {result.session.maximumRounds} 轮
+            </dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">续聊比例</dt>
+            <dd className="tabular-nums text-foreground">
+              {result.session.continuationRatePercent}%
+            </dd>
+          </div>
+          {result.session.endReason && (
+            <div className="flex gap-1.5">
+              <dt className="text-muted-foreground">结束原因</dt>
+              <dd className="text-foreground">
+                {sessionEndReasonDescriptions[result.session.endReason]}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+
       {messagesWereSaved && (
         <div className="mt-3 grid gap-2 text-xs leading-5">
-          <p className="break-words rounded-md bg-surface px-3 py-2 text-foreground">
-            <span className="font-semibold">{initiatorMessage.senderDisplayName}：</span>
-            {initiatorMessage.content}
-          </p>
-          <p className="break-words rounded-md bg-surface px-3 py-2 text-foreground">
-            <span className="font-semibold">{recipientReply.senderDisplayName}：</span>
-            {recipientReply.content}
-          </p>
+          {result.messages.map((message) => (
+            <p key={message.id} className="break-words rounded-md bg-surface px-3 py-2 text-foreground">
+              <span className="font-semibold">{message.senderDisplayName}：</span>
+              {message.content}
+            </p>
+          ))}
         </div>
       )}
     </div>

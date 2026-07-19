@@ -12,4 +12,5 @@ dist/
 !.env.example
 docs/DEVELOPMENT_LOG.md
 docs/PROJECT_PLAN.md
+PRODUCT.md
 

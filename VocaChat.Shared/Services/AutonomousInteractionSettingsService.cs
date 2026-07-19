@@ -42,6 +42,8 @@ public class AutonomousInteractionSettingsService
         AutonomousInteractionFrequency frequency,
         bool allowPrivateChats,
         bool allowGroupChats,
+        int privateChatContinuationRatePercent,
+        int privateChatMaximumRounds,
         out AutonomousInteractionSettings? settings,
         out string errorMessage)
     {
@@ -50,6 +52,22 @@ public class AutonomousInteractionSettingsService
         if (!Enum.IsDefined(frequency))
         {
             errorMessage = "自主互动频率无效。";
+            return false;
+        }
+
+        if (privateChatContinuationRatePercent
+                is < AutonomousInteractionSettings.MinimumPrivateChatContinuationRatePercent
+                or > AutonomousInteractionSettings.MaximumPrivateChatContinuationRatePercent)
+        {
+            errorMessage = "下一轮概率保留比例必须在 0% 到 95% 之间。";
+            return false;
+        }
+
+        if (privateChatMaximumRounds
+                is < AutonomousInteractionSettings.MinimumPrivateChatMaximumRounds
+                or > AutonomousInteractionSettings.MaximumPrivateChatMaximumRounds)
+        {
+            errorMessage = "单次好友私信最大轮数必须在 1 到 12 之间。";
             return false;
         }
 
@@ -64,7 +82,9 @@ public class AutonomousInteractionSettingsService
             isEnabled,
             frequency,
             allowPrivateChats,
-            allowGroupChats);
+            allowGroupChats,
+            privateChatContinuationRatePercent,
+            privateChatMaximumRounds);
 
         if (dbContext.Entry(storedSettings).State == EntityState.Detached)
         {

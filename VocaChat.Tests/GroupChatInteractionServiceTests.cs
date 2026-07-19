@@ -13,12 +13,12 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     private readonly SqliteTestDatabase _database = new();
 
     [Fact]
-    public void ProcessUserMessage_WithValidContent_SavesUserAndAiMessages()
+    public async Task ProcessUserMessage_WithValidContent_SavesUserAndAiMessages()
     {
         TestContext context = CreateContext("Alpha");
 
-        GroupChatInteractionResult result = context.InteractionService
-            .ProcessUserMessage(context.GroupChat, "大家好");
+        GroupChatInteractionResult result = await context.InteractionService
+            .ProcessUserMessageAsync(context.GroupChat, "大家好");
         IReadOnlyList<GroupMessage> history = context.MessageService
             .GetOrderedChatHistory(context.GroupChat);
 
@@ -37,14 +37,14 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     }
 
     [Fact]
-    public void ProcessUserMessage_WithMemberMention_SelectsMentionedMember()
+    public async Task ProcessUserMessage_WithMemberMention_SelectsMentionedMember()
     {
         TestContext context = CreateContext("Alpha", "Beta");
         AiAccount mentionedMember = context.GroupChat.Members.Single(
             member => member.Nickname == "Beta");
 
-        GroupChatInteractionResult result = context.InteractionService
-            .ProcessUserMessage(context.GroupChat, "请让 @Beta 回复");
+        GroupChatInteractionResult result = await context.InteractionService
+            .ProcessUserMessageAsync(context.GroupChat, "请让 @Beta 回复");
 
         Assert.Equal(GroupChatInteractionStatus.Succeeded, result.Status);
         Assert.Equal(
@@ -56,12 +56,12 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     }
 
     [Fact]
-    public void ProcessUserMessage_WithUnmatchedMention_UsesDefaultSelection()
+    public async Task ProcessUserMessage_WithUnmatchedMention_UsesDefaultSelection()
     {
         TestContext context = CreateContext("Alpha");
 
-        GroupChatInteractionResult result = context.InteractionService
-            .ProcessUserMessage(context.GroupChat, "@Gamma 你好");
+        GroupChatInteractionResult result = await context.InteractionService
+            .ProcessUserMessageAsync(context.GroupChat, "@Gamma 你好");
 
         Assert.Equal(GroupChatInteractionStatus.Succeeded, result.Status);
         Assert.Equal(
@@ -74,12 +74,53 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     }
 
     [Fact]
-    public void ProcessUserMessage_WithBlankContent_RejectsBeforeAiReply()
+    public async Task ProcessUserMessage_WithTwoSpeakers_UsesExplicitSequentialTargets()
+    {
+        TestContext context = CreateContext("Alpha", "Beta");
+        RecordingAiMessageGenerator generator = new();
+        GroupChatInteractionService interactionService = new(
+            context.MessageService,
+            generator,
+            new GroupChatReplyPlanner(_database.CreateDbContextFactory()),
+            new RuleBasedConversationDirector(
+                new ConversationActionPlanner(new ConstantRandom(0.5))));
+
+        GroupChatInteractionResult result = await interactionService
+            .ProcessUserMessageAsync(
+                context.GroupChat,
+                "@Alpha @Beta 你们觉得今天去哪？");
+
+        Assert.Equal(GroupChatInteractionStatus.Succeeded, result.Status);
+        Assert.Equal(2, generator.Requests.Count);
+        AiMessageGenerationRequest primaryRequest = generator.Requests[0];
+        AiMessageGenerationRequest followUpRequest = generator.Requests[1];
+        Assert.Equal(
+            result.UserMessage!.Id,
+            primaryRequest.ReplyTarget!.Message!.MessageId);
+        Assert.Equal(
+            result.AiReplies[0].Id,
+            followUpRequest.ReplyTarget!.Message!.MessageId);
+        Assert.Equal(
+            result.AiReplies[0].SenderAiAccountId,
+            followUpRequest.ReplyTarget.Message.SenderAiAccountId);
+        Assert.Equal(
+            result.UserMessage.Id,
+            followUpRequest.ConversationAnchor!.MessageId);
+        Assert.Equal(
+            result.UserMessage.Content,
+            followUpRequest.ConversationAnchor.Content);
+        Assert.NotEqual(
+            result.UserMessage.Id,
+            followUpRequest.ReplyTarget.Message.MessageId);
+    }
+
+    [Fact]
+    public async Task ProcessUserMessage_WithBlankContent_RejectsBeforeAiReply()
     {
         TestContext context = CreateContext("Alpha");
 
-        GroupChatInteractionResult result = context.InteractionService
-            .ProcessUserMessage(context.GroupChat, "   ");
+        GroupChatInteractionResult result = await context.InteractionService
+            .ProcessUserMessageAsync(context.GroupChat, "   ");
 
         Assert.Equal(
             GroupChatInteractionStatus.UserMessageRejected,
@@ -93,15 +134,15 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     }
 
     [Fact]
-    public void ProcessUserMessage_WhenAiReplyCannotBeSaved_KeepsUserMessage()
+    public async Task ProcessUserMessage_WhenAiReplyCannotBeSaved_KeepsUserMessage()
     {
         TestContext context = CreateContext("Alpha");
         string maximumLengthUserMessage = new(
             'a',
             GroupMessage.ContentMaxLength);
 
-        GroupChatInteractionResult result = context.InteractionService
-            .ProcessUserMessage(context.GroupChat, maximumLengthUserMessage);
+        GroupChatInteractionResult result = await context.InteractionService
+            .ProcessUserMessageAsync(context.GroupChat, maximumLengthUserMessage);
         GroupMessage storedMessage = Assert.Single(
             context.MessageService.GetOrderedChatHistory(context.GroupChat));
 
@@ -113,7 +154,7 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     }
 
     [Fact]
-    public void ProcessUserMessage_WhenSecondReplyCannotBeSaved_ReturnsSavedFirstReply()
+    public async Task ProcessUserMessage_WhenSecondReplyCannotBeSaved_ReturnsSavedFirstReply()
     {
         VocaChat.Data.VocaChatDbContextFactory dbContextFactory =
             _database.CreateDbContextFactory();
@@ -158,10 +199,12 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         GroupChatInteractionService interactionService = new(
             messageService,
             fakeAiReplyService,
-            new GroupChatReplyPlanner(dbContextFactory));
+            new GroupChatReplyPlanner(dbContextFactory),
+            new RuleBasedConversationDirector(
+                new ConversationActionPlanner()));
 
-        GroupChatInteractionResult result = interactionService
-            .ProcessUserMessage(storedGroupChat, content);
+        GroupChatInteractionResult result = await interactionService
+            .ProcessUserMessageAsync(storedGroupChat, content);
         IReadOnlyList<GroupMessage> history = messageService
             .GetOrderedChatHistory(storedGroupChat);
 
@@ -211,7 +254,9 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         GroupChatInteractionService interactionService = new(
             messageService,
             new FakeAiReplyService(),
-            new GroupChatReplyPlanner(dbContextFactory));
+            new GroupChatReplyPlanner(dbContextFactory),
+            new RuleBasedConversationDirector(
+                new ConversationActionPlanner()));
 
         return new TestContext(
             Assert.IsType<GroupChat>(groupChat),
@@ -239,5 +284,17 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             MessageService = messageService;
             InteractionService = interactionService;
         }
+    }
+
+    private sealed class ConstantRandom : Random
+    {
+        private readonly double _value;
+
+        public ConstantRandom(double value)
+        {
+            _value = value;
+        }
+
+        protected override double Sample() => _value;
     }
 }

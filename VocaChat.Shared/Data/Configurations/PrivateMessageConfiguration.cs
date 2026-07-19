@@ -24,6 +24,14 @@ public sealed class PrivateMessageConfiguration
                 "CK_PrivateMessages_Sender_Consistency",
                 $"(\"SenderType\" = {(int)MessageSenderType.User} AND \"SenderAiAccountId\" IS NULL) "
                 + $"OR (\"SenderType\" = {(int)MessageSenderType.AiAccount} AND \"SenderAiAccountId\" IS NOT NULL)");
+            tableBuilder.HasCheckConstraint(
+                "CK_PrivateMessages_AutonomousSequence_Positive",
+                "\"AutonomousSequenceNumber\" IS NULL OR \"AutonomousSequenceNumber\" > 0");
+            tableBuilder.HasCheckConstraint(
+                "CK_PrivateMessages_AutonomousRound_Consistency",
+                "\"AutonomousPrivateChatRoundId\" IS NULL "
+                + "OR (\"AutonomousPrivateChatSessionId\" IS NOT NULL "
+                + "AND \"AutonomousSequenceNumber\" IS NOT NULL)");
         });
 
         builder.HasKey(message => message.Id);
@@ -45,6 +53,14 @@ public sealed class PrivateMessageConfiguration
             .WithMany()
             .HasForeignKey(message => message.SenderAiAccountId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<AutonomousPrivateChatSession>()
+            .WithMany()
+            .HasForeignKey(message => message.AutonomousPrivateChatSessionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<AutonomousPrivateChatRound>()
+            .WithMany()
+            .HasForeignKey(message => message.AutonomousPrivateChatRoundId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(message => new
         {
@@ -52,5 +68,18 @@ public sealed class PrivateMessageConfiguration
             message.SentAt,
             message.Id
         });
+        builder.HasIndex(message => new
+        {
+            message.AutonomousPrivateChatSessionId,
+            message.SentAt,
+            message.Id
+        }).HasFilter("\"AutonomousPrivateChatSessionId\" IS NOT NULL");
+        builder.HasIndex(message => new
+        {
+            message.AutonomousPrivateChatSessionId,
+            message.AutonomousSequenceNumber
+        })
+            .IsUnique()
+            .HasFilter("\"AutonomousSequenceNumber\" IS NOT NULL");
     }
 }

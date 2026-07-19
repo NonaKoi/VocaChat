@@ -8,12 +8,20 @@ namespace VocaChat.Models;
 public class AutonomousInteractionSettings
 {
     internal const int SingletonId = 1;
+    internal const int DefaultPrivateChatContinuationRatePercent = 80;
+    internal const int MinimumPrivateChatContinuationRatePercent = 0;
+    internal const int MaximumPrivateChatContinuationRatePercent = 95;
+    internal const int DefaultPrivateChatMaximumRounds = 6;
+    internal const int MinimumPrivateChatMaximumRounds = 1;
+    internal const int MaximumPrivateChatMaximumRounds = 12;
 
     public int Id { get; private set; }
     public bool IsEnabled { get; private set; }
     public AutonomousInteractionFrequency Frequency { get; private set; }
     public bool AllowPrivateChats { get; private set; }
     public bool AllowGroupChats { get; private set; }
+    public int PrivateChatContinuationRatePercent { get; private set; }
+    public int PrivateChatMaximumRounds { get; private set; }
 
     /// <summary>
     /// 创建尚未保存的默认设置，或供 EF Core 从数据库还原设置。
@@ -25,6 +33,9 @@ public class AutonomousInteractionSettings
         Frequency = AutonomousInteractionFrequency.Normal;
         AllowPrivateChats = true;
         AllowGroupChats = true;
+        PrivateChatContinuationRatePercent =
+            DefaultPrivateChatContinuationRatePercent;
+        PrivateChatMaximumRounds = DefaultPrivateChatMaximumRounds;
     }
 
     /// <summary>
@@ -34,11 +45,16 @@ public class AutonomousInteractionSettings
         bool isEnabled,
         AutonomousInteractionFrequency frequency,
         bool allowPrivateChats,
-        bool allowGroupChats)
+        bool allowGroupChats,
+        int privateChatContinuationRatePercent,
+        int privateChatMaximumRounds)
     {
         IsEnabled = isEnabled;
         Frequency = frequency;
         AllowPrivateChats = allowPrivateChats;
         AllowGroupChats = allowGroupChats;
+        PrivateChatContinuationRatePercent =
+            privateChatContinuationRatePercent;
+        PrivateChatMaximumRounds = privateChatMaximumRounds;
     }
 }

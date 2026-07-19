@@ -1,14 +1,9 @@
 import type { ChatMessageResponse } from '@/api/types'
 
-const GROUP_WINDOW_IN_MILLISECONDS = 5 * 60 * 1000
-
-export interface MessageGroup {
-  kind: 'message-group'
+export interface MessageTimelineMessage {
+  kind: 'message'
   id: string
-  senderType: ChatMessageResponse['senderType']
-  senderDisplayName: string
-  senderAiAccountId: string | null
-  messages: ChatMessageResponse[]
+  message: ChatMessageResponse
 }
 
 export interface DateDivider {
@@ -17,11 +12,11 @@ export interface DateDivider {
   label: string
 }
 
-export type MessageTimelineItem = MessageGroup | DateDivider
+export type MessageTimelineItem = MessageTimelineMessage | DateDivider
 
 /**
- * 将按时间排序的消息整理为日期分隔和连续发送者分组。
- * 同一发送者超过五分钟后会开启新分组，避免长时间跨度的消息被误认为同一轮发言。
+ * 将按时间排序的消息整理为日期分隔和独立消息项。
+ * 每条消息都保留自己的发送者、时间和气泡，不合并连续发言。
  */
 export function buildMessageTimeline(
   messages: ChatMessageResponse[],
@@ -29,7 +24,6 @@ export function buildMessageTimeline(
 ): MessageTimelineItem[] {
   const timeline: MessageTimelineItem[] = []
   let previousDateKey: string | undefined
-  let currentGroup: MessageGroup | undefined
 
   for (const message of messages) {
     const sentAt = new Date(message.sentAt)
@@ -42,51 +36,16 @@ export function buildMessageTimeline(
         label: formatTimelineDate(sentAt, now),
       })
       previousDateKey = dateKey
-      currentGroup = undefined
     }
 
-    if (!currentGroup || !canAppendToGroup(currentGroup, message)) {
-      currentGroup = {
-        kind: 'message-group',
-        id: `group-${message.id}`,
-        senderType: message.senderType,
-        senderDisplayName: message.senderDisplayName,
-        senderAiAccountId: message.senderAiAccountId,
-        messages: [message],
-      }
-      timeline.push(currentGroup)
-      continue
-    }
-
-    currentGroup.messages.push(message)
+    timeline.push({
+      kind: 'message',
+      id: `message-${message.id}`,
+      message,
+    })
   }
 
   return timeline
-}
-
-function canAppendToGroup(
-  group: MessageGroup,
-  message: ChatMessageResponse,
-): boolean {
-  const previousMessage = group.messages.at(-1)
-
-  if (!previousMessage) {
-    return false
-  }
-
-  const sameSender =
-    group.senderType === message.senderType &&
-    group.senderAiAccountId === message.senderAiAccountId &&
-    group.senderDisplayName === message.senderDisplayName
-  const elapsedTime =
-    new Date(message.sentAt).getTime() -
-    new Date(previousMessage.sentAt).getTime()
-
-  return (
-    sameSender &&
-    elapsedTime >= 0 &&
-    elapsedTime <= GROUP_WINDOW_IN_MILLISECONDS
-  )
 }
 
 function getLocalDateKey(date: Date): string {

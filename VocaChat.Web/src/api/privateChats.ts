@@ -1,5 +1,13 @@
 import { ApiError, getJson, postJson } from '@/api/http'
-import type { PrivateMessageResponse, SendPrivateMessageResponse } from '@/api/types'
+import type {
+  PrivateChatResponse,
+  PrivateMessageResponse,
+  SendPrivateMessageResponse,
+} from '@/api/types'
+
+export function getPrivateChat(id: string): Promise<PrivateChatResponse> {
+  return getJson(`/api/private-chats/${id}`)
+}
 
 export function getPrivateMessages(id: string): Promise<PrivateMessageResponse[]> {
   return getJson(`/api/private-chats/${id}/messages`)

@@ -10,8 +10,12 @@ public enum AutonomousPrivateChatExecutionStatus
     Completed,
     DecisionRejected,
     ChatCreationFailed,
+    SessionCreationFailed,
+    PlanningFailed,
+    GenerationFailed,
     MessagePersistenceFailed,
-    RelationshipRecordFailed
+    RelationshipRecordFailed,
+    SessionFinalizationFailed
 }
 
 /// <summary>
@@ -22,8 +26,11 @@ public sealed class AutonomousPrivateChatExecutionResult
     public AutonomousPrivateChatExecutionStatus Status { get; init; }
     public AutonomousPrivateChatDecision Decision { get; init; } = new();
     public PrivateChat? PrivateChat { get; init; }
+    public AutonomousPrivateChatSession? Session { get; init; }
     public bool PrivateChatCreated { get; init; }
-    public PrivateMessage? InitiatorMessage { get; init; }
-    public PrivateMessage? RecipientReply { get; init; }
+    public IReadOnlyList<AutonomousPrivateChatRound> Rounds { get; init; } =
+        Array.Empty<AutonomousPrivateChatRound>();
+    public IReadOnlyList<PrivateMessage> Messages { get; init; } =
+        Array.Empty<PrivateMessage>();
     public string ErrorMessage { get; init; } = string.Empty;
 }

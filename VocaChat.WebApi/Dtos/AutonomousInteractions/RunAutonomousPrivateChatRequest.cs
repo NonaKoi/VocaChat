@@ -5,4 +5,5 @@ public sealed class RunAutonomousPrivateChatRequest
 {
     public Guid FirstAiAccountId { get; init; }
     public Guid SecondAiAccountId { get; init; }
+    public string? Topic { get; init; }
 }

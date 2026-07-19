@@ -197,6 +197,8 @@ export interface AutonomousInteractionSettingsResponse {
   frequency: AutonomousInteractionFrequency
   allowPrivateChats: boolean
   allowGroupChats: boolean
+  privateChatContinuationRatePercent: number
+  privateChatMaximumRounds: number
 }
 
 export interface UpdateAutonomousInteractionSettingsRequest {
@@ -204,6 +206,8 @@ export interface UpdateAutonomousInteractionSettingsRequest {
   frequency: AutonomousInteractionFrequency
   allowPrivateChats: boolean
   allowGroupChats: boolean
+  privateChatContinuationRatePercent: number
+  privateChatMaximumRounds: number
 }
 
 export interface AiAccountAutonomySettingsResponse {
@@ -276,12 +280,67 @@ export type AutonomousPrivateChatExecutionStatus =
   | 'Completed'
   | 'DecisionRejected'
   | 'ChatCreationFailed'
+  | 'SessionCreationFailed'
+  | 'PlanningFailed'
+  | 'GenerationFailed'
   | 'MessagePersistenceFailed'
   | 'RelationshipRecordFailed'
+  | 'SessionFinalizationFailed'
+
+export type AutonomousPrivateChatSessionStatus =
+  | 'Running'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+
+export type AutonomousPrivateChatSessionEndReason =
+  | 'NaturalConclusion'
+  | 'PlannedLimitReached'
+  | 'HardLimitReached'
+  | 'ParticipantUnavailable'
+  | 'InteractionDisabled'
+  | 'GenerationFailed'
+  | 'MessagePersistenceFailed'
+  | 'RelationshipUpdateFailed'
+  | 'CancelledByUser'
+  | 'ContinuationProbabilityDeclined'
+
+export interface AutonomousPrivateChatSessionResponse {
+  id: string
+  privateChatId: string
+  initiatorAiAccountId: string
+  recipientAiAccountId: string
+  topic: string
+  maximumRounds: number
+  continuationRatePercent: number
+  completedRounds: number
+  status: AutonomousPrivateChatSessionStatus
+  endReason: AutonomousPrivateChatSessionEndReason | null
+  startedAt: string
+  lastActivityAt: string
+  endedAt: string | null
+}
 
 export interface RunAutonomousPrivateChatRequest {
   firstAiAccountId: string
   secondAiAccountId: string
+  topic?: string
+}
+
+export type AutonomousPrivateChatMessageMode = 'None' | 'Single' | 'Burst'
+
+export interface AutonomousPrivateChatRoundResponse {
+  id: string
+  roundNumber: number
+  isClosing: boolean
+  occurrenceProbability: number | null
+  randomRoll: number | null
+  initiatorMessageMode: AutonomousPrivateChatMessageMode
+  recipientMessageMode: AutonomousPrivateChatMessageMode
+  initiatorMessageCount: number
+  recipientMessageCount: number
+  startedAt: string
+  completedAt: string | null
 }
 
 export interface AutonomousPrivateChatExecutionResponse {
@@ -289,7 +348,8 @@ export interface AutonomousPrivateChatExecutionResponse {
   decision: AutonomousPrivateChatDecisionResponse
   privateChat: PrivateChatResponse | null
   privateChatCreated: boolean
-  initiatorMessage: PrivateMessageResponse | null
-  recipientReply: PrivateMessageResponse | null
+  session: AutonomousPrivateChatSessionResponse | null
+  rounds: AutonomousPrivateChatRoundResponse[]
+  messages: PrivateMessageResponse[]
   errorMessage: string | null
 }

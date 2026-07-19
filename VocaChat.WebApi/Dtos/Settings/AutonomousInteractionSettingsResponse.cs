@@ -9,4 +9,6 @@ public sealed class AutonomousInteractionSettingsResponse
     public string Frequency { get; init; } = string.Empty;
     public bool AllowPrivateChats { get; init; }
     public bool AllowGroupChats { get; init; }
+    public int PrivateChatContinuationRatePercent { get; init; }
+    public int PrivateChatMaximumRounds { get; init; }
 }

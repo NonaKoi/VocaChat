@@ -3,44 +3,66 @@ using VocaChat.Models;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 协调一次受控的好友自主私信：判断、建会话、生成消息、保存并记录互动。
+/// 协调一次有限的好友自主私信：判断、规划、递减概率、多轮消息、收束和互动记录。
 /// </summary>
 public sealed class AutonomousPrivateChatExecutionService
 {
     private readonly AutonomousPrivateChatJudge _privateChatJudge;
     private readonly AiAccountService _aiAccountService;
     private readonly PrivateChatService _privateChatService;
-    private readonly FakeAiReplyService _fakeAiReplyService;
+    private readonly AutonomousPrivateChatPlanningService _planningService;
+    private readonly AutonomousPrivateChatSessionService _sessionService;
+    private readonly AutonomousPrivateChatRoundPlanner _roundPlanner;
+    private readonly AutonomousPrivateChatContinuationDecider _continuationDecider;
+    private readonly AutonomousPrivateChatClosurePlanner _closurePlanner;
+    private readonly AutonomousPrivateChatRandomSource _randomSource;
+    private readonly IAiMessageGenerator _messageGenerator;
+    private readonly IConversationDirector _conversationDirector;
     private readonly AiRelationshipService _aiRelationshipService;
 
     public AutonomousPrivateChatExecutionService(
         AutonomousPrivateChatJudge privateChatJudge,
         AiAccountService aiAccountService,
         PrivateChatService privateChatService,
-        FakeAiReplyService fakeAiReplyService,
+        AutonomousPrivateChatPlanningService planningService,
+        AutonomousPrivateChatSessionService sessionService,
+        AutonomousPrivateChatRoundPlanner roundPlanner,
+        AutonomousPrivateChatContinuationDecider continuationDecider,
+        AutonomousPrivateChatClosurePlanner closurePlanner,
+        AutonomousPrivateChatRandomSource randomSource,
+        IAiMessageGenerator messageGenerator,
+        IConversationDirector conversationDirector,
         AiRelationshipService aiRelationshipService)
     {
         _privateChatJudge = privateChatJudge;
         _aiAccountService = aiAccountService;
         _privateChatService = privateChatService;
-        _fakeAiReplyService = fakeAiReplyService;
+        _planningService = planningService;
+        _sessionService = sessionService;
+        _roundPlanner = roundPlanner;
+        _continuationDecider = continuationDecider;
+        _closurePlanner = closurePlanner;
+        _randomSource = randomSource;
+        _messageGenerator = messageGenerator;
+        _conversationDirector = conversationDirector;
         _aiRelationshipService = aiRelationshipService;
     }
 
     /// <summary>
-    /// 只对指定好友组合执行一次判断；判断拒绝时不会创建任何会话或消息。
+    /// 对指定好友组合执行一次有限自主私信；已经保存的消息不会因后续失败回滚。
     /// </summary>
-    public AutonomousPrivateChatExecutionResult Execute(
+    public async Task<AutonomousPrivateChatExecutionResult> ExecuteAsync(
         Guid firstAiAccountId,
         Guid secondAiAccountId,
         DateTime evaluatedAt,
-        double randomJitter)
+        string? requestedTopic = null,
+        CancellationToken cancellationToken = default)
     {
         AutonomousPrivateChatDecision decision = _privateChatJudge.Evaluate(
             firstAiAccountId,
             secondAiAccountId,
             evaluatedAt,
-            randomJitter);
+            _randomSource.NextJudgeJitter());
 
         if (!decision.IsApproved)
         {
@@ -64,6 +86,20 @@ public sealed class AutonomousPrivateChatExecutionService
                 errorMessage: "判断通过后未能读取完整的好友资料。");
         }
 
+        if (!_planningService.TryCreatePlan(
+                initiator,
+                recipient,
+                requestedTopic,
+                out AutonomousPrivateChatPlan? plan,
+                out string planningError)
+            || plan is null)
+        {
+            return CreateResult(
+                AutonomousPrivateChatExecutionStatus.PlanningFailed,
+                decision,
+                errorMessage: planningError);
+        }
+
         if (!_privateChatService.TryGetOrCreateAiPrivateChat(
                 initiator.Id,
                 recipient.Id,
@@ -78,51 +114,212 @@ public sealed class AutonomousPrivateChatExecutionService
                 errorMessage: chatError);
         }
 
-        string openingContent =
-            _fakeAiReplyService.GenerateAutonomousPrivateChatOpening(
-                initiator,
-                recipient);
-        string replyContent =
-            _fakeAiReplyService.GenerateAutonomousPrivateChatReply(
-                recipient,
-                initiator,
-                openingContent);
-
-        if (!_privateChatService.TrySaveAiExchange(
-                privateChat,
-                initiator,
-                openingContent,
-                recipient,
-                replyContent,
+        if (!_sessionService.TryStartSession(
+                privateChat.Id,
+                initiator.Id,
+                recipient.Id,
+                plan.Topic,
+                plan.MaximumRounds,
+                plan.ContinuationRatePercent,
                 evaluatedAt,
-                out PrivateMessage? initiatorMessage,
-                out PrivateMessage? recipientReply,
-                out string messageError))
+                out AutonomousPrivateChatSession? session,
+                out string sessionError)
+            || session is null)
         {
             return CreateResult(
-                AutonomousPrivateChatExecutionStatus.MessagePersistenceFailed,
+                AutonomousPrivateChatExecutionStatus.SessionCreationFailed,
                 decision,
                 privateChat,
                 privateChatCreated,
-                errorMessage: messageError);
+                errorMessage: sessionError);
         }
 
+        List<AutonomousPrivateChatRound> rounds = new();
+        List<PrivateMessage> messages = new();
+        DateTime messageTime = evaluatedAt;
+        double currentOccurrenceProbability = 1;
+        double? currentRandomRoll = null;
+        AutonomousPrivateChatRoundPlan? previousRoundPlan = null;
+        string lastMessageContent = string.Empty;
+        AutonomousPrivateChatSessionEndReason completionReason =
+            AutonomousPrivateChatSessionEndReason.HardLimitReached;
+
+        while (session.CompletedRounds < session.MaximumRounds)
+        {
+            AutonomousPrivateChatRoundPlan roundPlan = _roundPlanner.Plan(
+                plan,
+                _randomSource.NextUnit(),
+                _randomSource.NextUnit(),
+                _randomSource.NextUnit(),
+                _randomSource.NextUnit());
+            int roundNumber = session.CompletedRounds + 1;
+
+            RoundExecutionAttempt roundAttempt = await TryExecuteRoundAsync(
+                    session,
+                    initiator,
+                    recipient,
+                    plan.Topic,
+                    plan.InitiatorToRecipientRelationshipScore,
+                    plan.RecipientToInitiatorRelationshipScore,
+                    roundPlan,
+                    isClosing: false,
+                    currentOccurrenceProbability,
+                    currentRandomRoll,
+                    roundNumber,
+                    messageTime,
+                    rounds,
+                    messages,
+                    cancellationToken);
+            messageTime = roundAttempt.MessageTime;
+
+            if (!roundAttempt.Succeeded)
+            {
+                return FailSessionAndCreateResult(
+                    roundAttempt.FailureReason == AutonomousPrivateChatSessionEndReason.GenerationFailed
+                        ? AutonomousPrivateChatExecutionStatus.GenerationFailed
+                        : AutonomousPrivateChatExecutionStatus.MessagePersistenceFailed,
+                    roundAttempt.FailureReason,
+                    decision,
+                    privateChat,
+                    privateChatCreated,
+                    roundAttempt.ProgressedSession ?? session,
+                    rounds,
+                    messages,
+                    messageTime,
+                    roundAttempt.ErrorMessage);
+            }
+
+            session = roundAttempt.ProgressedSession ?? session;
+            previousRoundPlan = roundPlan;
+            lastMessageContent = messages[^1].Content;
+
+            if (session.CompletedRounds >= session.MaximumRounds)
+            {
+                completionReason =
+                    AutonomousPrivateChatSessionEndReason.HardLimitReached;
+                break;
+            }
+
+            bool naturallyClosed =
+                _closurePlanner.LooksNaturallyClosed(lastMessageContent);
+            AutonomousPrivateChatContinuationDecision continuationDecision =
+                _continuationDecider.Decide(
+                    plan,
+                    currentOccurrenceProbability,
+                    roundPlan,
+                    naturallyClosed,
+                    _randomSource.NextUnit());
+
+            if (!continuationDecision.ShouldContinue)
+            {
+                completionReason = naturallyClosed
+                    ? AutonomousPrivateChatSessionEndReason.NaturalConclusion
+                    : AutonomousPrivateChatSessionEndReason
+                        .ContinuationProbabilityDeclined;
+                break;
+            }
+
+            currentOccurrenceProbability =
+                continuationDecision.OccurrenceProbability;
+            currentRandomRoll = continuationDecision.RandomRoll;
+        }
+
+        if (previousRoundPlan is null)
+        {
+            return FailSessionAndCreateResult(
+                AutonomousPrivateChatExecutionStatus.GenerationFailed,
+                AutonomousPrivateChatSessionEndReason.GenerationFailed,
+                decision,
+                privateChat,
+                privateChatCreated,
+                session,
+                rounds,
+                messages,
+                messageTime,
+                "自主私信没有生成第一轮计划。");
+        }
+
+        AutonomousPrivateChatRoundPlan closingPlan = _closurePlanner.Plan(
+            plan,
+            previousRoundPlan,
+            lastMessageContent,
+            _randomSource.NextUnit(),
+            _randomSource.NextUnit(),
+            _randomSource.NextUnit());
+
+        RoundExecutionAttempt closingAttempt = await TryExecuteRoundAsync(
+                session,
+                initiator,
+                recipient,
+                plan.Topic,
+                plan.InitiatorToRecipientRelationshipScore,
+                plan.RecipientToInitiatorRelationshipScore,
+                closingPlan,
+                isClosing: true,
+                occurrenceProbability: null,
+                randomRoll: null,
+                session.CompletedRounds + 1,
+                messageTime,
+                rounds,
+                messages,
+                cancellationToken);
+        messageTime = closingAttempt.MessageTime;
+
+        if (!closingAttempt.Succeeded)
+        {
+            return FailSessionAndCreateResult(
+                closingAttempt.FailureReason == AutonomousPrivateChatSessionEndReason.GenerationFailed
+                    ? AutonomousPrivateChatExecutionStatus.GenerationFailed
+                    : AutonomousPrivateChatExecutionStatus.MessagePersistenceFailed,
+                closingAttempt.FailureReason,
+                decision,
+                privateChat,
+                privateChatCreated,
+                closingAttempt.ProgressedSession ?? session,
+                rounds,
+                messages,
+                messageTime,
+                closingAttempt.ErrorMessage);
+        }
+
+        session = closingAttempt.ProgressedSession ?? session;
         AiRelationshipOperationStatus relationshipStatus =
             _aiRelationshipService.TryRecordInteraction(
                 initiator.Id,
                 recipient.Id,
-                evaluatedAt);
+                messageTime);
 
         if (relationshipStatus != AiRelationshipOperationStatus.Success)
         {
-            return CreateResult(
+            return FailSessionAndCreateResult(
                 AutonomousPrivateChatExecutionStatus.RelationshipRecordFailed,
+                AutonomousPrivateChatSessionEndReason.RelationshipUpdateFailed,
                 decision,
                 privateChat,
                 privateChatCreated,
-                initiatorMessage,
-                recipientReply,
+                session,
+                rounds,
+                messages,
+                messageTime,
                 "消息已经保存，但关系互动时间更新失败。");
+        }
+
+        if (!_sessionService.TryCompleteSession(
+                session.Id,
+                completionReason,
+                messageTime,
+                out AutonomousPrivateChatSession? completedSession,
+                out string completionError))
+        {
+            return CreateResult(
+                AutonomousPrivateChatExecutionStatus.SessionFinalizationFailed,
+                decision,
+                privateChat,
+                privateChatCreated,
+                completedSession ?? session,
+                rounds,
+                messages,
+                $"消息和关系互动已经保存，但自主私信状态更新失败。{completionError}");
         }
 
         return CreateResult(
@@ -130,8 +327,335 @@ public sealed class AutonomousPrivateChatExecutionService
             decision,
             privateChat,
             privateChatCreated,
-            initiatorMessage,
-            recipientReply);
+            completedSession,
+            rounds,
+            messages);
+    }
+
+    private async Task<RoundExecutionAttempt> TryExecuteRoundAsync(
+        AutonomousPrivateChatSession session,
+        AiAccount initiator,
+        AiAccount recipient,
+        string topic,
+        double initiatorToRecipientRelationshipScore,
+        double recipientToInitiatorRelationshipScore,
+        AutonomousPrivateChatRoundPlan roundPlan,
+        bool isClosing,
+        double? occurrenceProbability,
+        double? randomRoll,
+        int roundNumber,
+        DateTime messageTime,
+        List<AutonomousPrivateChatRound> rounds,
+        List<PrivateMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        AutonomousPrivateChatSession? progressedSession = session;
+        AutonomousPrivateChatSessionEndReason failureReason =
+            AutonomousPrivateChatSessionEndReason.MessagePersistenceFailed;
+
+        if (!_sessionService.TryStartRound(
+                session.Id,
+                isClosing,
+                occurrenceProbability,
+                randomRoll,
+                roundPlan.InitiatorMessageMode,
+                roundPlan.RecipientMessageMode,
+                roundPlan.InitiatorMessageCount,
+                roundPlan.RecipientMessageCount,
+                messageTime,
+                out AutonomousPrivateChatRound? round,
+                out string errorMessage)
+            || round is null)
+        {
+            return RoundExecutionAttempt.Failed(
+                progressedSession,
+                failureReason,
+                errorMessage,
+                messageTime);
+        }
+
+        rounds.Add(round);
+        IReadOnlyList<string> initiatorContents;
+
+        try
+        {
+            initiatorContents = await GenerateAutonomousMessagesAsync(
+                session,
+                initiator,
+                recipient,
+                topic,
+                roundPlan.InitiatorMessageCount,
+                roundNumber,
+                isInitiator: true,
+                isClosing,
+                initiatorToRecipientRelationshipScore,
+                recipientToInitiatorRelationshipScore,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            failureReason = AutonomousPrivateChatSessionEndReason.GenerationFailed;
+            errorMessage = $"发起方消息生成失败：{exception.Message}";
+            return RoundExecutionAttempt.Failed(
+                progressedSession,
+                failureReason,
+                errorMessage,
+                messageTime);
+        }
+
+        if (!TrySaveMessages(
+                round.Id,
+                initiator,
+                initiatorContents,
+                ref messageTime,
+                messages,
+                out progressedSession,
+                out errorMessage))
+        {
+            return RoundExecutionAttempt.Failed(
+                progressedSession,
+                failureReason,
+                errorMessage,
+                messageTime);
+        }
+
+        IReadOnlyList<string> recipientContents;
+
+        try
+        {
+            recipientContents = await GenerateAutonomousMessagesAsync(
+                session,
+                recipient,
+                initiator,
+                topic,
+                roundPlan.RecipientMessageCount,
+                roundNumber,
+                isInitiator: false,
+                isClosing,
+                recipientToInitiatorRelationshipScore,
+                initiatorToRecipientRelationshipScore,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            failureReason = AutonomousPrivateChatSessionEndReason.GenerationFailed;
+            errorMessage = $"接收方消息生成失败：{exception.Message}";
+            return RoundExecutionAttempt.Failed(
+                progressedSession,
+                failureReason,
+                errorMessage,
+                messageTime);
+        }
+
+        if (!TrySaveMessages(
+                round.Id,
+                recipient,
+                recipientContents,
+                ref messageTime,
+                messages,
+                out progressedSession,
+                out errorMessage))
+        {
+            return RoundExecutionAttempt.Failed(
+                progressedSession,
+                failureReason,
+                errorMessage,
+                messageTime);
+        }
+
+        if (!_sessionService.TryCompleteRound(
+                round.Id,
+                messageTime,
+                out progressedSession,
+                out errorMessage))
+        {
+            return RoundExecutionAttempt.Failed(
+                progressedSession,
+                failureReason,
+                errorMessage,
+                messageTime);
+        }
+
+        return RoundExecutionAttempt.Completed(progressedSession, messageTime);
+    }
+
+    private async Task<IReadOnlyList<string>> GenerateAutonomousMessagesAsync(
+        AutonomousPrivateChatSession session,
+        AiAccount speaker,
+        AiAccount otherParticipant,
+        string topic,
+        int messageCount,
+        int roundNumber,
+        bool isInitiator,
+        bool isClosing,
+        double speakerToOtherRelationshipScore,
+        double otherToSpeakerRelationshipScore,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<PrivateMessage> recentHistory = _privateChatService
+            .GetOrderedChatHistory(session.PrivateChatId)
+            .TakeLast(12)
+            .ToList();
+        IReadOnlyList<AiDialogueMessage> recentMessages = recentHistory
+            .Select(message => new AiDialogueMessage(
+                message.SenderDisplayName,
+                message.Content,
+                message.SenderType,
+                message.SenderAiAccountId,
+                message.Id,
+                message.SentAt))
+            .ToList()
+            .AsReadOnly();
+        PrivateMessage? latestSessionMessage = recentHistory.LastOrDefault(
+            message => message.AutonomousPrivateChatSessionId == session.Id);
+        PrivateMessage? latestOtherMessage = recentHistory.LastOrDefault(
+            message => message.AutonomousPrivateChatSessionId == session.Id
+                && message.SenderAiAccountId == otherParticipant.Id);
+        AiDialogueReplyTarget replyTarget = CreateAutonomousReplyTarget(
+            latestSessionMessage,
+            latestOtherMessage,
+            speaker,
+            roundNumber,
+            isInitiator,
+            isClosing);
+
+        AiMessageGenerationRequest generationRequest = new()
+        {
+            Scenario = isClosing
+                ? AiMessageGenerationScenario.AutonomousPrivateChatClosing
+                : AiMessageGenerationScenario.AutonomousPrivateChat,
+            Speaker = speaker,
+            OtherParticipants = new[] { otherParticipant },
+            Topic = topic,
+            FocusContent = replyTarget.Message?.Content ?? topic,
+            ReplyTarget = replyTarget,
+            RecentMessages = recentMessages,
+            ExpectedMessageCount = messageCount,
+            RoundNumber = roundNumber,
+            IsInitiator = isInitiator,
+            OtherParticipantHasResponded = latestOtherMessage is not null,
+            SpeakerToOtherRelationshipScore = speakerToOtherRelationshipScore,
+            OtherToSpeakerRelationshipScore = otherToSpeakerRelationshipScore
+        };
+        ConversationDirectionPlan directionPlan =
+            await _conversationDirector.CreatePlanAsync(
+                generationRequest,
+                cancellationToken);
+        generationRequest = generationRequest with
+        {
+            DirectionPlan = directionPlan,
+            ActionPlan = directionPlan.ActionPlan
+        };
+
+        return await _messageGenerator.GenerateMessagesAsync(
+            generationRequest,
+            cancellationToken);
+    }
+
+    private static AiDialogueReplyTarget CreateAutonomousReplyTarget(
+        PrivateMessage? latestSessionMessage,
+        PrivateMessage? latestOtherMessage,
+        AiAccount speaker,
+        int roundNumber,
+        bool isInitiator,
+        bool isClosing)
+    {
+        if (isClosing)
+        {
+            return AiDialogueReplyTarget.CloseConversation(
+                latestOtherMessage is null
+                    ? null
+                    : ToDialogueMessage(latestOtherMessage));
+        }
+
+        if (roundNumber == 1 && isInitiator)
+        {
+            return AiDialogueReplyTarget.OpenTopic();
+        }
+
+        if (latestSessionMessage?.SenderAiAccountId == speaker.Id)
+        {
+            return AiDialogueReplyTarget.ContinueTopic();
+        }
+
+        return latestOtherMessage is null
+            ? AiDialogueReplyTarget.ContinueTopic()
+            : AiDialogueReplyTarget.ReplyTo(
+                ToDialogueMessage(latestOtherMessage));
+    }
+
+    private static AiDialogueMessage ToDialogueMessage(
+        PrivateMessage message) =>
+        new(
+            message.SenderDisplayName,
+            message.Content,
+            message.SenderType,
+            message.SenderAiAccountId,
+            message.Id,
+            message.SentAt);
+
+    private bool TrySaveMessages(
+        Guid roundId,
+        AiAccount sender,
+        IReadOnlyList<string> contents,
+        ref DateTime messageTime,
+        List<PrivateMessage> messages,
+        out AutonomousPrivateChatSession? session,
+        out string errorMessage)
+    {
+        session = null;
+
+        foreach (string content in contents)
+        {
+            messageTime = messageTime.AddTicks(1);
+            if (!_sessionService.TryAppendMessage(
+                    roundId,
+                    sender,
+                    content,
+                    messageTime,
+                    out PrivateMessage? message,
+                    out session,
+                    out errorMessage)
+                || message is null)
+            {
+                return false;
+            }
+
+            messages.Add(message);
+        }
+
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    private AutonomousPrivateChatExecutionResult FailSessionAndCreateResult(
+        AutonomousPrivateChatExecutionStatus status,
+        AutonomousPrivateChatSessionEndReason endReason,
+        AutonomousPrivateChatDecision decision,
+        PrivateChat privateChat,
+        bool privateChatCreated,
+        AutonomousPrivateChatSession session,
+        IReadOnlyList<AutonomousPrivateChatRound> rounds,
+        IReadOnlyList<PrivateMessage> messages,
+        DateTime failedAt,
+        string primaryError)
+    {
+        _sessionService.TryFailSession(
+            session.Id,
+            endReason,
+            failedAt,
+            out AutonomousPrivateChatSession? failedSession,
+            out string finalizationError);
+
+        return CreateResult(
+            status,
+            decision,
+            privateChat,
+            privateChatCreated,
+            failedSession ?? session,
+            rounds,
+            messages,
+            CombineErrors(primaryError, finalizationError));
     }
 
     private static AutonomousPrivateChatExecutionResult CreateResult(
@@ -139,8 +663,9 @@ public sealed class AutonomousPrivateChatExecutionService
         AutonomousPrivateChatDecision decision,
         PrivateChat? privateChat = null,
         bool privateChatCreated = false,
-        PrivateMessage? initiatorMessage = null,
-        PrivateMessage? recipientReply = null,
+        AutonomousPrivateChatSession? session = null,
+        IReadOnlyList<AutonomousPrivateChatRound>? rounds = null,
+        IReadOnlyList<PrivateMessage>? messages = null,
         string errorMessage = "")
     {
         return new AutonomousPrivateChatExecutionResult
@@ -149,9 +674,44 @@ public sealed class AutonomousPrivateChatExecutionService
             Decision = decision,
             PrivateChat = privateChat,
             PrivateChatCreated = privateChatCreated,
-            InitiatorMessage = initiatorMessage,
-            RecipientReply = recipientReply,
+            Session = session,
+            Rounds = rounds ?? Array.Empty<AutonomousPrivateChatRound>(),
+            Messages = messages ?? Array.Empty<PrivateMessage>(),
             ErrorMessage = errorMessage
         };
+    }
+
+    private static string CombineErrors(
+        string primaryError,
+        string secondaryError)
+    {
+        return string.IsNullOrWhiteSpace(secondaryError)
+            ? primaryError
+            : $"{primaryError} {secondaryError}";
+    }
+
+    private sealed record RoundExecutionAttempt(
+        bool Succeeded,
+        AutonomousPrivateChatSession? ProgressedSession,
+        AutonomousPrivateChatSessionEndReason FailureReason,
+        string ErrorMessage,
+        DateTime MessageTime)
+    {
+        public static RoundExecutionAttempt Completed(
+            AutonomousPrivateChatSession? session,
+            DateTime messageTime) =>
+            new(
+                true,
+                session,
+                AutonomousPrivateChatSessionEndReason.HardLimitReached,
+                string.Empty,
+                messageTime);
+
+        public static RoundExecutionAttempt Failed(
+            AutonomousPrivateChatSession? session,
+            AutonomousPrivateChatSessionEndReason failureReason,
+            string errorMessage,
+            DateTime messageTime) =>
+            new(false, session, failureReason, errorMessage, messageTime);
     }
 }

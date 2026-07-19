@@ -5,7 +5,6 @@ import { EntityAvatar } from '@/components/common/EntityAvatar'
 import { Button } from '@/components/ui/button'
 import {
   buildMessageTimeline,
-  type MessageGroup,
 } from '@/components/chat/messageTimeline'
 import { formatMessageTime } from '@/utils/dateTime'
 
@@ -14,12 +13,17 @@ const BOTTOM_THRESHOLD = 96
 interface MessageListProps {
   conversationId: string
   messages: ChatMessageResponse[]
+  rightAlignedAiAccountId?: string
 }
 
 /**
- * 显示分组后的消息时间线。用户阅读较早消息时不会被新消息强制拉回底部。
+ * 显示逐条消息时间线。用户阅读较早消息时不会被新消息强制拉回底部。
  */
-export function MessageList({ conversationId, messages }: MessageListProps) {
+export function MessageList({
+  conversationId,
+  messages,
+  rightAlignedAiAccountId,
+}: MessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const previousMessageCountRef = useRef(0)
   const isNearBottomRef = useRef(true)
@@ -102,7 +106,11 @@ export function MessageList({ conversationId, messages }: MessageListProps) {
                   <span className="h-px flex-1 bg-border/70" />
                 </li>
               ) : (
-                <MessageGroupItem key={item.id} group={item} />
+                <MessageItem
+                  key={item.id}
+                  message={item.message}
+                  rightAlignedAiAccountId={rightAlignedAiAccountId}
+                />
               ),
             )}
           </ol>
@@ -124,48 +132,54 @@ export function MessageList({ conversationId, messages }: MessageListProps) {
   )
 }
 
-function MessageGroupItem({ group }: { group: MessageGroup }) {
-  const isUser = group.senderType === 'User'
+interface MessageItemProps {
+  message: ChatMessageResponse
+  rightAlignedAiAccountId?: string
+}
+
+function MessageItem({ message, rightAlignedAiAccountId }: MessageItemProps) {
+  const isLocalUser = message.senderType === 'User'
+  const isRightAlignedAi =
+    message.senderType === 'AiAccount'
+    && message.senderAiAccountId === rightAlignedAiAccountId
+  const isRightAligned = isLocalUser || isRightAlignedAi
 
   return (
-    <li className={isUser ? 'flex justify-end' : 'flex justify-start'}>
+    <li className={isRightAligned ? 'flex justify-end' : 'flex justify-start'}>
       <article
         className={
-          isUser
+          isRightAligned
             ? 'flex max-w-[78%] flex-row-reverse items-start gap-3'
             : 'flex max-w-[78%] items-start gap-3'
         }
       >
-        {!isUser && (
+        {!isLocalUser && (
           <EntityAvatar
-            name={group.senderDisplayName}
-            src={group.messages[0].senderAvatarUrl}
+            name={message.senderDisplayName}
+            src={message.senderAvatarUrl}
             size="small"
             className="mt-5 shrink-0"
           />
         )}
-        <div className={isUser ? 'grid justify-items-end gap-1.5' : 'grid gap-1.5'}>
+        <div className={isRightAligned ? 'grid justify-items-end gap-1.5' : 'grid gap-1.5'}>
           <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-            {!isUser && <span>{group.senderDisplayName}</span>}
-            <time dateTime={group.messages[0].sentAt}>
-              {formatMessageTime(group.messages[0].sentAt)}
+            {!isLocalUser && <span>{message.senderDisplayName}</span>}
+            <time dateTime={message.sentAt}>
+              {formatMessageTime(message.sentAt)}
             </time>
           </div>
 
-          <div className="grid gap-1.5">
-            {group.messages.map((message) => (
-              <p
-                key={message.id}
-                className={
-                  isUser
-                    ? 'break-words whitespace-pre-wrap rounded-xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm leading-6 text-white shadow-message'
-                    : 'break-words whitespace-pre-wrap rounded-xl rounded-tl-sm bg-surface px-4 py-2.5 text-sm leading-6 text-foreground shadow-message'
-                }
-              >
-                {message.content}
-              </p>
-            ))}
-          </div>
+          <p
+            className={
+              isLocalUser
+                ? 'break-words whitespace-pre-wrap rounded-xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm leading-6 text-white shadow-message'
+                : isRightAlignedAi
+                  ? 'break-words whitespace-pre-wrap rounded-xl rounded-tr-sm bg-primary-soft px-4 py-2.5 text-sm leading-6 text-foreground shadow-message'
+                  : 'break-words whitespace-pre-wrap rounded-xl rounded-tl-sm bg-surface px-4 py-2.5 text-sm leading-6 text-foreground shadow-message'
+            }
+          >
+            {message.content}
+          </p>
         </div>
       </article>
     </li>

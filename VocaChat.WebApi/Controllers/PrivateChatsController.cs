@@ -61,9 +61,10 @@ public sealed class PrivateChatsController : ControllerBase
     [ProducesResponseType(typeof(SendPrivateMessageFailureResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(SendPrivateMessageFailureResponse), StatusCodes.Status500InternalServerError)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<SendPrivateMessageResponse> SendMessage(
+    public async Task<ActionResult<SendPrivateMessageResponse>> SendMessage(
         Guid id,
-        [FromBody] SendPrivateMessageRequest request)
+        [FromBody] SendPrivateMessageRequest request,
+        CancellationToken cancellationToken)
     {
         PrivateChat? privateChat = _privateChatService.FindById(id);
 
@@ -73,9 +74,10 @@ public sealed class PrivateChatsController : ControllerBase
         }
 
         PrivateChatInteractionResult result =
-            _interactionService.ProcessUserMessage(
+            await _interactionService.ProcessUserMessageAsync(
                 privateChat,
-                request.Content);
+                request.Content,
+                cancellationToken);
         IReadOnlyList<AiAccount> participants =
             _privateChatService.GetAiParticipants(privateChat);
 

@@ -113,6 +113,8 @@ describe('AutonomousInteractionSettingsPage', () => {
       frequency: 'Normal',
       allowPrivateChats: true,
       allowGroupChats: true,
+      privateChatContinuationRatePercent: 80,
+      privateChatMaximumRounds: 6,
     })
     updateSettingsMock.mockImplementation(async (request) => request)
     getFriendSettingsMock.mockResolvedValue({
@@ -186,26 +188,71 @@ describe('AutonomousInteractionSettingsPage', () => {
         createdAt: '2026-07-18T12:00:00Z',
       },
       privateChatCreated: true,
-      initiatorMessage: {
-        id: '50000000-0000-0000-0000-000000000001',
+      session: {
+        id: '60000000-0000-0000-0000-000000000001',
         privateChatId: '40000000-0000-0000-0000-000000000001',
-        senderType: 'AiAccount',
-        senderDisplayName: '林澈',
-        senderAiAccountId: friendId,
-        senderAvatarUrl: null,
-        content: '周野，刚好想到你了。',
-        sentAt: '2026-07-18T12:00:00Z',
+        initiatorAiAccountId: friendId,
+        recipientAiAccountId: secondFriendId,
+        topic: '摄影',
+        maximumRounds: 6,
+        continuationRatePercent: 80,
+        completedRounds: 2,
+        status: 'Completed',
+        endReason: 'ContinuationProbabilityDeclined',
+        startedAt: '2026-07-18T12:00:00Z',
+        lastActivityAt: '2026-07-18T12:00:00.0000001Z',
+        endedAt: '2026-07-18T12:00:00.0000001Z',
       },
-      recipientReply: {
-        id: '50000000-0000-0000-0000-000000000002',
-        privateChatId: '40000000-0000-0000-0000-000000000001',
-        senderType: 'AiAccount',
-        senderDisplayName: '周野',
-        senderAiAccountId: secondFriendId,
-        senderAvatarUrl: null,
-        content: '林澈，我也正想和你聊聊。',
-        sentAt: '2026-07-18T12:00:00.0000001Z',
-      },
+      rounds: [
+        {
+          id: '70000000-0000-0000-0000-000000000001',
+          roundNumber: 1,
+          isClosing: false,
+          occurrenceProbability: 1,
+          randomRoll: null,
+          initiatorMessageMode: 'Single',
+          recipientMessageMode: 'Single',
+          initiatorMessageCount: 1,
+          recipientMessageCount: 1,
+          startedAt: '2026-07-18T12:00:00Z',
+          completedAt: '2026-07-18T12:00:00.0000002Z',
+        },
+        {
+          id: '70000000-0000-0000-0000-000000000002',
+          roundNumber: 2,
+          isClosing: true,
+          occurrenceProbability: null,
+          randomRoll: null,
+          initiatorMessageMode: 'None',
+          recipientMessageMode: 'None',
+          initiatorMessageCount: 0,
+          recipientMessageCount: 0,
+          startedAt: '2026-07-18T12:00:00.0000003Z',
+          completedAt: '2026-07-18T12:00:00.0000003Z',
+        },
+      ],
+      messages: [
+        {
+          id: '50000000-0000-0000-0000-000000000001',
+          privateChatId: '40000000-0000-0000-0000-000000000001',
+          senderType: 'AiAccount',
+          senderDisplayName: '林澈',
+          senderAiAccountId: friendId,
+          senderAvatarUrl: null,
+          content: '周野，刚好想到你了。',
+          sentAt: '2026-07-18T12:00:00Z',
+        },
+        {
+          id: '50000000-0000-0000-0000-000000000002',
+          privateChatId: '40000000-0000-0000-0000-000000000001',
+          senderType: 'AiAccount',
+          senderDisplayName: '周野',
+          senderAiAccountId: secondFriendId,
+          senderAvatarUrl: null,
+          content: '林澈，我也正想和你聊聊。',
+          sentAt: '2026-07-18T12:00:00.0000001Z',
+        },
+      ],
       errorMessage: null,
     })
   })
@@ -229,9 +276,36 @@ describe('AutonomousInteractionSettingsPage', () => {
         frequency: 'High',
         allowPrivateChats: true,
         allowGroupChats: true,
+        privateChatContinuationRatePercent: 80,
+        privateChatMaximumRounds: 6,
       })
     })
     expect(screen.getByText('设置已保存到本地数据库。')).toBeInTheDocument()
+  })
+
+  it('保存下一轮概率保留比例和单次硬上限', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    const continuationInput = await screen.findByLabelText('下一轮概率保留比例')
+    const maximumRoundsInput = screen.getByLabelText('单次私信最大轮数')
+    await user.click(screen.getByRole('switch', { name: '允许好友自主互动' }))
+    await user.clear(continuationInput)
+    await user.type(continuationInput, '72')
+    await user.clear(maximumRoundsInput)
+    await user.type(maximumRoundsInput, '9')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        isEnabled: true,
+        frequency: 'Normal',
+        allowPrivateChats: true,
+        allowGroupChats: true,
+        privateChatContinuationRatePercent: 72,
+        privateChatMaximumRounds: 9,
+      })
+    })
   })
 
   it('选择好友后读取并保存好友专有设置', async () => {
@@ -326,15 +400,20 @@ describe('AutonomousInteractionSettingsPage', () => {
     )
 
     await user.click(screen.getByRole('tab', { name: '关系设置' }))
+    await screen.findByRole('heading', { name: '林澈 对 周野' })
+    await user.type(await screen.findByLabelText(/本次话题/), '最近看的电影')
     await user.click(screen.getByRole('button', { name: '尝试发起一次私信' }))
 
     await waitFor(() => {
       expect(runPrivateChatMock).toHaveBeenCalledWith({
         firstAiAccountId: friendId,
         secondAiAccountId: secondFriendId,
+        topic: '最近看的电影',
       })
     })
-    expect(await screen.findByText('好友已经完成一轮私信交流')).toBeInTheDocument()
+    expect(await screen.findByText('好友已完成 2 轮私信交流')).toBeInTheDocument()
+    expect(screen.getByText('已完成 2 / 6 轮')).toBeInTheDocument()
+    expect(screen.getByText('下一轮概率未通过')).toBeInTheDocument()
     expect(screen.getByText('周野，刚好想到你了。')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '查看好友私信' }))

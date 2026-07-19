@@ -164,6 +164,7 @@ export function VocaChatApp() {
             kind={selectedConversation?.kind}
             category={selectedConversation?.category}
             friend={selectedPrivateContact?.friend}
+            privateChat={privateMessages.privateChat}
             groupChat={selectedGroup}
             contacts={contacts.data}
             contactStatus={contacts.status}

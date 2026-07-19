@@ -26,22 +26,32 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
     }
 
     [Fact]
-    public void PrivateChat_PersistsUserAndAiMessagesAcrossServiceInstances()
+    public async Task PrivateChat_PersistsUserAndAiMessagesAcrossServiceInstances()
     {
         VocaChatDbContextFactory factory = _database.CreateDbContextFactory();
         AiAccount account = CreateAccount(factory, "小语");
         Contact contact = new ContactService(factory).FindByAiAccountId(account.Id)!;
         PrivateChatService firstService = new(factory);
         Assert.True(firstService.TryGetOrCreate(contact.Id, out PrivateChat? chat, out _, out string createError), createError);
+        RecordingAiMessageGenerator generator = new();
 
-        PrivateChatInteractionResult result = new PrivateChatInteractionService(firstService, new FakeAiReplyService())
-            .ProcessUserMessage(chat!, "今天一起学习吗？");
+        PrivateChatInteractionResult result = await new PrivateChatInteractionService(
+                firstService,
+                generator,
+                new RuleBasedConversationDirector(
+                    new ConversationActionPlanner()))
+            .ProcessUserMessageAsync(chat!, "今天一起学习吗？");
 
         Assert.Equal(PrivateChatInteractionStatus.Succeeded, result.Status);
         IReadOnlyList<PrivateMessage> history = new PrivateChatService(factory).GetOrderedChatHistory(chat!.Id);
         Assert.Collection(history,
             message => Assert.Equal(MessageSenderType.User, message.SenderType),
             message => Assert.Equal(account.Id, message.SenderAiAccountId));
+        AiMessageGenerationRequest request = Assert.Single(generator.Requests);
+        Assert.Equal(result.UserMessage!.Id, request.ReplyTarget!.Message!.MessageId);
+        Assert.Equal(ConversationAction.Answer, request.ActionPlan!.Action);
+        Assert.NotNull(request.DirectionPlan);
+        Assert.True(request.DirectionPlan.UsedRuleFallback);
     }
 
     [Fact]
