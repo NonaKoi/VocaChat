@@ -62,4 +62,29 @@ public class AiRelationship
         LastInteractionAt = occurredAt;
         UpdatedAt = occurredAt;
     }
+
+    /// <summary>
+    /// 应用一次已经由关系演化 Service 限制过的 Session 结果，并返回实际增量。
+    /// </summary>
+    internal (int FamiliarityDelta, int AffinityDelta, int TrustDelta)
+        ApplySessionOutcome(
+            int familiarityDelta,
+            int affinityDelta,
+            int trustDelta,
+            DateTime occurredAt)
+    {
+        int previousFamiliarity = Familiarity;
+        int previousAffinity = Affinity;
+        int previousTrust = Trust;
+
+        Familiarity = Math.Clamp(Familiarity + familiarityDelta, 0, 100);
+        Affinity = Math.Clamp(Affinity + affinityDelta, -100, 100);
+        Trust = Math.Clamp(Trust + trustDelta, 0, 100);
+        RecordInteraction(occurredAt);
+
+        return (
+            Familiarity - previousFamiliarity,
+            Affinity - previousAffinity,
+            Trust - previousTrust);
+    }
 }

@@ -15,6 +15,7 @@ public enum AutonomousPrivateChatExecutionStatus
     GenerationFailed,
     MessagePersistenceFailed,
     RelationshipRecordFailed,
+    RelationshipEvolutionFailed,
     SessionFinalizationFailed
 }
 

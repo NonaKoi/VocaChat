@@ -3,7 +3,7 @@ using VocaChat.Models;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 协调一次有限的好友自主私信：判断、规划、递减概率、多轮消息、收束和互动记录。
+/// 协调一次有限的好友自主私信：判断、规划、递减概率、多轮消息、收束和关系演化。
 /// </summary>
 public sealed class AutonomousPrivateChatExecutionService
 {
@@ -18,7 +18,7 @@ public sealed class AutonomousPrivateChatExecutionService
     private readonly AutonomousPrivateChatRandomSource _randomSource;
     private readonly IAiMessageGenerator _messageGenerator;
     private readonly IConversationDirector _conversationDirector;
-    private readonly AiRelationshipService _aiRelationshipService;
+    private readonly RelationshipEvolutionService _relationshipEvolutionService;
 
     public AutonomousPrivateChatExecutionService(
         AutonomousPrivateChatJudge privateChatJudge,
@@ -32,7 +32,7 @@ public sealed class AutonomousPrivateChatExecutionService
         AutonomousPrivateChatRandomSource randomSource,
         IAiMessageGenerator messageGenerator,
         IConversationDirector conversationDirector,
-        AiRelationshipService aiRelationshipService)
+        RelationshipEvolutionService relationshipEvolutionService)
     {
         _privateChatJudge = privateChatJudge;
         _aiAccountService = aiAccountService;
@@ -45,7 +45,7 @@ public sealed class AutonomousPrivateChatExecutionService
         _randomSource = randomSource;
         _messageGenerator = messageGenerator;
         _conversationDirector = conversationDirector;
-        _aiRelationshipService = aiRelationshipService;
+        _relationshipEvolutionService = relationshipEvolutionService;
     }
 
     /// <summary>
@@ -283,27 +283,6 @@ public sealed class AutonomousPrivateChatExecutionService
         }
 
         session = closingAttempt.ProgressedSession ?? session;
-        AiRelationshipOperationStatus relationshipStatus =
-            _aiRelationshipService.TryRecordInteraction(
-                initiator.Id,
-                recipient.Id,
-                messageTime);
-
-        if (relationshipStatus != AiRelationshipOperationStatus.Success)
-        {
-            return FailSessionAndCreateResult(
-                AutonomousPrivateChatExecutionStatus.RelationshipRecordFailed,
-                AutonomousPrivateChatSessionEndReason.RelationshipUpdateFailed,
-                decision,
-                privateChat,
-                privateChatCreated,
-                session,
-                rounds,
-                messages,
-                messageTime,
-                "消息已经保存，但关系互动时间更新失败。");
-        }
-
         if (!_sessionService.TryCompleteSession(
                 session.Id,
                 completionReason,
@@ -319,7 +298,28 @@ public sealed class AutonomousPrivateChatExecutionService
                 completedSession ?? session,
                 rounds,
                 messages,
-                $"消息和关系互动已经保存，但自主私信状态更新失败。{completionError}");
+                $"消息已经保存，但自主私信状态更新失败。{completionError}");
+        }
+
+        RelationshipEvolutionStatus evolutionStatus =
+            _relationshipEvolutionService.TryApplyCompletedSession(
+                completedSession!.Id,
+                out _,
+                out string evolutionError);
+
+        if (evolutionStatus is not (
+                RelationshipEvolutionStatus.Success
+                or RelationshipEvolutionStatus.AlreadyApplied))
+        {
+            return CreateResult(
+                AutonomousPrivateChatExecutionStatus.RelationshipEvolutionFailed,
+                decision,
+                privateChat,
+                privateChatCreated,
+                completedSession,
+                rounds,
+                messages,
+                $"消息和自主私信 Session 已经保存，但关系演化失败。{evolutionError}");
         }
 
         return CreateResult(

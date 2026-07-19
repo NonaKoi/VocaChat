@@ -92,6 +92,12 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
         Assert.Equal(2, restartedSessionService.GetRounds(result.Session.Id).Count);
 
         AssertInteractionsWereRecordedOnce(first.Id, second.Id, occurredAt);
+        using VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        Assert.Equal(
+            2,
+            dbContext.AiRelationshipChanges.Count(change =>
+                change.SessionId == result.Session.Id));
     }
 
     [Fact]
@@ -301,7 +307,7 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
             messageGenerator ?? new FakeAiReplyService(),
             new RuleBasedConversationDirector(
                 new ConversationActionPlanner(new ConstantRandom(0.5))),
-            new AiRelationshipService(factory));
+            new RelationshipEvolutionService(factory));
     }
 
     public void Dispose()

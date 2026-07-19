@@ -285,6 +285,7 @@ export type AutonomousPrivateChatExecutionStatus =
   | 'GenerationFailed'
   | 'MessagePersistenceFailed'
   | 'RelationshipRecordFailed'
+  | 'RelationshipEvolutionFailed'
   | 'SessionFinalizationFailed'
 
 export type AutonomousPrivateChatSessionStatus =

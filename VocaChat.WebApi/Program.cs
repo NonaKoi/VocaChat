@@ -58,6 +58,7 @@ public class Program
         builder.Services.AddScoped<AutonomousInteractionSettingsService>();
         builder.Services.AddScoped<AiAccountAutonomySettingsService>();
         builder.Services.AddScoped<AiRelationshipService>();
+        builder.Services.AddScoped<RelationshipEvolutionService>();
         builder.Services.AddScoped<AutonomousPrivateChatJudge>();
         builder.Services.AddScoped<AutonomousPrivateChatPlanningService>();
         builder.Services.AddScoped<AutonomousPrivateChatSessionService>();
