@@ -16,6 +16,8 @@ public class GroupMessage
     public string SenderDisplayName { get; private set; }
     public Guid? SenderAiAccountId { get; private set; }
     public Guid? AutonomousGroupChatSessionId { get; private set; }
+    public Guid? AutonomousGroupChatRoundId { get; private set; }
+    public long SequenceNumber { get; private set; }
     public string Content { get; private set; }
     public DateTime SentAt { get; private set; }
 
@@ -57,14 +59,19 @@ public class GroupMessage
         Guid? senderAiAccountId,
         string content,
         DateTime sentAt,
-        Guid? autonomousGroupChatSessionId = null)
+        Guid? autonomousGroupChatSessionId = null,
+        Guid? autonomousGroupChatRoundId = null,
+        Guid? messageId = null,
+        long sequenceNumber = 0)
     {
-        Id = Guid.NewGuid();
+        Id = messageId ?? Guid.NewGuid();
         GroupChatId = groupChatId;
         SenderType = senderType;
         SenderDisplayName = senderDisplayName;
         SenderAiAccountId = senderAiAccountId;
         AutonomousGroupChatSessionId = autonomousGroupChatSessionId;
+        AutonomousGroupChatRoundId = autonomousGroupChatRoundId;
+        SequenceNumber = sequenceNumber;
         Content = content;
         SentAt = sentAt;
     }

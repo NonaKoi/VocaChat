@@ -279,7 +279,7 @@ public class GroupMessageServiceTests : IDisposable
     }
 
     [Fact]
-    public void GetOrderedChatHistory_OrdersBySentAtAndUsesIdForStableTies()
+    public void GetOrderedChatHistory_UsesPersistedConversationSequence()
     {
         TestContext context = CreateContext();
         DateTime sameTime = new(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc);
@@ -289,21 +289,24 @@ public class GroupMessageServiceTests : IDisposable
             "我",
             null,
             "same time one",
-            sameTime);
+            sameTime,
+            sequenceNumber: 1);
         GroupMessage secondSameTimeMessage = new(
             context.GroupChat.Id,
             MessageSenderType.User,
             "我",
             null,
             "same time two",
-            sameTime);
+            sameTime,
+            sequenceNumber: 2);
         GroupMessage laterMessage = new(
             context.GroupChat.Id,
             MessageSenderType.User,
             "我",
             null,
             "later",
-            sameTime.AddMinutes(1));
+            sameTime.AddMinutes(1),
+            sequenceNumber: 3);
 
         using (VocaChatDbContext dbContext =
                _database.CreateDbContextFactory().CreateDbContext())
@@ -319,14 +322,14 @@ public class GroupMessageServiceTests : IDisposable
             context.MessageService.GetOrderedChatHistory(context.GroupChat);
         IReadOnlyList<GroupMessage> reloadedHistory =
             CreateMessageService().GetOrderedChatHistory(context.GroupChat);
-        Guid[] tiedMessageIds = history
-            .Take(2)
-            .Select(message => message.Id)
-            .ToArray();
-
-        Assert.Equal(laterMessage.Id, history[2].Id);
-        Assert.Contains(firstSameTimeMessage.Id, tiedMessageIds);
-        Assert.Contains(secondSameTimeMessage.Id, tiedMessageIds);
+        Assert.Equal(
+            new[]
+            {
+                firstSameTimeMessage.Id,
+                secondSameTimeMessage.Id,
+                laterMessage.Id
+            },
+            history.Select(message => message.Id));
         Assert.Equal(
             history.Select(message => message.Id),
             reloadedHistory.Select(message => message.Id));

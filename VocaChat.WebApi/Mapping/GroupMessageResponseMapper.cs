@@ -30,6 +30,7 @@ internal static class GroupMessageResponseMapper
             },
             SenderDisplayName = message.SenderDisplayName,
             SenderAiAccountId = message.SenderAiAccountId,
+            SequenceNumber = message.SequenceNumber,
             SenderAvatarUrl = sender is null
                 ? null
                 : AiAccountMediaUrls.GetAvatarUrl(sender),

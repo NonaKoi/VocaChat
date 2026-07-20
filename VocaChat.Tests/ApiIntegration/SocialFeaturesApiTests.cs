@@ -33,11 +33,17 @@ public sealed class SocialFeaturesApiTests
         Assert.Equal("MyPrivateChat", chat.Category);
         Assert.NotNull(chat.Friend);
         Assert.Single(chat.Participants);
+        Guid clientMessageId = Guid.NewGuid();
         using HttpResponseMessage messageResponse = await client.PostAsJsonAsync(
             $"/api/private-chats/{chat.Id}/messages",
-            new SendPrivateMessageRequest { Content = "你好，朋友。" });
+            new SendPrivateMessageRequest
+            {
+                ClientMessageId = clientMessageId,
+                Content = "你好，朋友。"
+            });
         SendPrivateMessageResponse interaction = (await messageResponse.Content.ReadFromJsonAsync<SendPrivateMessageResponse>())!;
         Assert.Equal(HttpStatusCode.OK, messageResponse.StatusCode);
+        Assert.Equal(clientMessageId, interaction.UserMessage.Id);
         Assert.Equal(
             account.Id,
             Assert.Single(interaction.AiReplies).SenderAiAccountId);

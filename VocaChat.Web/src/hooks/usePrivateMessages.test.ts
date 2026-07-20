@@ -10,7 +10,7 @@ import { usePrivateMessages } from '@/hooks/usePrivateMessages'
 const apiMocks = vi.hoisted(() => ({
   getPrivateChat: vi.fn(),
   getPrivateMessages: vi.fn(),
-  getSavedPrivateUserMessage: vi.fn(),
+  getSavedPrivateMessages: vi.fn(),
   sendPrivateMessage: vi.fn(),
 }))
 
@@ -20,7 +20,7 @@ describe('usePrivateMessages', () => {
   beforeEach(() => {
     apiMocks.getPrivateChat.mockReset().mockResolvedValue(createPrivateChat())
     apiMocks.getPrivateMessages.mockReset().mockResolvedValue([])
-    apiMocks.getSavedPrivateUserMessage.mockReset().mockReturnValue(undefined)
+    apiMocks.getSavedPrivateMessages.mockReset().mockReturnValue([])
     apiMocks.sendPrivateMessage.mockReset()
   })
 
@@ -61,6 +61,8 @@ function createSendResponse(): SendPrivateMessageResponse {
       createMessage('ai-1', 'AiAccount', 2),
       createMessage('ai-2', 'AiAccount', 3),
     ],
+    replyCompletion: 'Complete',
+    warningMessage: null,
   }
 }
 
@@ -71,6 +73,7 @@ function createMessage(
 ): PrivateMessageResponse {
   return {
     id,
+    sequenceNumber: second + 1,
     privateChatId: 'private-1',
     senderType,
     senderDisplayName: senderType === 'User' ? '我' : '小语',

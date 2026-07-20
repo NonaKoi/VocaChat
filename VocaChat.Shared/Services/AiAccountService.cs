@@ -300,6 +300,183 @@ public class AiAccountService
     }
 
     /// <summary>
+    /// 验证并更新完整账号档案；账号关系、创建时间和媒体标识保持不变。
+    /// </summary>
+    public AiAccountUpdateStatus TryUpdateAiAccount(
+        Guid aiAccountId,
+        AiAccountUpdateData updateData,
+        out AiAccount? aiAccount,
+        out string errorMessage)
+    {
+        aiAccount = null;
+
+        if (updateData is null)
+        {
+            errorMessage = "账号资料不能为空。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (string.IsNullOrWhiteSpace(updateData.Nickname))
+        {
+            errorMessage = "昵称不能为空。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (string.IsNullOrWhiteSpace(updateData.VcNumber))
+        {
+            errorMessage = "VC号不能为空。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        string trimmedNickname = updateData.Nickname.Trim();
+        string trimmedVcNumber = updateData.VcNumber.Trim();
+        string trimmedIdentityDescription =
+            updateData.IdentityDescription.Trim();
+        string trimmedPersonality = updateData.Personality.Trim();
+        string trimmedSpeakingStyle = updateData.SpeakingStyle.Trim();
+        string trimmedSignature = updateData.Signature.Trim();
+        string trimmedLocation = updateData.Location.Trim();
+        string trimmedOccupation = updateData.Occupation.Trim();
+        string trimmedHometown = updateData.Hometown.Trim();
+
+        if (trimmedNickname.Length > AiAccount.NicknameMaxLength)
+        {
+            errorMessage =
+                $"昵称不能超过 {AiAccount.NicknameMaxLength} 个字符。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (trimmedVcNumber.Length > AiAccount.VcNumberMaxLength)
+        {
+            errorMessage =
+                $"VC号不能超过 {AiAccount.VcNumberMaxLength} 个字符。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        string? textLengthError = ValidateOptionalTextLengths(
+            trimmedIdentityDescription,
+            trimmedPersonality,
+            trimmedSpeakingStyle,
+            trimmedSignature,
+            trimmedLocation,
+            trimmedOccupation,
+            trimmedHometown);
+        if (textLengthError is not null)
+        {
+            errorMessage = textLengthError;
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (updateData.Birthday > DateOnly.FromDateTime(DateTime.Today))
+        {
+            errorMessage = "生日不能晚于今天。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (!Enum.IsDefined(updateData.Gender))
+        {
+            errorMessage = "性别值无效。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (!Enum.IsDefined(updateData.OnlineStatus))
+        {
+            errorMessage = "在线状态值无效。";
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        if (!TryNormalizeTags(
+                updateData.InterestTags,
+                "兴趣标签",
+                out IReadOnlyList<string> interestTags,
+                out errorMessage)
+            || !TryNormalizeTags(
+                updateData.PersonalityTags,
+                "个性标签",
+                out IReadOnlyList<string> personalityTags,
+                out errorMessage))
+        {
+            return AiAccountUpdateStatus.InvalidData;
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        AiAccount? storedAccount = dbContext.AiAccounts
+            .Include(account => account.Tags)
+            .SingleOrDefault(account => account.Id == aiAccountId);
+        if (storedAccount is null)
+        {
+            errorMessage = "AI 账号不存在。";
+            return AiAccountUpdateStatus.AccountNotFound;
+        }
+
+        if (dbContext.AiAccounts.Any(account =>
+                account.Id != aiAccountId
+                && account.Nickname == trimmedNickname))
+        {
+            errorMessage = "昵称已存在。";
+            return AiAccountUpdateStatus.DuplicateNickname;
+        }
+
+        if (dbContext.AiAccounts.Any(account =>
+                account.Id != aiAccountId
+                && account.VcNumber == trimmedVcNumber))
+        {
+            errorMessage = "VC号已存在。";
+            return AiAccountUpdateStatus.DuplicateVcNumber;
+        }
+
+        storedAccount.UpdateProfile(
+            trimmedVcNumber,
+            trimmedNickname,
+            trimmedIdentityDescription,
+            trimmedPersonality,
+            trimmedSpeakingStyle,
+            trimmedSignature,
+            updateData.Birthday,
+            updateData.Gender,
+            trimmedLocation,
+            trimmedOccupation,
+            trimmedHometown,
+            updateData.OnlineStatus);
+        storedAccount.SynchronizeTags(
+            AiAccountTagType.Interest,
+            interestTags);
+        storedAccount.SynchronizeTags(
+            AiAccountTagType.Personality,
+            personalityTags);
+
+        try
+        {
+            dbContext.SaveChanges();
+            aiAccount = storedAccount;
+            errorMessage = string.Empty;
+            return AiAccountUpdateStatus.Success;
+        }
+        catch (DbUpdateException exception)
+            when (IsVcNumberUniqueConstraintViolation(exception))
+        {
+            errorMessage = "VC号已存在。";
+            return AiAccountUpdateStatus.DuplicateVcNumber;
+        }
+        catch (DbUpdateException exception)
+            when (IsNicknameUniqueConstraintViolation(exception))
+        {
+            errorMessage = "昵称已存在。";
+            return AiAccountUpdateStatus.DuplicateNickname;
+        }
+        catch (DbUpdateException)
+        {
+            errorMessage = "账号资料暂时无法保存，请稍后重试。";
+            return AiAccountUpdateStatus.PersistenceFailed;
+        }
+        catch (SqliteException)
+        {
+            errorMessage = "账号资料暂时无法保存，请稍后重试。";
+            return AiAccountUpdateStatus.PersistenceFailed;
+        }
+    }
+
+    /// <summary>
     /// 修改已有账号的 VC号；内部 Guid 主键和已有业务关系保持不变。
     /// </summary>
     public bool TryChangeVcNumber(
@@ -631,6 +808,15 @@ public class AiAccountService
         return IsUniqueConstraintViolation(exception)
             && exception.InnerException?.Message.Contains(
                 "AiAccounts.VcNumber",
+                StringComparison.Ordinal) == true;
+    }
+
+    private static bool IsNicknameUniqueConstraintViolation(
+        DbUpdateException exception)
+    {
+        return IsUniqueConstraintViolation(exception)
+            && exception.InnerException?.Message.Contains(
+                "AiAccounts.Nickname",
                 StringComparison.Ordinal) == true;
     }
 

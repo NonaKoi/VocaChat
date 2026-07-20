@@ -203,6 +203,24 @@ public sealed class PrivateChatService
         out PrivateMessage? message,
         out string errorMessage)
     {
+        return TrySaveUserMessage(
+            privateChat,
+            content,
+            null,
+            out message,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 使用客户端预先生成的消息 Id 保存用户消息，使前端乐观消息可以与落库结果对齐。
+    /// </summary>
+    public bool TrySaveUserMessage(
+        PrivateChat privateChat,
+        string content,
+        Guid? messageId,
+        out PrivateMessage? message,
+        out string errorMessage)
+    {
         if (privateChat.Kind != PrivateChatKind.LocalUserAndAiAccount)
         {
             message = null;
@@ -216,6 +234,7 @@ public sealed class PrivateChatService
             "我",
             null,
             content,
+            messageId,
             out message,
             out errorMessage);
     }
@@ -287,6 +306,9 @@ public sealed class PrivateChatService
         }
 
         DateTime firstSentAt = DateTime.Now;
+        long firstSequenceNumber = GetNextSequenceNumber(
+            dbContext,
+            privateChat.Id);
         List<PrivateMessage> newMessages = normalizedContents
             .Select((content, index) => new PrivateMessage(
                 privateChat.Id,
@@ -294,7 +316,8 @@ public sealed class PrivateChatService
                 aiAccount.Nickname,
                 aiAccount.Id,
                 content,
-                firstSentAt.AddTicks(index)))
+                firstSentAt.AddTicks(index),
+                sequenceNumber: firstSequenceNumber + index))
             .ToList();
         dbContext.PrivateMessages.AddRange(newMessages);
         dbContext.SaveChanges();
@@ -311,8 +334,7 @@ public sealed class PrivateChatService
         return dbContext.PrivateMessages
             .AsNoTracking()
             .Where(message => message.PrivateChatId == privateChatId)
-            .OrderBy(message => message.SentAt)
-            .ThenBy(message => message.Id)
+            .OrderBy(message => message.SequenceNumber)
             .ToList()
             .AsReadOnly();
     }
@@ -323,10 +345,17 @@ public sealed class PrivateChatService
         string senderDisplayName,
         Guid? senderAiAccountId,
         string content,
+        Guid? messageId,
         out PrivateMessage? message,
         out string errorMessage)
     {
         message = null;
+
+        if (messageId == Guid.Empty)
+        {
+            errorMessage = "消息标识无效。";
+            return false;
+        }
 
         if (!TryNormalizeMessageContent(
                 content,
@@ -344,12 +373,25 @@ public sealed class PrivateChatService
             return false;
         }
 
+        if (messageId.HasValue
+            && dbContext.PrivateMessages.Any(storedMessage =>
+                storedMessage.Id == messageId.Value))
+        {
+            errorMessage = "这条消息已经发送，请勿重复提交。";
+            return false;
+        }
+
         PrivateMessage newMessage = new(
             privateChat.Id,
             senderType,
             senderDisplayName,
             senderAiAccountId,
-            trimmedContent);
+            trimmedContent,
+            DateTime.Now,
+            messageId: messageId,
+            sequenceNumber: GetNextSequenceNumber(
+                dbContext,
+                privateChat.Id));
         dbContext.PrivateMessages.Add(newMessage);
         dbContext.SaveChanges();
         message = newMessage;
@@ -405,6 +447,15 @@ public sealed class PrivateChatService
         return firstAiAccountId.CompareTo(secondAiAccountId) <= 0
             ? (firstAiAccountId, secondAiAccountId)
             : (secondAiAccountId, firstAiAccountId);
+    }
+
+    private static long GetNextSequenceNumber(
+        VocaChatDbContext dbContext,
+        Guid privateChatId)
+    {
+        return (dbContext.PrivateMessages
+            .Where(message => message.PrivateChatId == privateChatId)
+            .Max(message => (long?)message.SequenceNumber) ?? 0) + 1;
     }
 
     private static bool IsUniqueConstraintViolation(

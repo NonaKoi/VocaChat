@@ -128,7 +128,9 @@ public sealed class AutonomousInteractionsApiTests
                 AllowGroupChats = true,
                 PrivateChatContinuationRatePercent = 80,
                 PrivateChatMaximumRounds = 6,
-                AutonomousGroupChatMaximumMembers = 6
+                AutonomousGroupChatMaximumMembers = 6,
+                GroupChatContinuationRatePercent = 0,
+                GroupChatMaximumRounds = 4
             });
         settingsResponse.EnsureSuccessStatusCode();
 
@@ -228,6 +230,10 @@ public sealed class AutonomousInteractionsApiTests
         Assert.NotNull(firstExecution.Session);
         Assert.Equal("Completed", firstExecution.Session.Status);
         Assert.Equal(3, firstExecution.Session.ParticipantAiAccountIds.Count);
+        Assert.Equal(1, firstExecution.Session.CompletedRounds);
+        Assert.Equal(0, firstExecution.Session.ContinuationRatePercent);
+        Assert.Single(firstExecution.Rounds, round => !round.IsClosing);
+        Assert.Single(firstExecution.Rounds, round => round.IsClosing);
         Assert.Equal(
             3,
             firstExecution.Messages
@@ -279,7 +285,9 @@ public sealed class AutonomousInteractionsApiTests
                 AllowGroupChats = false,
                 PrivateChatContinuationRatePercent = 0,
                 PrivateChatMaximumRounds = 6,
-                AutonomousGroupChatMaximumMembers = 6
+                AutonomousGroupChatMaximumMembers = 6,
+                GroupChatContinuationRatePercent = 0,
+                GroupChatMaximumRounds = 4
             });
         response.EnsureSuccessStatusCode();
     }
@@ -296,7 +304,9 @@ public sealed class AutonomousInteractionsApiTests
                 AllowGroupChats = true,
                 PrivateChatContinuationRatePercent = 80,
                 PrivateChatMaximumRounds = 6,
-                AutonomousGroupChatMaximumMembers = 6
+                AutonomousGroupChatMaximumMembers = 6,
+                GroupChatContinuationRatePercent = 0,
+                GroupChatMaximumRounds = 4
             });
         response.EnsureSuccessStatusCode();
     }

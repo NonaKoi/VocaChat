@@ -32,6 +32,9 @@ public sealed class PrivateMessageConfiguration
                 "\"AutonomousPrivateChatRoundId\" IS NULL "
                 + "OR (\"AutonomousPrivateChatSessionId\" IS NOT NULL "
                 + "AND \"AutonomousSequenceNumber\" IS NOT NULL)");
+            tableBuilder.HasCheckConstraint(
+                "CK_PrivateMessages_SequenceNumber_Positive",
+                "\"SequenceNumber\" > 0");
         });
 
         builder.HasKey(message => message.Id);
@@ -44,6 +47,7 @@ public sealed class PrivateMessageConfiguration
             .IsRequired()
             .HasMaxLength(PrivateMessage.ContentMaxLength);
         builder.Property(message => message.SentAt).IsRequired();
+        builder.Property(message => message.SequenceNumber).IsRequired();
 
         builder.HasOne<PrivateChat>()
             .WithMany()
@@ -65,8 +69,12 @@ public sealed class PrivateMessageConfiguration
         builder.HasIndex(message => new
         {
             message.PrivateChatId,
-            message.SentAt,
-            message.Id
+            message.SequenceNumber
+        }).IsUnique();
+        builder.HasIndex(message => new
+        {
+            message.PrivateChatId,
+            message.SentAt
         });
         builder.HasIndex(message => new
         {

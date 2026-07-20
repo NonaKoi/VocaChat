@@ -21,6 +21,9 @@ public sealed class AiAccountAutonomySettingsApiTests
             (await client.GetFromJsonAsync<AiAccountAutonomySettingsResponse>(
                 $"/api/ai-accounts/{account.Id}/autonomy-settings"))!;
         Assert.Equal("Normal", defaults.InitiativeLevel);
+        Assert.True(defaults.UseGlobalReplyDelay);
+        Assert.True(defaults.UseGlobalConsecutiveMessageDelay);
+        Assert.True(defaults.UseGlobalQuestionPolicy);
 
         using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
             $"/api/ai-accounts/{account.Id}/autonomy-settings",
@@ -30,7 +33,19 @@ public sealed class AiAccountAutonomySettingsApiTests
                 InitiativeLevel = "High",
                 CanInitiatePrivateChats = false,
                 CanInitiateGroupChats = true,
-                CanJoinGroupChats = false
+                CanJoinGroupChats = false,
+                UseGlobalReplyDelay = false,
+                ReplyDelayMode = "Fixed",
+                FixedReplyDelayMilliseconds = 3400,
+                MinimumReplyDelayMilliseconds = 0,
+                MaximumReplyDelayMilliseconds = 0,
+                UseGlobalConsecutiveMessageDelay = false,
+                ConsecutiveMessageDelayMode = "RandomRange",
+                FixedConsecutiveMessageDelayMilliseconds = 700,
+                MinimumConsecutiveMessageDelayMilliseconds = 250,
+                MaximumConsecutiveMessageDelayMilliseconds = 950,
+                UseGlobalQuestionPolicy = false,
+                MaximumConsecutiveQuestionTurns = 3
             });
         AiAccountAutonomySettingsResponse saved =
             (await updateResponse.Content.ReadFromJsonAsync<
@@ -40,12 +55,29 @@ public sealed class AiAccountAutonomySettingsApiTests
         Assert.Equal(account.Id, saved.AiAccountId);
         Assert.Equal("High", saved.InitiativeLevel);
         Assert.False(saved.CanInitiatePrivateChats);
+        Assert.False(saved.UseGlobalReplyDelay);
+        Assert.Equal("Fixed", saved.ReplyDelayMode);
+        Assert.Equal(3400, saved.FixedReplyDelayMilliseconds);
+        Assert.False(saved.UseGlobalConsecutiveMessageDelay);
+        Assert.Equal(250, saved.MinimumConsecutiveMessageDelayMilliseconds);
+        Assert.Equal(950, saved.MaximumConsecutiveMessageDelayMilliseconds);
+        Assert.False(saved.UseGlobalQuestionPolicy);
+        Assert.Equal(3, saved.MaximumConsecutiveQuestionTurns);
 
         AiAccountAutonomySettingsResponse reloaded =
             (await client.GetFromJsonAsync<AiAccountAutonomySettingsResponse>(
                 $"/api/ai-accounts/{account.Id}/autonomy-settings"))!;
         Assert.Equal(saved.InitiativeLevel, reloaded.InitiativeLevel);
         Assert.Equal(saved.CanJoinGroupChats, reloaded.CanJoinGroupChats);
+        Assert.Equal(
+            saved.FixedReplyDelayMilliseconds,
+            reloaded.FixedReplyDelayMilliseconds);
+        Assert.Equal(
+            saved.MaximumConsecutiveMessageDelayMilliseconds,
+            reloaded.MaximumConsecutiveMessageDelayMilliseconds);
+        Assert.Equal(
+            saved.MaximumConsecutiveQuestionTurns,
+            reloaded.MaximumConsecutiveQuestionTurns);
     }
 
     [Fact]

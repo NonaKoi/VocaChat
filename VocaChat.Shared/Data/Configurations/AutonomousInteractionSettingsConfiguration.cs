@@ -36,6 +36,41 @@ public sealed class AutonomousInteractionSettingsConfiguration
                 $"\"AutonomousGroupChatMaximumMembers\" >= "
                 + AutonomousInteractionSettings
                     .MinimumAutonomousGroupChatMaximumMembers);
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_GroupChatContinuationRate",
+                $"\"GroupChatContinuationRatePercent\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatContinuationRatePercent} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatContinuationRatePercent}");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_GroupChatMaximumRounds",
+                $"\"GroupChatMaximumRounds\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatMaximumRounds} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatMaximumRounds}");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_ReplyDelayMode",
+                "\"ReplyDelayMode\" IN ('Fixed', 'RandomRange')");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_ReplyDelayValues",
+                "\"FixedReplyDelayMilliseconds\" >= 0 "
+                + "AND \"MinimumReplyDelayMilliseconds\" >= 0 "
+                + "AND \"MaximumReplyDelayMilliseconds\" >= 0 "
+                + "AND \"MinimumReplyDelayMilliseconds\" "
+                + "<= \"MaximumReplyDelayMilliseconds\"");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_ConsecutiveMessageDelayMode",
+                "\"ConsecutiveMessageDelayMode\" IN ('Fixed', 'RandomRange')");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_ConsecutiveMessageDelayValues",
+                "\"FixedConsecutiveMessageDelayMilliseconds\" >= 0 "
+                + "AND \"MinimumConsecutiveMessageDelayMilliseconds\" >= 0 "
+                + "AND \"MaximumConsecutiveMessageDelayMilliseconds\" >= 0 "
+                + "AND \"MinimumConsecutiveMessageDelayMilliseconds\" "
+                + "<= \"MaximumConsecutiveMessageDelayMilliseconds\"");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_MaximumConsecutiveQuestionTurns",
+                $"\"MaximumConsecutiveQuestionTurns\" >= "
+                + AutonomousInteractionSettings
+                    .MinimumMaximumConsecutiveQuestionTurns);
         });
 
         builder.HasKey(settings => settings.Id);
@@ -72,6 +107,77 @@ public sealed class AutonomousInteractionSettingsConfiguration
             .HasDefaultValue(
                 AutonomousInteractionSettings
                     .DefaultAutonomousGroupChatMaximumMembers)
+            .IsRequired();
+
+        builder.Property(settings => settings.GroupChatContinuationRatePercent)
+            .HasDefaultValue(
+                AutonomousInteractionSettings
+                    .DefaultGroupChatContinuationRatePercent)
+            .HasSentinel(-1)
+            .IsRequired();
+
+        builder.Property(settings => settings.GroupChatMaximumRounds)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultGroupChatMaximumRounds)
+            .IsRequired();
+
+        builder.Property(settings => settings.ReplyDelayMode)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .HasDefaultValue(AutonomousInteractionSettings.DefaultReplyDelayMode)
+            .HasSentinel((AiReplyDelayMode)(-1))
+            .IsRequired();
+
+        builder.Property(settings => settings.FixedReplyDelayMilliseconds)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultFixedReplyDelayMilliseconds)
+            .HasSentinel(-1L)
+            .IsRequired();
+
+        builder.Property(settings => settings.MinimumReplyDelayMilliseconds)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultMinimumReplyDelayMilliseconds)
+            .HasSentinel(-1L)
+            .IsRequired();
+
+        builder.Property(settings => settings.MaximumReplyDelayMilliseconds)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultMaximumReplyDelayMilliseconds)
+            .HasSentinel(-1L)
+            .IsRequired();
+
+        builder.Property(settings => settings.ConsecutiveMessageDelayMode)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode)
+            .HasSentinel((AiReplyDelayMode)(-1))
+            .IsRequired();
+
+        builder.Property(settings =>
+                settings.FixedConsecutiveMessageDelayMilliseconds)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultFixedConsecutiveMessageDelayMilliseconds)
+            .HasSentinel(-1L)
+            .IsRequired();
+
+        builder.Property(settings =>
+                settings.MinimumConsecutiveMessageDelayMilliseconds)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMinimumConsecutiveMessageDelayMilliseconds)
+            .HasSentinel(-1L)
+            .IsRequired();
+
+        builder.Property(settings =>
+                settings.MaximumConsecutiveMessageDelayMilliseconds)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMaximumConsecutiveMessageDelayMilliseconds)
+            .HasSentinel(-1L)
+            .IsRequired();
+
+        builder.Property(settings => settings.MaximumConsecutiveQuestionTurns)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMaximumConsecutiveQuestionTurns)
             .IsRequired();
     }
 }

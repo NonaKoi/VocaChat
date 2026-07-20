@@ -456,7 +456,14 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
                 new RuleBasedSessionInsightAnalyzer(),
                 new RelationshipEvolutionService(factory),
                 new AiMemoryService(factory)),
-            new AiMemoryService(factory));
+            new AiMemoryService(factory),
+            new AiReplyTimingScheduler(
+                factory,
+                (_, _) => Task.CompletedTask),
+            new ConversationQuestionPolicyService(factory),
+            new AiIdentityContinuityService(
+                new AiSelfMemoryService(factory),
+                new AiInteractionDiagnosticLogService(factory)));
     }
 
     public void Dispose()

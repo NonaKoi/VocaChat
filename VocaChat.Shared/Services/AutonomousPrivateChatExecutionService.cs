@@ -22,6 +22,9 @@ public sealed class AutonomousPrivateChatExecutionService
     private readonly IConversationDirector _conversationDirector;
     private readonly SessionPostProcessingService _sessionPostProcessingService;
     private readonly AiMemoryService _memoryService;
+    private readonly AiReplyTimingScheduler _replyTimingScheduler;
+    private readonly ConversationQuestionPolicyService _questionPolicyService;
+    private readonly AiIdentityContinuityService _identityContinuityService;
 
     public AutonomousPrivateChatExecutionService(
         AutonomousPrivateChatJudge privateChatJudge,
@@ -36,7 +39,10 @@ public sealed class AutonomousPrivateChatExecutionService
         IAiMessageGenerator messageGenerator,
         IConversationDirector conversationDirector,
         SessionPostProcessingService sessionPostProcessingService,
-        AiMemoryService memoryService)
+        AiMemoryService memoryService,
+        AiReplyTimingScheduler replyTimingScheduler,
+        ConversationQuestionPolicyService questionPolicyService,
+        AiIdentityContinuityService identityContinuityService)
     {
         _privateChatJudge = privateChatJudge;
         _aiAccountService = aiAccountService;
@@ -52,6 +58,12 @@ public sealed class AutonomousPrivateChatExecutionService
         _sessionPostProcessingService = sessionPostProcessingService;
         _memoryService = memoryService
             ?? throw new ArgumentNullException(nameof(memoryService));
+        _replyTimingScheduler = replyTimingScheduler
+            ?? throw new ArgumentNullException(nameof(replyTimingScheduler));
+        _questionPolicyService = questionPolicyService
+            ?? throw new ArgumentNullException(nameof(questionPolicyService));
+        _identityContinuityService = identityContinuityService
+            ?? throw new ArgumentNullException(nameof(identityContinuityService));
     }
 
     /// <summary>
@@ -392,11 +404,11 @@ public sealed class AutonomousPrivateChatExecutionService
         }
 
         rounds.Add(round);
-        IReadOnlyList<string> initiatorContents;
+        AiDirectedMessageBatch initiatorBatch;
 
         try
         {
-            initiatorContents = await GenerateAutonomousMessagesAsync(
+            initiatorBatch = await GenerateAutonomousMessagesAsync(
                 session,
                 initiator,
                 recipient,
@@ -421,14 +433,22 @@ public sealed class AutonomousPrivateChatExecutionService
                 messageTime);
         }
 
-        if (!TrySaveMessages(
+        int initiatorMessageStart = messages.Count;
+        MessageSaveAttempt initiatorSaveAttempt = await TrySaveMessagesAsync(
                 round.Id,
                 initiator,
-                initiatorContents,
-                ref messageTime,
+                initiatorBatch.Contents,
+                messageTime,
                 messages,
-                out progressedSession,
-                out errorMessage))
+                cancellationToken);
+        messageTime = initiatorSaveAttempt.MessageTime;
+        progressedSession = initiatorSaveAttempt.ProgressedSession;
+        errorMessage = initiatorSaveAttempt.ErrorMessage;
+        ApplyIdentityContinuity(
+            session.PrivateChatId,
+            initiatorBatch,
+            messages.Skip(initiatorMessageStart).ToList());
+        if (!initiatorSaveAttempt.Succeeded)
         {
             return RoundExecutionAttempt.Failed(
                 progressedSession,
@@ -437,11 +457,11 @@ public sealed class AutonomousPrivateChatExecutionService
                 messageTime);
         }
 
-        IReadOnlyList<string> recipientContents;
+        AiDirectedMessageBatch recipientBatch;
 
         try
         {
-            recipientContents = await GenerateAutonomousMessagesAsync(
+            recipientBatch = await GenerateAutonomousMessagesAsync(
                 session,
                 recipient,
                 initiator,
@@ -466,14 +486,22 @@ public sealed class AutonomousPrivateChatExecutionService
                 messageTime);
         }
 
-        if (!TrySaveMessages(
+        int recipientMessageStart = messages.Count;
+        MessageSaveAttempt recipientSaveAttempt = await TrySaveMessagesAsync(
                 round.Id,
                 recipient,
-                recipientContents,
-                ref messageTime,
+                recipientBatch.Contents,
+                messageTime,
                 messages,
-                out progressedSession,
-                out errorMessage))
+                cancellationToken);
+        messageTime = recipientSaveAttempt.MessageTime;
+        progressedSession = recipientSaveAttempt.ProgressedSession;
+        errorMessage = recipientSaveAttempt.ErrorMessage;
+        ApplyIdentityContinuity(
+            session.PrivateChatId,
+            recipientBatch,
+            messages.Skip(recipientMessageStart).ToList());
+        if (!recipientSaveAttempt.Succeeded)
         {
             return RoundExecutionAttempt.Failed(
                 progressedSession,
@@ -498,7 +526,7 @@ public sealed class AutonomousPrivateChatExecutionService
         return RoundExecutionAttempt.Completed(progressedSession, messageTime);
     }
 
-    private async Task<IReadOnlyList<string>> GenerateAutonomousMessagesAsync(
+    private async Task<AiDirectedMessageBatch> GenerateAutonomousMessagesAsync(
         AutonomousPrivateChatSession session,
         AiAccount speaker,
         AiAccount otherParticipant,
@@ -556,21 +584,56 @@ public sealed class AutonomousPrivateChatExecutionService
             OtherParticipantHasResponded = latestOtherMessage is not null,
             SpeakerToOtherRelationshipScore = speakerToOtherRelationshipScore,
             OtherToSpeakerRelationshipScore = otherToSpeakerRelationshipScore,
-            RelevantMemories = relevantMemories
+            RelevantMemories = relevantMemories,
+            QuestionPolicy = _questionPolicyService.CreatePolicy(
+                speaker.Id,
+                recentMessages)
         };
+        generationRequest = _identityContinuityService
+            .PrepareGenerationRequest(generationRequest);
         ConversationDirectionPlan directionPlan =
             await _conversationDirector.CreatePlanAsync(
                 generationRequest,
                 cancellationToken);
+        AiIdentityContinuityPlan continuityPlan = _identityContinuityService
+            .ValidateDirectionPlan(generationRequest, directionPlan);
+        directionPlan = continuityPlan.DirectionPlan;
         generationRequest = generationRequest with
         {
             DirectionPlan = directionPlan,
             ActionPlan = directionPlan.ActionPlan
         };
 
-        return await _messageGenerator.GenerateMessagesAsync(
+        IReadOnlyList<string> contents =
+            await _messageGenerator.GenerateMessagesAsync(
             generationRequest,
             cancellationToken);
+        return new AiDirectedMessageBatch(
+            generationRequest,
+            continuityPlan,
+            contents);
+    }
+
+    private void ApplyIdentityContinuity(
+        Guid privateChatId,
+        AiDirectedMessageBatch batch,
+        IReadOnlyList<PrivateMessage> savedMessages)
+    {
+        if (savedMessages.Count == 0)
+        {
+            return;
+        }
+
+        _identityContinuityService.ApplyAfterMessagesSaved(
+            batch.Request,
+            batch.ContinuityPlan,
+            privateChatId,
+            savedMessages.Select(message => new AiPersistedMessageEvidence(
+                    message.Id,
+                    message.Content,
+                    message.SentAt))
+                .ToList()
+                .AsReadOnly());
     }
 
     /// <summary>
@@ -656,38 +719,54 @@ public sealed class AutonomousPrivateChatExecutionService
             message.Id,
             message.SentAt);
 
-    private bool TrySaveMessages(
+    private async Task<MessageSaveAttempt> TrySaveMessagesAsync(
         Guid roundId,
         AiAccount sender,
         IReadOnlyList<string> contents,
-        ref DateTime messageTime,
+        DateTime messageTime,
         List<PrivateMessage> messages,
-        out AutonomousPrivateChatSession? session,
-        out string errorMessage)
+        CancellationToken cancellationToken)
     {
-        session = null;
+        AutonomousPrivateChatSession? session = null;
 
-        foreach (string content in contents)
+        for (int index = 0; index < contents.Count; index++)
         {
-            messageTime = messageTime.AddTicks(1);
+            if (index == 0)
+            {
+                await _replyTimingScheduler.WaitForReplyAsync(
+                    sender.Id,
+                    messageTime,
+                    cancellationToken);
+            }
+            else
+            {
+                await _replyTimingScheduler.WaitForConsecutiveMessageAsync(
+                    sender.Id,
+                    messageTime,
+                    cancellationToken);
+            }
+
+            messageTime = DateTime.Now;
             if (!_sessionService.TryAppendMessage(
                     roundId,
                     sender,
-                    content,
+                    contents[index],
                     messageTime,
                     out PrivateMessage? message,
                     out session,
-                    out errorMessage)
+                    out string errorMessage)
                 || message is null)
             {
-                return false;
+                return MessageSaveAttempt.Failed(
+                    session,
+                    errorMessage,
+                    messageTime);
             }
 
             messages.Add(message);
         }
 
-        errorMessage = string.Empty;
-        return true;
+        return MessageSaveAttempt.Completed(session, messageTime);
     }
 
     private AutonomousPrivateChatExecutionResult FailSessionAndCreateResult(
@@ -775,6 +854,24 @@ public sealed class AutonomousPrivateChatExecutionService
             string errorMessage,
             DateTime messageTime) =>
             new(false, session, failureReason, errorMessage, messageTime);
+    }
+
+    private sealed record MessageSaveAttempt(
+        bool Succeeded,
+        AutonomousPrivateChatSession? ProgressedSession,
+        string ErrorMessage,
+        DateTime MessageTime)
+    {
+        public static MessageSaveAttempt Completed(
+            AutonomousPrivateChatSession? session,
+            DateTime messageTime) =>
+            new(true, session, string.Empty, messageTime);
+
+        public static MessageSaveAttempt Failed(
+            AutonomousPrivateChatSession? session,
+            string errorMessage,
+            DateTime messageTime) =>
+            new(false, session, errorMessage, messageTime);
     }
 
     private sealed record AutonomousPrivateChatMemoryContext(

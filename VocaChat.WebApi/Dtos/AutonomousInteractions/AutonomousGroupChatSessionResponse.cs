@@ -11,6 +11,9 @@ public sealed class AutonomousGroupChatSessionResponse
     public string Topic { get; init; } = string.Empty;
     public IReadOnlyList<Guid> ParticipantAiAccountIds { get; init; } =
         Array.Empty<Guid>();
+    public int MaximumRounds { get; init; }
+    public int ContinuationRatePercent { get; init; }
+    public int CompletedRounds { get; init; }
     public string Status { get; init; } = string.Empty;
     public string? EndReason { get; init; }
     public DateTime StartedAt { get; init; }

@@ -56,6 +56,18 @@ public class AutonomousInteractionSettingsService
             privateChatMaximumRounds,
             AutonomousInteractionSettings
                 .DefaultAutonomousGroupChatMaximumMembers,
+            AutonomousInteractionSettings
+                .DefaultGroupChatContinuationRatePercent,
+            AutonomousInteractionSettings.DefaultGroupChatMaximumRounds,
+            AutonomousInteractionSettings.DefaultReplyDelayMode,
+            AutonomousInteractionSettings.DefaultFixedReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode,
+            AutonomousInteractionSettings.DefaultFixedConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
             out settings,
             out errorMessage);
     }
@@ -71,6 +83,134 @@ public class AutonomousInteractionSettingsService
         int privateChatContinuationRatePercent,
         int privateChatMaximumRounds,
         int autonomousGroupChatMaximumMembers,
+        out AutonomousInteractionSettings? settings,
+        out string errorMessage)
+    {
+        return TryUpdateSettings(
+            isEnabled,
+            frequency,
+            allowPrivateChats,
+            allowGroupChats,
+            privateChatContinuationRatePercent,
+            privateChatMaximumRounds,
+            autonomousGroupChatMaximumMembers,
+            AutonomousInteractionSettings
+                .DefaultGroupChatContinuationRatePercent,
+            AutonomousInteractionSettings.DefaultGroupChatMaximumRounds,
+            AutonomousInteractionSettings.DefaultReplyDelayMode,
+            AutonomousInteractionSettings.DefaultFixedReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode,
+            AutonomousInteractionSettings.DefaultFixedConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            out settings,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 验证并保存包含私信和好友群聊轮次限制的完整全局设置。
+    /// </summary>
+    public bool TryUpdateSettings(
+        bool isEnabled,
+        AutonomousInteractionFrequency frequency,
+        bool allowPrivateChats,
+        bool allowGroupChats,
+        int privateChatContinuationRatePercent,
+        int privateChatMaximumRounds,
+        int autonomousGroupChatMaximumMembers,
+        int groupChatContinuationRatePercent,
+        int groupChatMaximumRounds,
+        out AutonomousInteractionSettings? settings,
+        out string errorMessage)
+    {
+        return TryUpdateSettings(
+            isEnabled,
+            frequency,
+            allowPrivateChats,
+            allowGroupChats,
+            privateChatContinuationRatePercent,
+            privateChatMaximumRounds,
+            autonomousGroupChatMaximumMembers,
+            groupChatContinuationRatePercent,
+            groupChatMaximumRounds,
+            AutonomousInteractionSettings.DefaultReplyDelayMode,
+            AutonomousInteractionSettings.DefaultFixedReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode,
+            AutonomousInteractionSettings.DefaultFixedConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            out settings,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 验证并保存包含回复速度调度在内的完整全局设置。
+    /// </summary>
+    public bool TryUpdateSettings(
+        bool isEnabled,
+        AutonomousInteractionFrequency frequency,
+        bool allowPrivateChats,
+        bool allowGroupChats,
+        int privateChatContinuationRatePercent,
+        int privateChatMaximumRounds,
+        int autonomousGroupChatMaximumMembers,
+        int groupChatContinuationRatePercent,
+        int groupChatMaximumRounds,
+        AiReplyDelayMode replyDelayMode,
+        long fixedReplyDelayMilliseconds,
+        long minimumReplyDelayMilliseconds,
+        long maximumReplyDelayMilliseconds,
+        out AutonomousInteractionSettings? settings,
+        out string errorMessage)
+    {
+        return TryUpdateSettings(
+            isEnabled,
+            frequency,
+            allowPrivateChats,
+            allowGroupChats,
+            privateChatContinuationRatePercent,
+            privateChatMaximumRounds,
+            autonomousGroupChatMaximumMembers,
+            groupChatContinuationRatePercent,
+            groupChatMaximumRounds,
+            replyDelayMode,
+            fixedReplyDelayMilliseconds,
+            minimumReplyDelayMilliseconds,
+            maximumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode,
+            AutonomousInteractionSettings.DefaultFixedConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            out settings,
+            out errorMessage);
+    }
+
+    public bool TryUpdateSettings(
+        bool isEnabled,
+        AutonomousInteractionFrequency frequency,
+        bool allowPrivateChats,
+        bool allowGroupChats,
+        int privateChatContinuationRatePercent,
+        int privateChatMaximumRounds,
+        int autonomousGroupChatMaximumMembers,
+        int groupChatContinuationRatePercent,
+        int groupChatMaximumRounds,
+        AiReplyDelayMode replyDelayMode,
+        long fixedReplyDelayMilliseconds,
+        long minimumReplyDelayMilliseconds,
+        long maximumReplyDelayMilliseconds,
+        AiReplyDelayMode consecutiveMessageDelayMode,
+        long fixedConsecutiveMessageDelayMilliseconds,
+        long minimumConsecutiveMessageDelayMilliseconds,
+        long maximumConsecutiveMessageDelayMilliseconds,
+        int maximumConsecutiveQuestionTurns,
         out AutonomousInteractionSettings? settings,
         out string errorMessage)
     {
@@ -106,6 +246,49 @@ public class AutonomousInteractionSettingsService
             return false;
         }
 
+        if (groupChatContinuationRatePercent
+                is < AutonomousInteractionSettings.MinimumGroupChatContinuationRatePercent
+                or > AutonomousInteractionSettings.MaximumGroupChatContinuationRatePercent)
+        {
+            errorMessage = "好友群聊下一轮概率保留比例必须在 0% 到 95% 之间。";
+            return false;
+        }
+
+        if (groupChatMaximumRounds
+                is < AutonomousInteractionSettings.MinimumGroupChatMaximumRounds
+                or > AutonomousInteractionSettings.MaximumGroupChatMaximumRounds)
+        {
+            errorMessage = "单次好友群聊最大轮数必须在 1 到 12 之间。";
+            return false;
+        }
+
+        if (!TryValidateReplyDelay(
+                replyDelayMode,
+                fixedReplyDelayMilliseconds,
+                minimumReplyDelayMilliseconds,
+                maximumReplyDelayMilliseconds,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        if (!TryValidateReplyDelay(
+                consecutiveMessageDelayMode,
+                fixedConsecutiveMessageDelayMilliseconds,
+                minimumConsecutiveMessageDelayMilliseconds,
+                maximumConsecutiveMessageDelayMilliseconds,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        if (maximumConsecutiveQuestionTurns
+            < AutonomousInteractionSettings.MinimumMaximumConsecutiveQuestionTurns)
+        {
+            errorMessage = "连续疑问轮次上限必须至少为 1。";
+            return false;
+        }
+
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
         AutonomousInteractionSettings storedSettings =
@@ -120,7 +303,18 @@ public class AutonomousInteractionSettingsService
             allowGroupChats,
             privateChatContinuationRatePercent,
             privateChatMaximumRounds,
-            autonomousGroupChatMaximumMembers);
+            autonomousGroupChatMaximumMembers,
+            groupChatContinuationRatePercent,
+            groupChatMaximumRounds,
+            replyDelayMode,
+            fixedReplyDelayMilliseconds,
+            minimumReplyDelayMilliseconds,
+            maximumReplyDelayMilliseconds,
+            consecutiveMessageDelayMode,
+            fixedConsecutiveMessageDelayMilliseconds,
+            minimumConsecutiveMessageDelayMilliseconds,
+            maximumConsecutiveMessageDelayMilliseconds,
+            maximumConsecutiveQuestionTurns);
 
         if (dbContext.Entry(storedSettings).State == EntityState.Detached)
         {
@@ -130,6 +324,37 @@ public class AutonomousInteractionSettingsService
         dbContext.SaveChanges();
 
         settings = storedSettings;
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    internal static bool TryValidateReplyDelay(
+        AiReplyDelayMode replyDelayMode,
+        long fixedReplyDelayMilliseconds,
+        long minimumReplyDelayMilliseconds,
+        long maximumReplyDelayMilliseconds,
+        out string errorMessage)
+    {
+        if (!Enum.IsDefined(replyDelayMode))
+        {
+            errorMessage = "回复速度模式无效。";
+            return false;
+        }
+
+        if (fixedReplyDelayMilliseconds < 0
+            || minimumReplyDelayMilliseconds < 0
+            || maximumReplyDelayMilliseconds < 0)
+        {
+            errorMessage = "回复间隔不能为负数。";
+            return false;
+        }
+
+        if (minimumReplyDelayMilliseconds > maximumReplyDelayMilliseconds)
+        {
+            errorMessage = "随机回复间隔的最小值不能大于最大值。";
+            return false;
+        }
+
         errorMessage = string.Empty;
         return true;
     }

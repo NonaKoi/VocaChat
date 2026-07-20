@@ -5,4 +5,6 @@ public sealed class SendPrivateMessageFailureResponse
 {
     public string Message { get; init; } = string.Empty;
     public PrivateMessageResponse? SavedUserMessage { get; init; }
+    public IReadOnlyList<PrivateMessageResponse> SavedAiReplies { get; init; } =
+        Array.Empty<PrivateMessageResponse>();
 }

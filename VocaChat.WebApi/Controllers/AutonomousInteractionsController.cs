@@ -304,12 +304,31 @@ public sealed class AutonomousInteractionsController : ControllerBase
                         .Select(account => account.Id)
                         .ToList()
                         .AsReadOnly(),
+                    MaximumRounds = result.Session.MaximumRounds,
+                    ContinuationRatePercent =
+                        result.Session.ContinuationRatePercent,
+                    CompletedRounds = result.Session.CompletedRounds,
                     Status = result.Session.Status.ToString(),
                     EndReason = result.Session.EndReason?.ToString(),
                     StartedAt = result.Session.StartedAt,
                     LastActivityAt = result.Session.LastActivityAt,
                     EndedAt = result.Session.EndedAt
                 },
+            Rounds = result.Rounds
+                .Select(round => new AutonomousGroupChatRoundResponse
+                {
+                    Id = round.Id,
+                    RoundNumber = round.RoundNumber,
+                    IsClosing = round.IsClosing,
+                    OccurrenceProbability = round.OccurrenceProbability,
+                    RandomRoll = round.RandomRoll,
+                    PlannedSpeakerCount = round.PlannedSpeakerCount,
+                    PlannedMessageCount = round.PlannedMessageCount,
+                    StartedAt = round.StartedAt,
+                    CompletedAt = round.CompletedAt
+                })
+                .ToList()
+                .AsReadOnly(),
             Messages = result.Messages
                 .Select(message => GroupMessageResponseMapper.ToResponse(
                     message,

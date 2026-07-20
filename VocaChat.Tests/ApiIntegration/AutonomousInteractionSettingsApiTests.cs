@@ -24,6 +24,15 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(80, defaults.PrivateChatContinuationRatePercent);
         Assert.Equal(6, defaults.PrivateChatMaximumRounds);
         Assert.Equal(6, defaults.AutonomousGroupChatMaximumMembers);
+        Assert.Equal(80, defaults.GroupChatContinuationRatePercent);
+        Assert.Equal(4, defaults.GroupChatMaximumRounds);
+        Assert.Equal("RandomRange", defaults.ReplyDelayMode);
+        Assert.Equal(800, defaults.MinimumReplyDelayMilliseconds);
+        Assert.Equal(1800, defaults.MaximumReplyDelayMilliseconds);
+        Assert.Equal("RandomRange", defaults.ConsecutiveMessageDelayMode);
+        Assert.Equal(400, defaults.MinimumConsecutiveMessageDelayMilliseconds);
+        Assert.Equal(1200, defaults.MaximumConsecutiveMessageDelayMilliseconds);
+        Assert.Equal(2, defaults.MaximumConsecutiveQuestionTurns);
 
         using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
             "/api/settings/autonomous-interactions",
@@ -35,7 +44,18 @@ public sealed class AutonomousInteractionSettingsApiTests
                 AllowGroupChats = true,
                 PrivateChatContinuationRatePercent = 70,
                 PrivateChatMaximumRounds = 8,
-                AutonomousGroupChatMaximumMembers = 16
+                AutonomousGroupChatMaximumMembers = 16,
+                GroupChatContinuationRatePercent = 68,
+                GroupChatMaximumRounds = 7,
+                ReplyDelayMode = "RandomRange",
+                FixedReplyDelayMilliseconds = 2500,
+                MinimumReplyDelayMilliseconds = 0,
+                MaximumReplyDelayMilliseconds = 9_876_543_210,
+                ConsecutiveMessageDelayMode = "Fixed",
+                FixedConsecutiveMessageDelayMilliseconds = 3456,
+                MinimumConsecutiveMessageDelayMilliseconds = 0,
+                MaximumConsecutiveMessageDelayMilliseconds = 0,
+                MaximumConsecutiveQuestionTurns = 4
             });
         AutonomousInteractionSettingsResponse saved =
             (await updateResponse.Content.ReadFromJsonAsync<
@@ -48,6 +68,14 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(70, saved.PrivateChatContinuationRatePercent);
         Assert.Equal(8, saved.PrivateChatMaximumRounds);
         Assert.Equal(16, saved.AutonomousGroupChatMaximumMembers);
+        Assert.Equal(68, saved.GroupChatContinuationRatePercent);
+        Assert.Equal(7, saved.GroupChatMaximumRounds);
+        Assert.Equal("RandomRange", saved.ReplyDelayMode);
+        Assert.Equal(0, saved.MinimumReplyDelayMilliseconds);
+        Assert.Equal(9_876_543_210, saved.MaximumReplyDelayMilliseconds);
+        Assert.Equal("Fixed", saved.ConsecutiveMessageDelayMode);
+        Assert.Equal(3456, saved.FixedConsecutiveMessageDelayMilliseconds);
+        Assert.Equal(4, saved.MaximumConsecutiveQuestionTurns);
 
         AutonomousInteractionSettingsResponse reloaded =
             (await client.GetFromJsonAsync<AutonomousInteractionSettingsResponse>(
@@ -66,6 +94,22 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(
             saved.AutonomousGroupChatMaximumMembers,
             reloaded.AutonomousGroupChatMaximumMembers);
+        Assert.Equal(
+            saved.GroupChatContinuationRatePercent,
+            reloaded.GroupChatContinuationRatePercent);
+        Assert.Equal(
+            saved.GroupChatMaximumRounds,
+            reloaded.GroupChatMaximumRounds);
+        Assert.Equal(saved.ReplyDelayMode, reloaded.ReplyDelayMode);
+        Assert.Equal(
+            saved.MaximumReplyDelayMilliseconds,
+            reloaded.MaximumReplyDelayMilliseconds);
+        Assert.Equal(
+            saved.FixedConsecutiveMessageDelayMilliseconds,
+            reloaded.FixedConsecutiveMessageDelayMilliseconds);
+        Assert.Equal(
+            saved.MaximumConsecutiveQuestionTurns,
+            reloaded.MaximumConsecutiveQuestionTurns);
     }
 
     [Fact]

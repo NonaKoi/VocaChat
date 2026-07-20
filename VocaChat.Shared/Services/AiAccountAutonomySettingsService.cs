@@ -54,10 +54,124 @@ public class AiAccountAutonomySettingsService
         bool canJoinGroupChats,
         out AiAccountAutonomySettings? settings)
     {
+        return TryUpdateSettings(
+            aiAccountId,
+            isEnabled,
+            initiativeLevel,
+            canInitiatePrivateChats,
+            canInitiateGroupChats,
+            canJoinGroupChats,
+            useGlobalReplyDelay: true,
+            AutonomousInteractionSettings.DefaultReplyDelayMode,
+            AutonomousInteractionSettings.DefaultFixedReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumReplyDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumReplyDelayMilliseconds,
+            useGlobalConsecutiveMessageDelay: true,
+            AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode,
+            AutonomousInteractionSettings.DefaultFixedConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
+            useGlobalQuestionPolicy: true,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            out settings,
+            out _);
+    }
+
+    /// <summary>
+    /// 验证并保存好友自主权限及其专有回复速度设置。
+    /// </summary>
+    public bool TryUpdateSettings(
+        Guid aiAccountId,
+        bool isEnabled,
+        AutonomousInteractionInitiativeLevel initiativeLevel,
+        bool canInitiatePrivateChats,
+        bool canInitiateGroupChats,
+        bool canJoinGroupChats,
+        bool useGlobalReplyDelay,
+        AiReplyDelayMode replyDelayMode,
+        long fixedReplyDelayMilliseconds,
+        long minimumReplyDelayMilliseconds,
+        long maximumReplyDelayMilliseconds,
+        out AiAccountAutonomySettings? settings,
+        out string errorMessage)
+    {
+        return TryUpdateSettings(
+            aiAccountId,
+            isEnabled,
+            initiativeLevel,
+            canInitiatePrivateChats,
+            canInitiateGroupChats,
+            canJoinGroupChats,
+            useGlobalReplyDelay,
+            replyDelayMode,
+            fixedReplyDelayMilliseconds,
+            minimumReplyDelayMilliseconds,
+            maximumReplyDelayMilliseconds,
+            useGlobalConsecutiveMessageDelay: true,
+            AutonomousInteractionSettings.DefaultConsecutiveMessageDelayMode,
+            AutonomousInteractionSettings.DefaultFixedConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMinimumConsecutiveMessageDelayMilliseconds,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
+            useGlobalQuestionPolicy: true,
+            AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            out settings,
+            out errorMessage);
+    }
+
+    public bool TryUpdateSettings(
+        Guid aiAccountId,
+        bool isEnabled,
+        AutonomousInteractionInitiativeLevel initiativeLevel,
+        bool canInitiatePrivateChats,
+        bool canInitiateGroupChats,
+        bool canJoinGroupChats,
+        bool useGlobalReplyDelay,
+        AiReplyDelayMode replyDelayMode,
+        long fixedReplyDelayMilliseconds,
+        long minimumReplyDelayMilliseconds,
+        long maximumReplyDelayMilliseconds,
+        bool useGlobalConsecutiveMessageDelay,
+        AiReplyDelayMode consecutiveMessageDelayMode,
+        long fixedConsecutiveMessageDelayMilliseconds,
+        long minimumConsecutiveMessageDelayMilliseconds,
+        long maximumConsecutiveMessageDelayMilliseconds,
+        bool useGlobalQuestionPolicy,
+        int maximumConsecutiveQuestionTurns,
+        out AiAccountAutonomySettings? settings,
+        out string errorMessage)
+    {
         settings = null;
 
         if (!Enum.IsDefined(initiativeLevel))
         {
+            errorMessage = "主动程度无效。";
+            return false;
+        }
+
+        if (!AutonomousInteractionSettingsService.TryValidateReplyDelay(
+                replyDelayMode,
+                fixedReplyDelayMilliseconds,
+                minimumReplyDelayMilliseconds,
+                maximumReplyDelayMilliseconds,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        if (!AutonomousInteractionSettingsService.TryValidateReplyDelay(
+                consecutiveMessageDelayMode,
+                fixedConsecutiveMessageDelayMilliseconds,
+                minimumConsecutiveMessageDelayMilliseconds,
+                maximumConsecutiveMessageDelayMilliseconds,
+                out errorMessage))
+        {
+            return false;
+        }
+
+        if (maximumConsecutiveQuestionTurns
+            < AutonomousInteractionSettings.MinimumMaximumConsecutiveQuestionTurns)
+        {
+            errorMessage = "连续疑问轮次上限必须至少为 1。";
             return false;
         }
 
@@ -65,6 +179,7 @@ public class AiAccountAutonomySettingsService
 
         if (!dbContext.AiAccounts.Any(account => account.Id == aiAccountId))
         {
+            errorMessage = "好友不存在。";
             return false;
         }
 
@@ -78,7 +193,19 @@ public class AiAccountAutonomySettingsService
             initiativeLevel,
             canInitiatePrivateChats,
             canInitiateGroupChats,
-            canJoinGroupChats);
+            canJoinGroupChats,
+            useGlobalReplyDelay,
+            replyDelayMode,
+            fixedReplyDelayMilliseconds,
+            minimumReplyDelayMilliseconds,
+            maximumReplyDelayMilliseconds,
+            useGlobalConsecutiveMessageDelay,
+            consecutiveMessageDelayMode,
+            fixedConsecutiveMessageDelayMilliseconds,
+            minimumConsecutiveMessageDelayMilliseconds,
+            maximumConsecutiveMessageDelayMilliseconds,
+            useGlobalQuestionPolicy,
+            maximumConsecutiveQuestionTurns);
 
         if (dbContext.Entry(storedSettings).State == EntityState.Detached)
         {
@@ -87,6 +214,7 @@ public class AiAccountAutonomySettingsService
 
         dbContext.SaveChanges();
         settings = storedSettings;
+        errorMessage = string.Empty;
         return true;
     }
 }

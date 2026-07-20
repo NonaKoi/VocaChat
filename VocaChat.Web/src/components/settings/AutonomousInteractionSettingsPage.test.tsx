@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getAiAccountAutonomySettings,
+  getAiInteractionDiagnosticLogs,
   getAutonomousInteractionSettings,
   updateAiAccountAutonomySettings,
   updateAutonomousInteractionSettings,
@@ -22,6 +23,7 @@ vi.mock('@/api/settings', () => ({
   getAutonomousInteractionSettings: vi.fn(),
   updateAutonomousInteractionSettings: vi.fn(),
   getAiAccountAutonomySettings: vi.fn(),
+  getAiInteractionDiagnosticLogs: vi.fn(),
   updateAiAccountAutonomySettings: vi.fn(),
 }))
 
@@ -40,6 +42,7 @@ vi.mock('@/api/autonomousInteractions', () => ({
 const getSettingsMock = vi.mocked(getAutonomousInteractionSettings)
 const updateSettingsMock = vi.mocked(updateAutonomousInteractionSettings)
 const getFriendSettingsMock = vi.mocked(getAiAccountAutonomySettings)
+const getInteractionLogsMock = vi.mocked(getAiInteractionDiagnosticLogs)
 const updateFriendSettingsMock = vi.mocked(updateAiAccountAutonomySettings)
 const getRelationshipMock = vi.mocked(getAiRelationship)
 const updateRelationshipMock = vi.mocked(updateAiRelationship)
@@ -118,6 +121,17 @@ describe('AutonomousInteractionSettingsPage', () => {
       privateChatContinuationRatePercent: 80,
       privateChatMaximumRounds: 6,
       autonomousGroupChatMaximumMembers: 6,
+      groupChatContinuationRatePercent: 80,
+      groupChatMaximumRounds: 4,
+      replyDelayMode: 'RandomRange',
+      fixedReplyDelayMilliseconds: 1200,
+      minimumReplyDelayMilliseconds: 800,
+      maximumReplyDelayMilliseconds: 1800,
+      consecutiveMessageDelayMode: 'RandomRange',
+      fixedConsecutiveMessageDelayMilliseconds: 700,
+      minimumConsecutiveMessageDelayMilliseconds: 400,
+      maximumConsecutiveMessageDelayMilliseconds: 1200,
+      maximumConsecutiveQuestionTurns: 2,
     })
     updateSettingsMock.mockImplementation(async (request) => request)
     getFriendSettingsMock.mockResolvedValue({
@@ -127,11 +141,24 @@ describe('AutonomousInteractionSettingsPage', () => {
       canInitiatePrivateChats: true,
       canInitiateGroupChats: true,
       canJoinGroupChats: true,
+      useGlobalReplyDelay: true,
+      replyDelayMode: 'RandomRange',
+      fixedReplyDelayMilliseconds: 1200,
+      minimumReplyDelayMilliseconds: 800,
+      maximumReplyDelayMilliseconds: 1800,
+      useGlobalConsecutiveMessageDelay: true,
+      consecutiveMessageDelayMode: 'RandomRange',
+      fixedConsecutiveMessageDelayMilliseconds: 700,
+      minimumConsecutiveMessageDelayMilliseconds: 400,
+      maximumConsecutiveMessageDelayMilliseconds: 1200,
+      useGlobalQuestionPolicy: true,
+      maximumConsecutiveQuestionTurns: 2,
     })
     updateFriendSettingsMock.mockImplementation(async (accountId, request) => ({
       aiAccountId: accountId,
       ...request,
     }))
+    getInteractionLogsMock.mockResolvedValue([])
     getRelationshipMock.mockImplementation(async (fromAiAccountId, toAiAccountId) => ({
       fromAiAccountId,
       toAiAccountId,
@@ -237,6 +264,7 @@ describe('AutonomousInteractionSettingsPage', () => {
       messages: [
         {
           id: '50000000-0000-0000-0000-000000000001',
+          sequenceNumber: 1,
           privateChatId: '40000000-0000-0000-0000-000000000001',
           senderType: 'AiAccount',
           senderDisplayName: '林澈',
@@ -247,6 +275,7 @@ describe('AutonomousInteractionSettingsPage', () => {
         },
         {
           id: '50000000-0000-0000-0000-000000000002',
+          sequenceNumber: 2,
           privateChatId: '40000000-0000-0000-0000-000000000001',
           senderType: 'AiAccount',
           senderDisplayName: '周野',
@@ -282,6 +311,17 @@ describe('AutonomousInteractionSettingsPage', () => {
         privateChatContinuationRatePercent: 80,
         privateChatMaximumRounds: 6,
         autonomousGroupChatMaximumMembers: 6,
+        groupChatContinuationRatePercent: 80,
+        groupChatMaximumRounds: 4,
+        replyDelayMode: 'RandomRange',
+        fixedReplyDelayMilliseconds: 1200,
+        minimumReplyDelayMilliseconds: 800,
+        maximumReplyDelayMilliseconds: 1800,
+        consecutiveMessageDelayMode: 'RandomRange',
+        fixedConsecutiveMessageDelayMilliseconds: 700,
+        minimumConsecutiveMessageDelayMilliseconds: 400,
+        maximumConsecutiveMessageDelayMilliseconds: 1200,
+        maximumConsecutiveQuestionTurns: 2,
       })
     })
     expect(screen.getByText('设置已保存到本地数据库。')).toBeInTheDocument()
@@ -309,11 +349,22 @@ describe('AutonomousInteractionSettingsPage', () => {
         privateChatContinuationRatePercent: 72,
         privateChatMaximumRounds: 9,
         autonomousGroupChatMaximumMembers: 6,
+        groupChatContinuationRatePercent: 80,
+        groupChatMaximumRounds: 4,
+        replyDelayMode: 'RandomRange',
+        fixedReplyDelayMilliseconds: 1200,
+        minimumReplyDelayMilliseconds: 800,
+        maximumReplyDelayMilliseconds: 1800,
+        consecutiveMessageDelayMode: 'RandomRange',
+        fixedConsecutiveMessageDelayMilliseconds: 700,
+        minimumConsecutiveMessageDelayMilliseconds: 400,
+        maximumConsecutiveMessageDelayMilliseconds: 1200,
+        maximumConsecutiveQuestionTurns: 2,
       })
     })
   })
 
-  it('保存单次好友群聊最大人数', async () => {
+  it('保存好友群聊人数、概率和轮数限制', async () => {
     const user = userEvent.setup()
     render(<AutonomousInteractionSettingsPage />)
 
@@ -321,8 +372,14 @@ describe('AutonomousInteractionSettingsPage', () => {
       name: '允许好友自主互动',
     }))
     const maximumMembersInput = screen.getByLabelText('单次好友群聊最大人数')
+    const continuationInput = screen.getByLabelText('好友群聊下一轮概率保留比例')
+    const maximumRoundsInput = screen.getByLabelText('单次好友群聊最大轮数')
     await user.clear(maximumMembersInput)
     await user.type(maximumMembersInput, '12')
+    await user.clear(continuationInput)
+    await user.type(continuationInput, '65')
+    await user.clear(maximumRoundsInput)
+    await user.type(maximumRoundsInput, '8')
     await user.click(screen.getByRole('button', { name: '保存更改' }))
 
     await waitFor(() => {
@@ -334,7 +391,37 @@ describe('AutonomousInteractionSettingsPage', () => {
         privateChatContinuationRatePercent: 80,
         privateChatMaximumRounds: 6,
         autonomousGroupChatMaximumMembers: 12,
+        groupChatContinuationRatePercent: 65,
+        groupChatMaximumRounds: 8,
+        replyDelayMode: 'RandomRange',
+        fixedReplyDelayMilliseconds: 1200,
+        minimumReplyDelayMilliseconds: 800,
+        maximumReplyDelayMilliseconds: 1800,
+        consecutiveMessageDelayMode: 'RandomRange',
+        fixedConsecutiveMessageDelayMilliseconds: 700,
+        minimumConsecutiveMessageDelayMilliseconds: 400,
+        maximumConsecutiveMessageDelayMilliseconds: 1200,
+        maximumConsecutiveQuestionTurns: 2,
       })
+    })
+  })
+
+  it('随机回复区间由用户决定且最长等待输入没有产品上限', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    const maximumDelayInput = await screen.findByLabelText('回复等待：最长等待')
+    expect(maximumDelayInput).not.toHaveAttribute('max')
+    await user.clear(maximumDelayInput)
+    await user.type(maximumDelayInput, '98765.4')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+        replyDelayMode: 'RandomRange',
+        minimumReplyDelayMilliseconds: 800,
+        maximumReplyDelayMilliseconds: 98765400,
+      }))
     })
   })
 
@@ -363,6 +450,18 @@ describe('AutonomousInteractionSettingsPage', () => {
         canInitiatePrivateChats: true,
         canInitiateGroupChats: false,
         canJoinGroupChats: true,
+        useGlobalReplyDelay: true,
+        replyDelayMode: 'RandomRange',
+        fixedReplyDelayMilliseconds: 1200,
+        minimumReplyDelayMilliseconds: 800,
+        maximumReplyDelayMilliseconds: 1800,
+        useGlobalConsecutiveMessageDelay: true,
+        consecutiveMessageDelayMode: 'RandomRange',
+        fixedConsecutiveMessageDelayMilliseconds: 700,
+        minimumConsecutiveMessageDelayMilliseconds: 400,
+        maximumConsecutiveMessageDelayMilliseconds: 1200,
+        useGlobalQuestionPolicy: true,
+        maximumConsecutiveQuestionTurns: 2,
       })
     })
   })
@@ -376,6 +475,31 @@ describe('AutonomousInteractionSettingsPage', () => {
     await user.click(screen.getByRole('button', { name: '重新加载' }))
 
     expect(await screen.findByRole('switch', { name: '允许好友自主互动' })).toBeInTheDocument()
+  })
+
+  it('互动日志集中显示生成问题，不把内部错误放进聊天区', async () => {
+    getInteractionLogsMock.mockResolvedValueOnce([
+      {
+        id: '80000000-0000-0000-0000-000000000001',
+        occurredAt: '2026-07-20T03:30:00Z',
+        severity: 'Error',
+        code: 'MessageGenerationFailed',
+        scenario: 'PrivatePrimaryReply',
+        aiAccountId: friendId,
+        conversationId: '40000000-0000-0000-0000-000000000001',
+        summary: '私信回复生成失败，用户消息已经保存。',
+        detail: '模型输出没有满足本轮表达计划。',
+        wasRecovered: false,
+      },
+    ])
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    await user.click(screen.getByRole('tab', { name: '互动日志' }))
+
+    expect(await screen.findByText('私信回复生成失败，用户消息已经保存。')).toBeInTheDocument()
+    expect(screen.getByText('模型输出没有满足本轮表达计划。')).toBeInTheDocument()
+    expect(getInteractionLogsMock).toHaveBeenCalledWith()
   })
 
   it('按方向读取关系、显示反向摘要并保存关系数值', async () => {

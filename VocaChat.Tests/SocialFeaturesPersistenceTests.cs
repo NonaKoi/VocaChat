@@ -39,7 +39,14 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
                 firstService,
                 generator,
                 new RuleBasedConversationDirector(
-                    new ConversationActionPlanner()))
+                    new ConversationActionPlanner()),
+                new AiReplyTimingScheduler(
+                    factory,
+                    (_, _) => Task.CompletedTask),
+                new ConversationQuestionPolicyService(factory),
+                new AiIdentityContinuityService(
+                    new AiSelfMemoryService(factory),
+                    new AiInteractionDiagnosticLogService(factory)))
             .ProcessUserMessageAsync(chat!, "请分几条具体说说今天怎么一起学习");
 
         Assert.Equal(PrivateChatInteractionStatus.Succeeded, result.Status);
@@ -56,6 +63,54 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
         Assert.True(request.DirectionPlan.UsedRuleFallback);
         Assert.Equal(2, request.DirectionPlan.SelectedMessageCount);
         Assert.Equal(2, request.ExpectedMessageCount);
+    }
+
+    [Fact]
+    public async Task PrivateChat_AppliesValidatedDirectorMemoryAfterAiMessageIsSaved()
+    {
+        VocaChatDbContextFactory factory = _database.CreateDbContextFactory();
+        AiAccount account = CreateAccount(factory, "记忆连续性测试账号");
+        Contact contact = new ContactService(factory)
+            .FindByAiAccountId(account.Id)!;
+        PrivateChatService chatService = new(factory);
+        Assert.True(chatService.TryGetOrCreate(
+            contact.Id,
+            out PrivateChat? chat,
+            out _,
+            out string createError), createError);
+        AiSelfMemoryProposal proposal = new(
+            AiSelfMemoryProposalOperation.Add,
+            null,
+            AiSelfMemoryType.OngoingActivity,
+            "最近正在准备秋季插画展",
+            "本轮回复将明确表达持续中的准备事项");
+        PrivateChatInteractionService interactionService = new(
+            chatService,
+            new StaticMessageGenerator("我最近正在准备秋季插画展"),
+            new StaticDirector(proposal),
+            new AiReplyTimingScheduler(factory, (_, _) => Task.CompletedTask),
+            new ConversationQuestionPolicyService(factory),
+            new AiIdentityContinuityService(
+                new AiSelfMemoryService(factory),
+                new AiInteractionDiagnosticLogService(factory)));
+
+        PrivateChatInteractionResult result = await interactionService
+            .ProcessUserMessageAsync(chat!, "最近在忙什么？");
+
+        Assert.Equal(PrivateChatInteractionStatus.Succeeded, result.Status);
+        Assert.Equal(
+            AiSelfMemoryOperationStatus.Success,
+            new AiSelfMemoryService(factory).TryGetActiveContextMemories(
+                account.Id,
+                10,
+                out IReadOnlyList<AiSelfMemory> memories,
+                out string memoryError));
+        Assert.Equal(string.Empty, memoryError);
+        AiSelfMemory memory = Assert.Single(memories);
+        PrivateMessage reply = Assert.Single(result.AiReplies);
+        Assert.Equal(AiSelfMemorySource.Director, memory.Source);
+        Assert.Equal(chat!.Id, memory.SourceConversationId);
+        Assert.Equal(reply.Id, memory.SourceMessageId);
     }
 
     [Fact]
@@ -80,6 +135,68 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
         AiAccountService service = new(factory);
         Assert.True(service.TryCreateAiAccount(nickname, string.Empty, string.Empty, string.Empty, out AiAccount? account, out string error), error);
         return account!;
+    }
+
+    private sealed class StaticMessageGenerator : IAiMessageGenerator
+    {
+        private readonly string _content;
+
+        public StaticMessageGenerator(string content)
+        {
+            _content = content;
+        }
+
+        public Task<IReadOnlyList<string>> GenerateMessagesAsync(
+            AiMessageGenerationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<string>>(new[] { _content });
+        }
+    }
+
+    private sealed class StaticDirector : IConversationDirector
+    {
+        private readonly AiSelfMemoryProposal _proposal;
+
+        public StaticDirector(AiSelfMemoryProposal proposal)
+        {
+            _proposal = proposal;
+        }
+
+        public Task<ConversationDirectionPlan> CreatePlanAsync(
+            AiMessageGenerationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ConversationActionPlan actionPlan = new(
+                ConversationAction.Answer,
+                ConversationMessageLength.Short,
+                ConversationDirectness.Direct,
+                ConversationQuestionMode.None,
+                ConversationEmotionVisibility.Natural,
+                ConversationTopicMovement.Stay,
+                ConversationPunctuationRhythm.Natural,
+                ConversationRelationshipTone.Unknown,
+                ConversationRelationshipBalance.Unknown,
+                MayOmitObviousContext: true,
+                MayLeaveThoughtOpen: false);
+            return Task.FromResult(new ConversationDirectionPlan(
+                actionPlan,
+                ConversationBeat.Develop,
+                "近期安排",
+                "说明当前正在做的事情",
+                request.ReplyTarget?.Message?.MessageId ?? Guid.Empty,
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                "补充当前持续事项",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                usedRuleFallback: false,
+                selectedMessageCount: 1,
+                referencedSelfMemoryIds: Array.Empty<Guid>(),
+                selfMemoryProposals: new[] { _proposal }));
+        }
     }
 
     public void Dispose() => _database.Dispose();

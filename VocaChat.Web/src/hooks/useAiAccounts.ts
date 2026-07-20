@@ -2,10 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createAiAccount,
   getAiAccounts,
+  updateAiAccount,
   uploadAiAccountAvatar,
   uploadAiAccountCover,
 } from '@/api/aiAccounts'
-import type { AiAccountResponse, CreateAiAccountRequest } from '@/api/types'
+import type {
+  AiAccountResponse,
+  CreateAiAccountRequest,
+  UpdateAiAccountRequest,
+} from '@/api/types'
 import type { RemoteStatus } from '@/types/remoteStatus'
 
 interface AiAccountsState {
@@ -14,6 +19,8 @@ interface AiAccountsState {
   errorMessage?: string
   createErrorMessage?: string
   isCreating: boolean
+  updatingAccountId?: string
+  updateErrorMessage?: string
   uploadingMedia?: { accountId: string; kind: AiAccountMediaKind }
   mediaUploadErrorMessage?: string
   reload: () => void
@@ -21,6 +28,11 @@ interface AiAccountsState {
     request: CreateAiAccountRequest,
   ) => Promise<AiAccountResponse | undefined>
   clearCreateError: () => void
+  update: (
+    accountId: string,
+    request: UpdateAiAccountRequest,
+  ) => Promise<AiAccountResponse | undefined>
+  clearUpdateError: () => void
   uploadAvatar: (accountId: string, file: File) => Promise<boolean>
   uploadCover: (accountId: string, file: File) => Promise<boolean>
   clearMediaUploadError: () => void
@@ -35,6 +47,8 @@ export function useAiAccounts(): AiAccountsState {
   const [errorMessage, setErrorMessage] = useState<string>()
   const [createErrorMessage, setCreateErrorMessage] = useState<string>()
   const [isCreating, setIsCreating] = useState(false)
+  const [updatingAccountId, setUpdatingAccountId] = useState<string>()
+  const [updateErrorMessage, setUpdateErrorMessage] = useState<string>()
   const [uploadingMedia, setUploadingMedia] = useState<
     AiAccountsState['uploadingMedia']
   >()
@@ -124,17 +138,51 @@ export function useAiAccounts(): AiAccountsState {
     [uploadingMedia],
   )
 
+  const update = useCallback(
+    async (
+      accountId: string,
+      request: UpdateAiAccountRequest,
+    ): Promise<AiAccountResponse | undefined> => {
+      if (updatingAccountId) {
+        return undefined
+      }
+
+      setUpdatingAccountId(accountId)
+      setUpdateErrorMessage(undefined)
+
+      try {
+        const account = await updateAiAccount(accountId, request)
+        setData((current) =>
+          current.map((item) => (item.id === account.id ? account : item)),
+        )
+        return account
+      } catch (error: unknown) {
+        setUpdateErrorMessage(
+          error instanceof Error ? error.message : '账号资料保存失败，请重试。',
+        )
+        return undefined
+      } finally {
+        setUpdatingAccountId(undefined)
+      }
+    },
+    [updatingAccountId],
+  )
+
   return {
     data,
     status,
     errorMessage,
     createErrorMessage,
     isCreating,
+    updatingAccountId,
+    updateErrorMessage,
     uploadingMedia,
     mediaUploadErrorMessage,
     reload,
     create,
     clearCreateError: () => setCreateErrorMessage(undefined),
+    update,
+    clearUpdateError: () => setUpdateErrorMessage(undefined),
     uploadAvatar: (accountId, file) =>
       uploadMedia(accountId, 'avatar', file),
     uploadCover: (accountId, file) =>

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Bot, Search } from 'lucide-react'
 import type { ContactResponse } from '@/api/types'
 import { FriendAutonomySettingsPanel } from '@/components/settings/FriendAutonomySettingsPanel'
 import { GlobalAutonomySettingsPanel } from '@/components/settings/GlobalAutonomySettingsPanel'
 import { AutonomousGroupChatPanel } from '@/components/settings/AutonomousGroupChatPanel'
 import { RelationshipSettingsPanel } from '@/components/settings/RelationshipSettingsPanel'
+import { InteractionLogsPanel } from '@/components/settings/InteractionLogsPanel'
 import { cn } from '@/lib/utils'
 import type { RemoteStatus } from '@/types/remoteStatus'
 
-type SettingsTab = 'general' | 'friends' | 'relationships' | 'groupChats'
+type SettingsTab = 'general' | 'friends' | 'relationships' | 'groupChats' | 'logs'
 
 interface AutonomousInteractionSettingsPageProps {
   contacts?: ContactResponse[]
@@ -29,24 +29,12 @@ export function AutonomousInteractionSettingsPage({
   onOpenPrivateChat,
   onOpenGroupChat,
 }: AutonomousInteractionSettingsPageProps) {
-  const [searchTerm, setSearchTerm] = useState('')
   const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialTab)
   const [hasPanelChanges, setHasPanelChanges] = useState(false)
-  const matchesSearch = '好友自主互动'.includes(searchTerm.trim())
 
   useEffect(() => {
     onDirtyChange?.(hasPanelChanges)
   }, [hasPanelChanges, onDirtyChange])
-
-  useEffect(() => {
-    function warnBeforeLeaving(event: BeforeUnloadEvent) {
-      if (!hasPanelChanges) return
-      event.preventDefault()
-    }
-
-    window.addEventListener('beforeunload', warnBeforeLeaving)
-    return () => window.removeEventListener('beforeunload', warnBeforeLeaving)
-  }, [hasPanelChanges])
 
   function changeTab(tab: SettingsTab) {
     if (tab === activeTab) return
@@ -65,49 +53,7 @@ export function AutonomousInteractionSettingsPage({
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[236px_minmax(0,1fr)] bg-surface">
-      <aside className="flex min-h-0 flex-col border-r border-border bg-surface px-4 py-7" aria-label="设置分类">
-        <h1 className="px-2 font-display text-xl font-semibold tracking-[-0.02em] text-foreground">
-          设置
-        </h1>
-        <label className="mt-6 flex h-10 items-center gap-2 rounded-lg border border-border bg-surface-muted px-3 text-muted-foreground focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
-          <Search className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
-          <span className="sr-only">搜索设置项</span>
-          <input
-            type="search"
-            name="settingsSearch"
-            autoComplete="off"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="搜索设置项…"
-            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-
-        <div className="mt-6">
-          <p className="px-2 text-xs font-medium text-muted-foreground">互动设置</p>
-          {matchesSearch ? (
-            <div
-              aria-current="page"
-              className="mt-2 flex w-full items-center gap-3 rounded-lg bg-primary-soft px-3 py-3 text-left text-sm font-semibold text-primary"
-            >
-              <Bot className="size-[18px]" strokeWidth={1.8} aria-hidden="true" />
-              好友自主互动
-            </div>
-          ) : (
-            <p className="px-3 py-4 text-xs leading-5 text-muted-foreground">
-              没有匹配的设置项
-            </p>
-          )}
-        </div>
-
-        <p className="mt-auto px-2 pt-8 text-xs leading-5 text-muted-foreground">
-          设置数据保存在此设备。
-        </p>
-      </aside>
-
-      <main className="min-h-0 min-w-0 overflow-y-auto bg-surface-muted px-6 py-8 xl:px-8">
-        <div className="mx-auto w-full max-w-[1180px]">
+    <div className="mx-auto w-full max-w-[1180px]">
           <header>
             <h2 className="font-display text-2xl font-semibold tracking-[-0.025em] text-foreground">
               好友自主互动
@@ -146,6 +92,13 @@ export function AutonomousInteractionSettingsPage({
             >
               好友群聊
             </SettingsTabButton>
+            <SettingsTabButton
+              tab="logs"
+              selected={activeTab === 'logs'}
+              onClick={() => changeTab('logs')}
+            >
+              互动日志
+            </SettingsTabButton>
           </div>
 
           <div
@@ -173,7 +126,7 @@ export function AutonomousInteractionSettingsPage({
                 onDirtyChange={setHasPanelChanges}
                 onOpenPrivateChat={onOpenPrivateChat}
               />
-            ) : (
+            ) : activeTab === 'groupChats' ? (
               <AutonomousGroupChatPanel
                 contacts={contacts}
                 contactStatus={contactStatus}
@@ -181,10 +134,10 @@ export function AutonomousInteractionSettingsPage({
                 onReloadContacts={onReloadContacts}
                 onOpenGroupChat={onOpenGroupChat}
               />
+            ) : (
+              <InteractionLogsPanel />
             )}
           </div>
-        </div>
-      </main>
     </div>
   )
 }
@@ -221,6 +174,11 @@ function SettingsTabButton({
 
 function getInitialTab(): SettingsTab {
   const tab = new URLSearchParams(window.location.search).get('settingsTab')
-  if (tab === 'friends' || tab === 'relationships' || tab === 'groupChats') return tab
+  if (
+    tab === 'friends'
+    || tab === 'relationships'
+    || tab === 'groupChats'
+    || tab === 'logs'
+  ) return tab
   return 'general'
 }

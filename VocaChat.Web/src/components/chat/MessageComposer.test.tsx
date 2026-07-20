@@ -18,6 +18,24 @@ describe('MessageComposer', () => {
     expect(screen.getByLabelText('消息内容')).toHaveValue('')
   })
 
+  it('提交后立即清空输入框，不等待好友回复完成', async () => {
+    const user = userEvent.setup()
+    let resolveSend: ((outcome: MessageSendOutcome) => void) | undefined
+    const send = vi.fn().mockReturnValue(new Promise<MessageSendOutcome>((resolve) => {
+      resolveSend = resolve
+    }))
+    render(<ComposerHarness onSend={send} />)
+
+    await user.type(screen.getByLabelText('消息内容'), '立即显示')
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(send).toHaveBeenCalledWith('立即显示')
+    expect(screen.getByLabelText('消息内容')).toHaveValue('')
+
+    resolveSend?.('success')
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+  })
+
   it('用户消息被拒绝时保留草稿', async () => {
     const user = userEvent.setup()
     const send = vi.fn().mockResolvedValue('rejected')

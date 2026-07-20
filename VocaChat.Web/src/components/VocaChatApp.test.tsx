@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VocaChatApp } from '@/components/VocaChatApp'
 
 const account = {
@@ -43,9 +43,13 @@ vi.mock('@/hooks/useAiAccounts', () => ({
     data: [account],
     status: 'success',
     isCreating: false,
+    updatingAccountId: undefined,
+    updateErrorMessage: undefined,
     reload: vi.fn(),
     create: vi.fn(),
     clearCreateError: vi.fn(),
+    update: vi.fn(),
+    clearUpdateError: vi.fn(),
     uploadAvatar: vi.fn(),
     uploadCover: vi.fn(),
     clearMediaUploadError: vi.fn(),
@@ -57,7 +61,26 @@ vi.mock('@/hooks/useConversations', () => ({ useConversations: () => ({ data: [{
 vi.mock('@/hooks/usePrivateMessages', () => ({ usePrivateMessages: () => ({ data: [], status: 'idle', isSending: false, reload: vi.fn(), send: vi.fn() }) }))
 vi.mock('@/hooks/usePosts', () => ({ usePosts: () => ({ data: [], status: 'success', reload: vi.fn(), toggleLike: vi.fn(), addComment: vi.fn() }) }))
 vi.mock('@/hooks/useAutonomousInteractionSettings', () => {
-  const data = { isEnabled: false, frequency: 'Normal', allowPrivateChats: true, allowGroupChats: true }
+  const data = {
+    isEnabled: false,
+    frequency: 'Normal',
+    allowPrivateChats: true,
+    allowGroupChats: true,
+    privateChatContinuationRatePercent: 80,
+    privateChatMaximumRounds: 6,
+    autonomousGroupChatMaximumMembers: 6,
+    groupChatContinuationRatePercent: 80,
+    groupChatMaximumRounds: 4,
+    replyDelayMode: 'RandomRange',
+    fixedReplyDelayMilliseconds: 1200,
+    minimumReplyDelayMilliseconds: 800,
+    maximumReplyDelayMilliseconds: 1800,
+    consecutiveMessageDelayMode: 'RandomRange',
+    fixedConsecutiveMessageDelayMilliseconds: 700,
+    minimumConsecutiveMessageDelayMilliseconds: 400,
+    maximumConsecutiveMessageDelayMilliseconds: 1200,
+    maximumConsecutiveQuestionTurns: 2,
+  }
   return {
     useAutonomousInteractionSettings: () => ({
       data,
@@ -70,6 +93,10 @@ vi.mock('@/hooks/useAutonomousInteractionSettings', () => {
 })
 
 describe('VocaChatApp', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
   it('切换到好友区域后仍保留聊天草稿', async () => {
     const user = userEvent.setup()
     render(<VocaChatApp />)
@@ -127,5 +154,17 @@ describe('VocaChatApp', () => {
     confirm.mockReturnValue(true)
     await user.click(screen.getByRole('button', { name: '聊天' }))
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument()
+  })
+
+  it('设置中可以进入与好友自主互动同级的账号资料编辑页', async () => {
+    const user = userEvent.setup()
+    render(<VocaChatApp />)
+
+    await user.click(screen.getByRole('button', { name: '设置' }))
+    await user.click(screen.getByRole('button', { name: '账号资料编辑' }))
+
+    expect(screen.getByRole('heading', { name: '账号资料编辑' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('昵称')).toHaveValue('小语')
+    expect(screen.getByRole('tab', { name: 'AI 记忆' })).toBeInTheDocument()
   })
 })

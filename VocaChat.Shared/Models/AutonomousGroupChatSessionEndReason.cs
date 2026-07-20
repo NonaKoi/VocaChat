@@ -8,5 +8,8 @@ public enum AutonomousGroupChatSessionEndReason
     Completed,
     ParticipantUnavailable,
     GenerationFailed,
-    MessagePersistenceFailed
+    MessagePersistenceFailed,
+    NaturalConclusion,
+    ContinuationProbabilityDeclined,
+    HardLimitReached
 }

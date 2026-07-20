@@ -8,7 +8,7 @@ using VocaChat.Models;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 负责验证、创建和保存群消息，并返回按时间排序的聊天记录。
+/// 负责验证、创建和保存群消息，并返回按会话序号排序的聊天记录。
 /// </summary>
 public class GroupMessageService
 {
@@ -32,7 +32,31 @@ public class GroupMessageService
         out GroupMessage? message,
         out string errorMessage)
     {
+        return TrySaveUserMessage(
+            groupChat,
+            content,
+            null,
+            out message,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 使用客户端预先生成的消息 Id 保存用户消息，使前端乐观消息可以与落库结果对齐。
+    /// </summary>
+    public bool TrySaveUserMessage(
+        GroupChat groupChat,
+        string content,
+        Guid? messageId,
+        out GroupMessage? message,
+        out string errorMessage)
+    {
         message = null;
+
+        if (messageId == Guid.Empty)
+        {
+            errorMessage = "消息标识无效。";
+            return false;
+        }
 
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -67,12 +91,23 @@ public class GroupMessageService
             return false;
         }
 
+        if (messageId.HasValue
+            && dbContext.GroupMessages.Any(storedMessage =>
+                storedMessage.Id == messageId.Value))
+        {
+            errorMessage = "这条消息已经发送，请勿重复提交。";
+            return false;
+        }
+
         GroupMessage userMessage = new(
             groupChat.Id,
             MessageSenderType.User,
             "我",
             null,
-            trimmedContent);
+            trimmedContent,
+            DateTime.Now,
+            messageId: messageId,
+            sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id));
 
         dbContext.GroupMessages.Add(userMessage);
         dbContext.SaveChanges();
@@ -132,7 +167,9 @@ public class GroupMessageService
             MessageSenderType.AiAccount,
             aiSpeaker.Nickname,
             aiSpeaker.Id,
-            trimmedContent);
+            trimmedContent,
+            DateTime.Now,
+            sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id));
 
         dbContext.GroupMessages.Add(aiMessage);
         dbContext.SaveChanges();
@@ -143,7 +180,7 @@ public class GroupMessageService
     }
 
     /// <summary>
-    /// 返回当前群聊按发送时间从早到晚排列的只读消息列表。
+    /// 返回当前群聊按持久化会话序号排列的只读消息列表。
     /// </summary>
     public IReadOnlyList<GroupMessage> GetOrderedChatHistory(GroupChat groupChat)
     {
@@ -152,10 +189,18 @@ public class GroupMessageService
         List<GroupMessage> orderedMessages = dbContext.GroupMessages
             .AsNoTracking()
             .Where(message => message.GroupChatId == groupChat.Id)
-            .OrderBy(message => message.SentAt)
-            .ThenBy(message => message.Id)
+            .OrderBy(message => message.SequenceNumber)
             .ToList();
 
         return orderedMessages.AsReadOnly();
+    }
+
+    private static long GetNextSequenceNumber(
+        VocaChatDbContext dbContext,
+        Guid groupChatId)
+    {
+        return (dbContext.GroupMessages
+            .Where(message => message.GroupChatId == groupChatId)
+            .Max(message => (long?)message.SequenceNumber) ?? 0) + 1;
     }
 }

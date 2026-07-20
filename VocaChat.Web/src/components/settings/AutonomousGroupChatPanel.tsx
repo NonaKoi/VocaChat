@@ -44,6 +44,16 @@ const stageDescriptions: Record<AutonomousGroupChatDecisionStage, string> = {
   ScoreBelowThreshold: '本次成员关系分没有达到当前频率的启动门槛。',
 }
 
+const endReasonLabels: Record<NonNullable<AutonomousGroupChatExecutionResponse['session']>['endReason'] & string, string> = {
+  Completed: '正常完成',
+  ParticipantUnavailable: '参与者不可用',
+  GenerationFailed: '消息生成失败',
+  MessagePersistenceFailed: '消息保存失败',
+  NaturalConclusion: '自然结束',
+  ContinuationProbabilityDeclined: '下一轮未发生',
+  HardLimitReached: '达到轮数上限',
+}
+
 /** 提供一次可解释、由用户明确触发的自主好友群聊验收入口。 */
 export function AutonomousGroupChatPanel({
   contacts,
@@ -330,6 +340,14 @@ function ExecutionResult({
 }) {
   const messagesWereSaved = result.messages.length > 0
   const groupChatId = result.groupChat?.id
+  const visibleMessages = result.messages.slice(-6)
+  const hiddenMessageCount = result.messages.length - visibleMessages.length
+  const speakerCount = new Set(
+    result.messages
+      .map((message) => message.senderAiAccountId)
+      .filter((id): id is string => Boolean(id)),
+  ).size
+  const closingRound = result.rounds.find((round) => round.isClosing)
 
   return (
     <div
@@ -345,7 +363,7 @@ function ExecutionResult({
         <div>
           <p className="text-sm font-semibold text-foreground">
             {result.status === 'Completed'
-              ? `${result.messages.length} 条群消息已经保存`
+              ? `已完成 ${result.session?.completedRounds ?? 0} 轮交流，共保存 ${result.messages.length} 条消息`
               : messagesWereSaved
                 ? `已有 ${result.messages.length} 条消息保存，后续流程未完成`
                 : '本次好友群聊没有产生消息'}
@@ -372,6 +390,26 @@ function ExecutionResult({
             <dd className="tabular-nums text-foreground">{result.session.participantAiAccountIds.length} 位</dd>
           </div>
           <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">实际发言</dt>
+            <dd className="tabular-nums text-foreground">{speakerCount} 位</dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">结束</dt>
+            <dd className="text-foreground">
+              {result.session.endReason
+                ? endReasonLabels[result.session.endReason]
+                : '尚未结束'}
+            </dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="text-muted-foreground">收束</dt>
+            <dd className="text-foreground">
+              {closingRound
+                ? `${closingRound.plannedSpeakerCount} 位 · ${closingRound.plannedMessageCount} 条`
+                : '未执行'}
+            </dd>
+          </div>
+          <div className="flex gap-1.5">
             <dt className="text-muted-foreground">群聊</dt>
             <dd className="text-foreground">{result.groupChatCreated ? '本次新建' : '复用已有群聊'}</dd>
           </div>
@@ -379,7 +417,12 @@ function ExecutionResult({
       )}
       {messagesWereSaved && (
         <div className="mt-3 grid gap-2 text-xs leading-5">
-          {result.messages.map((message) => (
+          {hiddenMessageCount > 0 && (
+            <p className="text-muted-foreground">
+              前 {hiddenMessageCount} 条消息已保存，可进入群聊查看完整记录。
+            </p>
+          )}
+          {visibleMessages.map((message) => (
             <p key={message.id} className="break-words rounded-md bg-surface px-3 py-2 text-foreground">
               <span className="font-semibold">{message.senderDisplayName}：</span>
               {message.content}

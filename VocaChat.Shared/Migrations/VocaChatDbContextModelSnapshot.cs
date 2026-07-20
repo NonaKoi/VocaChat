@@ -155,6 +155,23 @@ namespace VocaChat.Migrations
                     b.Property<bool>("CanJoinGroupChats")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ConsecutiveMessageDelayMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("RandomRange");
+
+                    b.Property<long>("FixedConsecutiveMessageDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(700L);
+
+                    b.Property<long>("FixedReplyDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1200L);
+
                     b.Property<string>("InitiativeLevel")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -163,11 +180,68 @@ namespace VocaChat.Migrations
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<long>("MaximumConsecutiveMessageDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1200L);
+
+                    b.Property<int>("MaximumConsecutiveQuestionTurns")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(2);
+
+                    b.Property<long>("MaximumReplyDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1800L);
+
+                    b.Property<long>("MinimumConsecutiveMessageDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(400L);
+
+                    b.Property<long>("MinimumReplyDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(800L);
+
+                    b.Property<string>("ReplyDelayMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("RandomRange");
+
+                    b.Property<bool>("UseGlobalConsecutiveMessageDelay")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("UseGlobalQuestionPolicy")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("UseGlobalReplyDelay")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
                     b.HasKey("AiAccountId");
 
                     b.ToTable("AiAccountAutonomySettings", null, t =>
                         {
+                            t.HasCheckConstraint("CK_AiAccountAutonomySettings_ConsecutiveMessageDelayMode", "\"ConsecutiveMessageDelayMode\" IN ('Fixed', 'RandomRange')");
+
+                            t.HasCheckConstraint("CK_AiAccountAutonomySettings_ConsecutiveMessageDelayValues", "\"FixedConsecutiveMessageDelayMilliseconds\" >= 0 AND \"MinimumConsecutiveMessageDelayMilliseconds\" >= 0 AND \"MaximumConsecutiveMessageDelayMilliseconds\" >= 0 AND \"MinimumConsecutiveMessageDelayMilliseconds\" <= \"MaximumConsecutiveMessageDelayMilliseconds\"");
+
                             t.HasCheckConstraint("CK_AiAccountAutonomySettings_InitiativeLevel", "\"InitiativeLevel\" IN ('Low', 'Normal', 'High')");
+
+                            t.HasCheckConstraint("CK_AiAccountAutonomySettings_MaximumConsecutiveQuestionTurns", "\"MaximumConsecutiveQuestionTurns\" >= 1");
+
+                            t.HasCheckConstraint("CK_AiAccountAutonomySettings_ReplyDelayMode", "\"ReplyDelayMode\" IN ('Fixed', 'RandomRange')");
+
+                            t.HasCheckConstraint("CK_AiAccountAutonomySettings_ReplyDelayValues", "\"FixedReplyDelayMilliseconds\" >= 0 AND \"MinimumReplyDelayMilliseconds\" >= 0 AND \"MaximumReplyDelayMilliseconds\" >= 0 AND \"MinimumReplyDelayMilliseconds\" <= \"MaximumReplyDelayMilliseconds\"");
                         });
                 });
 
@@ -189,6 +263,57 @@ namespace VocaChat.Migrations
                     b.HasIndex("Type", "Value");
 
                     b.ToTable("AiAccountTags", (string)null);
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiInteractionDiagnosticLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("AiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scenario")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("WasRecovered")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AiAccountId");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.ToTable("AiInteractionDiagnosticLogs", (string)null);
                 });
 
             modelBuilder.Entity("VocaChat.Models.AiMemory", b =>
@@ -350,10 +475,157 @@ namespace VocaChat.Migrations
                         });
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiSelfMemory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsUserLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("OccurredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Salience")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("SourceConversationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SourceMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ValidFrom")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ValidUntil")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceConversationId");
+
+                    b.HasIndex("SourceMessageId");
+
+                    b.HasIndex("AiAccountId", "Type", "Summary")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0");
+
+                    b.HasIndex("AiAccountId", "SourceMessageId", "Type", "Summary")
+                        .IsUnique()
+                        .HasFilter("\"Source\" = 1 AND \"SourceMessageId\" IS NOT NULL");
+
+                    b.HasIndex("AiAccountId", "Status", "Salience", "UpdatedAt");
+
+                    b.ToTable("AiSelfMemories", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiSelfMemories_Salience", "\"Salience\" BETWEEN 1 AND 100");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_Source", "\"Source\" BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_Status", "\"Status\" BETWEEN 0 AND 2");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_Summary", "length(trim(\"Summary\")) > 0");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_Type", "\"Type\" BETWEEN 0 AND 4");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_Validity", "\"ValidFrom\" IS NULL OR \"ValidUntil\" IS NULL OR \"ValidUntil\" >= \"ValidFrom\"");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousGroupChatRound", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsClosing")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("OccurrenceProbability")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("PlannedMessageCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PlannedSpeakerCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("RandomRoll")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("RoundNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "RoundNumber")
+                        .IsUnique();
+
+                    b.ToTable("AutonomousGroupChatRounds", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_ClosingProbability", "(\"IsClosing\" = 1 AND \"OccurrenceProbability\" IS NULL AND \"RandomRoll\" IS NULL) OR \"IsClosing\" = 0");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_MessageCount", "\"PlannedMessageCount\" BETWEEN 0 AND 9");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_NormalRoundHasMessages", "\"IsClosing\" = 1 OR (\"PlannedSpeakerCount\" > 0 AND \"PlannedMessageCount\" >= \"PlannedSpeakerCount\")");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_Probability", "\"OccurrenceProbability\" IS NULL OR \"OccurrenceProbability\" BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_RandomRoll", "\"RandomRoll\" IS NULL OR \"RandomRoll\" BETWEEN 0 AND 1");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_RoundNumber", "\"RoundNumber\" > 0");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatRounds_SpeakerCount", "\"PlannedSpeakerCount\" BETWEEN 0 AND 3");
+                        });
+                });
+
             modelBuilder.Entity("VocaChat.Models.AutonomousGroupChatSession", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("CompletedRounds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("ContinuationRatePercent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(80);
 
                     b.Property<int?>("EndReason")
                         .HasColumnType("INTEGER");
@@ -369,6 +641,11 @@ namespace VocaChat.Migrations
 
                     b.Property<DateTime>("LastActivityAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("MaximumRounds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(4);
 
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("TEXT");
@@ -395,6 +672,12 @@ namespace VocaChat.Migrations
 
                     b.ToTable("AutonomousGroupChatSessions", null, t =>
                         {
+                            t.HasCheckConstraint("CK_AutonomousGroupChatSessions_CompletedRounds", "\"CompletedRounds\" >= 0 AND \"CompletedRounds\" <= \"MaximumRounds\"");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatSessions_ContinuationRate", "\"ContinuationRatePercent\" BETWEEN 0 AND 95");
+
+                            t.HasCheckConstraint("CK_AutonomousGroupChatSessions_MaximumRounds", "\"MaximumRounds\" BETWEEN 1 AND 12");
+
                             t.HasCheckConstraint("CK_AutonomousGroupChatSessions_StateConsistency", "(\"Status\" = 0 AND \"EndReason\" IS NULL AND \"EndedAt\" IS NULL) OR (\"Status\" IN (1, 2) AND \"EndReason\" IS NOT NULL AND \"EndedAt\" IS NOT NULL)");
                         });
                 });
@@ -415,13 +698,65 @@ namespace VocaChat.Migrations
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(6);
 
+                    b.Property<string>("ConsecutiveMessageDelayMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("RandomRange");
+
+                    b.Property<long>("FixedConsecutiveMessageDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(700L);
+
+                    b.Property<long>("FixedReplyDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1200L);
+
                     b.Property<string>("Frequency")
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("GroupChatContinuationRatePercent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(80);
+
+                    b.Property<int>("GroupChatMaximumRounds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(4);
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
+
+                    b.Property<long>("MaximumConsecutiveMessageDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1200L);
+
+                    b.Property<int>("MaximumConsecutiveQuestionTurns")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(2);
+
+                    b.Property<long>("MaximumReplyDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1800L);
+
+                    b.Property<long>("MinimumConsecutiveMessageDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(400L);
+
+                    b.Property<long>("MinimumReplyDelayMilliseconds")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(800L);
 
                     b.Property<int>("PrivateChatContinuationRatePercent")
                         .ValueGeneratedOnAdd()
@@ -433,17 +768,38 @@ namespace VocaChat.Migrations
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(6);
 
+                    b.Property<string>("ReplyDelayMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("RandomRange");
+
                     b.HasKey("Id");
 
                     b.ToTable("AutonomousInteractionSettings", null, t =>
                         {
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_ConsecutiveMessageDelayMode", "\"ConsecutiveMessageDelayMode\" IN ('Fixed', 'RandomRange')");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_ConsecutiveMessageDelayValues", "\"FixedConsecutiveMessageDelayMilliseconds\" >= 0 AND \"MinimumConsecutiveMessageDelayMilliseconds\" >= 0 AND \"MaximumConsecutiveMessageDelayMilliseconds\" >= 0 AND \"MinimumConsecutiveMessageDelayMilliseconds\" <= \"MaximumConsecutiveMessageDelayMilliseconds\"");
+
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_Frequency", "\"Frequency\" IN ('Low', 'Normal', 'High')");
 
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_GroupChatContinuationRate", "\"GroupChatContinuationRatePercent\" BETWEEN 0 AND 95");
+
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_GroupChatMaximumMembers", "\"AutonomousGroupChatMaximumMembers\" >= 3");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_GroupChatMaximumRounds", "\"GroupChatMaximumRounds\" BETWEEN 1 AND 12");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_MaximumConsecutiveQuestionTurns", "\"MaximumConsecutiveQuestionTurns\" >= 1");
 
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_PrivateChatContinuationRate", "\"PrivateChatContinuationRatePercent\" BETWEEN 0 AND 95");
 
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_PrivateChatMaximumRounds", "\"PrivateChatMaximumRounds\" BETWEEN 1 AND 12");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_ReplyDelayMode", "\"ReplyDelayMode\" IN ('Fixed', 'RandomRange')");
+
+                            t.HasCheckConstraint("CK_AutonomousInteractionSettings_ReplyDelayValues", "\"FixedReplyDelayMilliseconds\" >= 0 AND \"MinimumReplyDelayMilliseconds\" >= 0 AND \"MaximumReplyDelayMilliseconds\" >= 0 AND \"MinimumReplyDelayMilliseconds\" <= \"MaximumReplyDelayMilliseconds\"");
 
                             t.HasCheckConstraint("CK_AutonomousInteractionSettings_Singleton", "\"Id\" = 1");
                         });
@@ -673,6 +1029,9 @@ namespace VocaChat.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("AutonomousGroupChatRoundId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("AutonomousGroupChatSessionId")
                         .HasColumnType("TEXT");
 
@@ -698,16 +1057,26 @@ namespace VocaChat.Migrations
                     b.Property<DateTime>("SentAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("SequenceNumber")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("AutonomousGroupChatRoundId");
 
                     b.HasIndex("AutonomousGroupChatSessionId");
 
                     b.HasIndex("SenderAiAccountId");
 
-                    b.HasIndex("GroupChatId", "SentAt", "Id");
+                    b.HasIndex("GroupChatId", "SentAt");
+
+                    b.HasIndex("GroupChatId", "SequenceNumber")
+                        .IsUnique();
 
                     b.ToTable("GroupMessages", null, t =>
                         {
+                            t.HasCheckConstraint("CK_GroupMessages_AutonomousRound_Consistency", "\"AutonomousGroupChatRoundId\" IS NULL OR \"AutonomousGroupChatSessionId\" IS NOT NULL");
+
                             t.HasCheckConstraint("CK_GroupMessages_Content_MaxLength", "length(\"Content\") <= 4000");
 
                             t.HasCheckConstraint("CK_GroupMessages_Content_NotBlank", "length(trim(\"Content\")) > 0");
@@ -717,6 +1086,8 @@ namespace VocaChat.Migrations
                             t.HasCheckConstraint("CK_GroupMessages_SenderDisplayName_NotBlank", "length(trim(\"SenderDisplayName\")) > 0");
 
                             t.HasCheckConstraint("CK_GroupMessages_Sender_Consistency", "(\"SenderType\" = 0 AND \"SenderAiAccountId\" IS NULL) OR (\"SenderType\" = 1 AND \"SenderAiAccountId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_GroupMessages_SequenceNumber_Positive", "\"SequenceNumber\" > 0");
                         });
                 });
 
@@ -915,6 +1286,9 @@ namespace VocaChat.Migrations
                     b.Property<DateTime>("SentAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<long>("SequenceNumber")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AutonomousPrivateChatRoundId");
@@ -925,10 +1299,13 @@ namespace VocaChat.Migrations
                         .IsUnique()
                         .HasFilter("\"AutonomousSequenceNumber\" IS NOT NULL");
 
+                    b.HasIndex("PrivateChatId", "SentAt");
+
+                    b.HasIndex("PrivateChatId", "SequenceNumber")
+                        .IsUnique();
+
                     b.HasIndex("AutonomousPrivateChatSessionId", "SentAt", "Id")
                         .HasFilter("\"AutonomousPrivateChatSessionId\" IS NOT NULL");
-
-                    b.HasIndex("PrivateChatId", "SentAt", "Id");
 
                     b.ToTable("PrivateMessages", null, t =>
                         {
@@ -941,6 +1318,8 @@ namespace VocaChat.Migrations
                             t.HasCheckConstraint("CK_PrivateMessages_SenderDisplayName_NotBlank", "length(trim(\"SenderDisplayName\")) > 0");
 
                             t.HasCheckConstraint("CK_PrivateMessages_Sender_Consistency", "(\"SenderType\" = 0 AND \"SenderAiAccountId\" IS NULL) OR (\"SenderType\" = 1 AND \"SenderAiAccountId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_PrivateMessages_SequenceNumber_Positive", "\"SequenceNumber\" > 0");
                         });
                 });
 
@@ -1073,6 +1452,26 @@ namespace VocaChat.Migrations
                     b.Navigation("ToAiAccount");
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiSelfMemory", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", "AiAccount")
+                        .WithMany()
+                        .HasForeignKey("AiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AiAccount");
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AutonomousGroupChatRound", b =>
+                {
+                    b.HasOne("VocaChat.Models.AutonomousGroupChatSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("VocaChat.Models.AutonomousGroupChatSession", b =>
                 {
                     b.HasOne("VocaChat.Models.GroupChat", null)
@@ -1139,6 +1538,11 @@ namespace VocaChat.Migrations
 
             modelBuilder.Entity("VocaChat.Models.GroupMessage", b =>
                 {
+                    b.HasOne("VocaChat.Models.AutonomousGroupChatRound", null)
+                        .WithMany()
+                        .HasForeignKey("AutonomousGroupChatRoundId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("VocaChat.Models.AutonomousGroupChatSession", null)
                         .WithMany()
                         .HasForeignKey("AutonomousGroupChatSessionId")

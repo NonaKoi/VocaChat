@@ -5,5 +5,6 @@ namespace VocaChat.WebApi.Dtos.GroupMessages;
 /// </summary>
 public sealed class SendGroupMessageRequest
 {
+    public Guid? ClientMessageId { get; set; }
     public string? Content { get; set; }
 }

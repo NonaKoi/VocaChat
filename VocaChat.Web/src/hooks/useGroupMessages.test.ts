@@ -21,6 +21,34 @@ describe('useGroupMessages', () => {
     apiMocks.getSavedGroupMessages.mockReset().mockReturnValue([])
   })
 
+  it('请求仍在处理时立即展示用户消息，并使用同一消息标识落库', async () => {
+    let resolveRequest: ((response: SendGroupMessageResponse) => void) | undefined
+    apiMocks.sendGroupMessage.mockImplementation((_, request) =>
+      new Promise<SendGroupMessageResponse>((resolve) => {
+        resolveRequest = () => resolve({
+          ...createResponse('Complete', null, []),
+          userMessage: createMessage(request.clientMessageId, 'User', 1),
+        })
+      }))
+    const { result } = renderHook(() => useGroupMessages('group-1'))
+    await waitFor(() => expect(result.current.status).toBe('success'))
+
+    let sendPromise: Promise<string> | undefined
+    act(() => {
+      sendPromise = result.current.send('立即显示')
+    })
+
+    await waitFor(() => {
+      expect(result.current.data).toHaveLength(1)
+      expect(result.current.data[0].deliveryStatus).toBe('Sending')
+    })
+    const request = apiMocks.sendGroupMessage.mock.calls[0][1]
+    expect(request.clientMessageId).toBe(result.current.data[0].id)
+
+    resolveRequest?.(createResponse('Complete', null, []))
+    await act(async () => { await sendPromise })
+  })
+
   it('一次发送成功后合并用户消息和两条好友回复', async () => {
     const response = createResponse('Complete', null)
     apiMocks.sendGroupMessage.mockResolvedValue(response)
@@ -58,9 +86,7 @@ describe('useGroupMessages', () => {
 
     expect(outcome).toBe('partial')
     expect(result.current.data).toHaveLength(2)
-    expect(result.current.sendErrorMessage).toBe(
-      '第二位好友的回复保存失败。',
-    )
+    expect(result.current.sendErrorMessage).toBeUndefined()
   })
 })
 
@@ -87,6 +113,7 @@ function createMessage(
 ): GroupMessageResponse {
   return {
     id,
+    sequenceNumber: second + 1,
     groupChatId: 'group-1',
     senderType,
     senderDisplayName: senderType === 'User' ? '我' : id,

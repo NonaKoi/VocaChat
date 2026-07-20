@@ -30,6 +30,8 @@ export function MessageComposer({
   onSend,
 }: MessageComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const currentValueRef = useRef(value)
+  currentValueRef.current = value
   const canSubmit = !disabled && !isSending && value.trim().length > 0
   const shouldShowCount = value.length >= MESSAGE_MAX_LENGTH * 0.8
 
@@ -52,11 +54,14 @@ export function MessageComposer({
       return
     }
 
-    const outcome = await onSend(value)
+    const submittedContent = value
+    currentValueRef.current = ''
+    onValueChange('')
+    const outcome = await onSend(submittedContent)
 
-    // 部分失败时用户消息已经保存，清空草稿可避免重试造成重复消息。
-    if (outcome === 'success' || outcome === 'partial') {
-      onValueChange('')
+    if (outcome === 'rejected' && currentValueRef.current.length === 0) {
+      currentValueRef.current = submittedContent
+      onValueChange(submittedContent)
     }
   }
 
@@ -91,8 +96,11 @@ export function MessageComposer({
           autoComplete="off"
           maxLength={MESSAGE_MAX_LENGTH}
           value={value}
-          disabled={disabled || isSending}
-          onChange={(event) => onValueChange(event.target.value)}
+          disabled={disabled}
+          onChange={(event) => {
+            currentValueRef.current = event.target.value
+            onValueChange(event.target.value)
+          }}
           onKeyDown={handleKeyDown}
           placeholder={disabledReason ?? '输入消息…'}
           aria-label="消息内容"

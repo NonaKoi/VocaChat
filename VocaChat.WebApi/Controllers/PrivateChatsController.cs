@@ -13,13 +13,16 @@ public sealed class PrivateChatsController : ControllerBase
 {
     private readonly PrivateChatService _privateChatService;
     private readonly PrivateChatInteractionService _interactionService;
+    private readonly AiInteractionDiagnosticLogService _diagnosticLogService;
 
     public PrivateChatsController(
         PrivateChatService privateChatService,
-        PrivateChatInteractionService interactionService)
+        PrivateChatInteractionService interactionService,
+        AiInteractionDiagnosticLogService diagnosticLogService)
     {
         _privateChatService = privateChatService;
         _interactionService = interactionService;
+        _diagnosticLogService = diagnosticLogService;
     }
 
     [HttpGet("{id}")]
@@ -77,6 +80,7 @@ public sealed class PrivateChatsController : ControllerBase
             await _interactionService.ProcessUserMessageAsync(
                 privateChat,
                 request.Content,
+                request.ClientMessageId,
                 cancellationToken);
         IReadOnlyList<AiAccount> participants =
             _privateChatService.GetAiParticipants(privateChat);
@@ -91,14 +95,38 @@ public sealed class PrivateChatsController : ControllerBase
 
         if (result.Status == PrivateChatInteractionStatus.AiReplyFailed)
         {
+            _diagnosticLogService.TryRecord(
+                AiInteractionDiagnosticSeverity.Error,
+                AiInteractionDiagnosticCode.MessageGenerationFailed,
+                AiMessageGenerationScenario.UserPrivateChat,
+                privateChat.Contact?.AiAccountId,
+                privateChat.Id,
+                "好友回复生成失败，用户消息已经保存。",
+                result.ErrorMessage);
             return StatusCode(
                 StatusCodes.Status500InternalServerError,
                 new SendPrivateMessageFailureResponse
                 {
-                    Message = result.ErrorMessage,
+                    Message = "好友回复暂时生成失败，已保留你发送的消息。",
                     SavedUserMessage = PrivateChatResponseMapper
-                        .ToMessageResponse(result.UserMessage!, participants)
+                        .ToMessageResponse(result.UserMessage!, participants),
+                    SavedAiReplies = result.AiReplies
+                        .Select(reply => PrivateChatResponseMapper
+                            .ToMessageResponse(reply, participants))
+                        .ToList()
                 });
+        }
+
+        if (result.Status == PrivateChatInteractionStatus.PartiallySucceeded)
+        {
+            _diagnosticLogService.TryRecord(
+                AiInteractionDiagnosticSeverity.Warning,
+                AiInteractionDiagnosticCode.MessageGenerationFailed,
+                AiMessageGenerationScenario.UserPrivateChat,
+                privateChat.Contact?.AiAccountId,
+                privateChat.Id,
+                "好友只完成了部分回复。",
+                result.ErrorMessage);
         }
 
         return Ok(new SendPrivateMessageResponse
@@ -110,7 +138,15 @@ public sealed class PrivateChatsController : ControllerBase
                 .Select(reply => PrivateChatResponseMapper.ToMessageResponse(
                     reply,
                     participants))
-                .ToList()
+                .ToList(),
+            ReplyCompletion = result.Status
+                == PrivateChatInteractionStatus.PartiallySucceeded
+                    ? "Partial"
+                    : "Complete",
+            WarningMessage = result.Status
+                == PrivateChatInteractionStatus.PartiallySucceeded
+                    ? "好友只完成了部分回复，详细信息已记录到互动日志。"
+                    : null
         });
     }
 }

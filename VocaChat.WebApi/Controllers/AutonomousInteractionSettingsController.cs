@@ -55,6 +55,24 @@ public class AutonomousInteractionSettingsController : ControllerBase
             return BadRequest(new { message = "自主互动频率无效。" });
         }
 
+        if (!Enum.TryParse(
+                request.ReplyDelayMode,
+                ignoreCase: true,
+                out AiReplyDelayMode replyDelayMode)
+            || !Enum.IsDefined(replyDelayMode))
+        {
+            return BadRequest(new { message = "回复速度模式无效。" });
+        }
+
+        if (!Enum.TryParse(
+                request.ConsecutiveMessageDelayMode,
+                ignoreCase: true,
+                out AiReplyDelayMode consecutiveMessageDelayMode)
+            || !Enum.IsDefined(consecutiveMessageDelayMode))
+        {
+            return BadRequest(new { message = "连续消息间隔模式无效。" });
+        }
+
         bool succeeded = _settingsService.TryUpdateSettings(
             request.IsEnabled,
             frequency,
@@ -63,6 +81,17 @@ public class AutonomousInteractionSettingsController : ControllerBase
             request.PrivateChatContinuationRatePercent,
             request.PrivateChatMaximumRounds,
             request.AutonomousGroupChatMaximumMembers,
+            request.GroupChatContinuationRatePercent,
+            request.GroupChatMaximumRounds,
+            replyDelayMode,
+            request.FixedReplyDelayMilliseconds,
+            request.MinimumReplyDelayMilliseconds,
+            request.MaximumReplyDelayMilliseconds,
+            consecutiveMessageDelayMode,
+            request.FixedConsecutiveMessageDelayMilliseconds,
+            request.MinimumConsecutiveMessageDelayMilliseconds,
+            request.MaximumConsecutiveMessageDelayMilliseconds,
+            request.MaximumConsecutiveQuestionTurns,
             out AutonomousInteractionSettings? settings,
             out string errorMessage);
 
@@ -87,7 +116,26 @@ public class AutonomousInteractionSettingsController : ControllerBase
                 settings.PrivateChatContinuationRatePercent,
             PrivateChatMaximumRounds = settings.PrivateChatMaximumRounds,
             AutonomousGroupChatMaximumMembers =
-                settings.AutonomousGroupChatMaximumMembers
+                settings.AutonomousGroupChatMaximumMembers,
+            GroupChatContinuationRatePercent =
+                settings.GroupChatContinuationRatePercent,
+            GroupChatMaximumRounds = settings.GroupChatMaximumRounds,
+            ReplyDelayMode = settings.ReplyDelayMode.ToString(),
+            FixedReplyDelayMilliseconds = settings.FixedReplyDelayMilliseconds,
+            MinimumReplyDelayMilliseconds =
+                settings.MinimumReplyDelayMilliseconds,
+            MaximumReplyDelayMilliseconds =
+                settings.MaximumReplyDelayMilliseconds,
+            ConsecutiveMessageDelayMode =
+                settings.ConsecutiveMessageDelayMode.ToString(),
+            FixedConsecutiveMessageDelayMilliseconds =
+                settings.FixedConsecutiveMessageDelayMilliseconds,
+            MinimumConsecutiveMessageDelayMilliseconds =
+                settings.MinimumConsecutiveMessageDelayMilliseconds,
+            MaximumConsecutiveMessageDelayMilliseconds =
+                settings.MaximumConsecutiveMessageDelayMilliseconds,
+            MaximumConsecutiveQuestionTurns =
+                settings.MaximumConsecutiveQuestionTurns
         };
     }
 }

@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { AiAccountResponse } from '@/api/types'
 import { AiAccountDetails } from '@/components/aiAccounts/AiAccountDetails'
 
@@ -25,10 +24,7 @@ describe('AiAccountDetails', () => {
     expect(screen.getByText('在自己的节奏里前进。')).toBeInTheDocument()
   })
 
-  it('允许分别选择头像和封面文件，并显示上传错误', async () => {
-    const user = userEvent.setup()
-    const uploadAvatar = vi.fn().mockResolvedValue(true)
-    const uploadCover = vi.fn().mockResolvedValue(true)
+  it('好友主页只展示头像和封面，不提供账号管理入口', () => {
     const { container } = render(
       <AiAccountDetails
         account={{
@@ -38,27 +34,12 @@ describe('AiAccountDetails', () => {
         }}
         status="success"
         isEmpty={false}
-        mediaUploadErrorMessage="图片格式不受支持。"
-        onUploadAvatar={uploadAvatar}
-        onUploadCover={uploadCover}
       />,
     )
-    const avatarFile = new File(['avatar'], 'avatar.png', {
-      type: 'image/png',
-    })
-    const coverFile = new File(['cover'], 'cover.webp', {
-      type: 'image/webp',
-    })
-    const inputs = container.querySelectorAll<HTMLInputElement>(
-      'input[type="file"]',
-    )
 
-    await user.upload(inputs[0], coverFile)
-    await user.upload(inputs[1], avatarFile)
-
-    expect(uploadCover).toHaveBeenCalledWith(coverFile)
-    expect(uploadAvatar).toHaveBeenCalledWith(avatarFile)
-    expect(screen.getByRole('alert')).toHaveTextContent('图片格式不受支持')
+    expect(container.querySelector('input[type="file"]')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更换头像' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '更换封面' })).not.toBeInTheDocument()
     expect(container.querySelector(`img[src*="/cover?"]`)).toBeInTheDocument()
     expect(container.querySelector(`img[src*="/avatar?"]`)).toBeInTheDocument()
   })

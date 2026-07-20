@@ -30,6 +30,8 @@ public sealed record ConversationDirectionPlan
     public IReadOnlyList<string> ForbiddenClaims { get; }
     public bool UsedRuleFallback { get; }
     public int SelectedMessageCount { get; }
+    public IReadOnlyList<Guid> ReferencedSelfMemoryIds { get; }
+    public IReadOnlyList<AiSelfMemoryProposal> SelfMemoryProposals { get; }
 
     public ConversationDirectionPlan(
         ConversationActionPlan actionPlan,
@@ -43,7 +45,9 @@ public sealed record ConversationDirectionPlan
         IReadOnlyList<string> avoidedTopics,
         IReadOnlyList<string> forbiddenClaims,
         bool usedRuleFallback,
-        int selectedMessageCount = 1)
+        int selectedMessageCount = 1,
+        IReadOnlyList<Guid>? referencedSelfMemoryIds = null,
+        IReadOnlyList<AiSelfMemoryProposal>? selfMemoryProposals = null)
     {
         if (selectedMessageCount is < 0 or > 3)
         {
@@ -69,6 +73,10 @@ public sealed record ConversationDirectionPlan
             ?? throw new ArgumentNullException(nameof(forbiddenClaims));
         UsedRuleFallback = usedRuleFallback;
         SelectedMessageCount = selectedMessageCount;
+        ReferencedSelfMemoryIds = referencedSelfMemoryIds
+            ?? Array.Empty<Guid>();
+        SelfMemoryProposals = selfMemoryProposals
+            ?? Array.Empty<AiSelfMemoryProposal>();
     }
 
     /// <summary>
@@ -94,5 +102,29 @@ public sealed record ConversationDirectionPlan
             new[] { "没有资料或本人历史依据的第一人称经历" },
             UsedRuleFallback)
     {
+    }
+
+    /// <summary>
+    /// 使用业务层预验证后的建议替换导演原始建议，同时保留其余语义计划。
+    /// </summary>
+    public ConversationDirectionPlan WithValidatedSelfMemoryPlan(
+        IReadOnlyList<Guid> referencedSelfMemoryIds,
+        IReadOnlyList<AiSelfMemoryProposal> selfMemoryProposals)
+    {
+        return new ConversationDirectionPlan(
+            ActionPlan,
+            Beat,
+            TopicFocus,
+            ResponseGoal,
+            TargetMessageId,
+            CoveredPoints,
+            UnresolvedGoals,
+            NewContribution,
+            AvoidedTopics,
+            ForbiddenClaims,
+            UsedRuleFallback,
+            SelectedMessageCount,
+            referencedSelfMemoryIds,
+            selfMemoryProposals);
     }
 }

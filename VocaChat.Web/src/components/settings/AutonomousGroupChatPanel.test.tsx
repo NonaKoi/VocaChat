@@ -50,14 +50,42 @@ describe('AutonomousGroupChatPanel', () => {
         initiatorAiAccountId: contacts[0].friend.id,
         participantAiAccountIds: contacts.map((contact) => contact.friend.id),
         topic: '周末去哪里',
+        maximumRounds: 4,
+        continuationRatePercent: 80,
+        completedRounds: 1,
         status: 'Completed',
-        endReason: 'Completed',
+        endReason: 'ContinuationProbabilityDeclined',
         startedAt: '2026-07-19T15:00:00Z',
         lastActivityAt: '2026-07-19T15:01:00Z',
         endedAt: '2026-07-19T15:01:00Z',
       },
+      rounds: [
+        {
+          id: '51000000-0000-0000-0000-000000000001',
+          roundNumber: 1,
+          isClosing: false,
+          occurrenceProbability: 1,
+          randomRoll: null,
+          plannedSpeakerCount: 3,
+          plannedMessageCount: 3,
+          startedAt: '2026-07-19T15:00:00Z',
+          completedAt: '2026-07-19T15:00:30Z',
+        },
+        {
+          id: '51000000-0000-0000-0000-000000000002',
+          roundNumber: 2,
+          isClosing: true,
+          occurrenceProbability: null,
+          randomRoll: null,
+          plannedSpeakerCount: 0,
+          plannedMessageCount: 0,
+          startedAt: '2026-07-19T15:00:30Z',
+          completedAt: '2026-07-19T15:00:30Z',
+        },
+      ],
       messages: contacts.map((contact, index) => ({
         id: `60000000-0000-0000-0000-00000000000${index + 1}`,
+        sequenceNumber: index + 1,
         groupChatId: '40000000-0000-0000-0000-000000000001',
         senderType: 'AiAccount',
         senderDisplayName: contact.friend.nickname,
@@ -95,6 +123,8 @@ describe('AutonomousGroupChatPanel', () => {
     expect(screen.getByText('林澈的群聊消息')).toBeInTheDocument()
     expect(screen.getByText('周野的群聊消息')).toBeInTheDocument()
     expect(screen.getByText('苏晚的群聊消息')).toBeInTheDocument()
+    expect(screen.getByText(/已完成 1 轮交流/)).toBeInTheDocument()
+    expect(screen.getByText('下一轮未发生')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /查看好友群聊/ }))
     expect(onOpenGroupChat).toHaveBeenCalledWith(

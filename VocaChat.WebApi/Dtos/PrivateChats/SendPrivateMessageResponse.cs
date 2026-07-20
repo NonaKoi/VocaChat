@@ -5,4 +5,6 @@ public sealed class SendPrivateMessageResponse
 {
     public PrivateMessageResponse UserMessage { get; init; } = new();
     public List<PrivateMessageResponse> AiReplies { get; init; } = new();
+    public string ReplyCompletion { get; init; } = "Complete";
+    public string? WarningMessage { get; init; }
 }

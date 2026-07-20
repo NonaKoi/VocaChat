@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import { ArrowDown } from 'lucide-react'
-import type { ChatMessageResponse } from '@/api/types'
+import type { DisplayChatMessage } from '@/types/displayChatMessage'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,7 +12,7 @@ const BOTTOM_THRESHOLD = 96
 
 interface MessageListProps {
   conversationId: string
-  messages: ChatMessageResponse[]
+  messages: DisplayChatMessage[]
   rightAlignedAiAccountId?: string
 }
 
@@ -133,7 +133,7 @@ export function MessageList({
 }
 
 interface MessageItemProps {
-  message: ChatMessageResponse
+  message: DisplayChatMessage
   rightAlignedAiAccountId?: string
 }
 
@@ -167,12 +167,15 @@ function MessageItem({ message, rightAlignedAiAccountId }: MessageItemProps) {
             <time dateTime={message.sentAt}>
               {formatMessageTime(message.sentAt)}
             </time>
+            {message.deliveryStatus === 'Sending' && (
+              <span role="status">发送中</span>
+            )}
           </div>
 
           <p
             className={
               isLocalUser
-                ? 'break-words whitespace-pre-wrap rounded-xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm leading-6 text-white shadow-message'
+                ? `break-words whitespace-pre-wrap rounded-xl rounded-tr-sm bg-primary px-4 py-2.5 text-sm leading-6 text-white shadow-message ${message.deliveryStatus === 'Sending' ? 'opacity-70' : ''}`
                 : isRightAlignedAi
                   ? 'break-words whitespace-pre-wrap rounded-xl rounded-tr-sm bg-primary-soft px-4 py-2.5 text-sm leading-6 text-foreground shadow-message'
                   : 'break-words whitespace-pre-wrap rounded-xl rounded-tl-sm bg-surface px-4 py-2.5 text-sm leading-6 text-foreground shadow-message'

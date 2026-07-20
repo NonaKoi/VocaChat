@@ -4,6 +4,7 @@ import type {
   AutonomousInteractionSettingsResponse,
   UpdateAiAccountAutonomySettingsRequest,
   UpdateAutonomousInteractionSettingsRequest,
+  AiInteractionDiagnosticLogResponse,
 } from '@/api/types'
 
 const autonomousInteractionsPath = '/api/settings/autonomous-interactions'
@@ -29,4 +30,12 @@ export function updateAiAccountAutonomySettings(
   request: UpdateAiAccountAutonomySettingsRequest,
 ): Promise<AiAccountAutonomySettingsResponse> {
   return putJson(`/api/ai-accounts/${aiAccountId}/autonomy-settings`, request)
+}
+
+export function getAiInteractionDiagnosticLogs(
+  limit = 100,
+): Promise<AiInteractionDiagnosticLogResponse[]> {
+  return getJson<AiInteractionDiagnosticLogResponse[]>(
+    `/api/settings/interaction-logs?limit=${encodeURIComponent(limit)}`,
+  )
 }

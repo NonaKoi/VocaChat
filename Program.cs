@@ -54,11 +54,20 @@ public class Program
                 messageGenerationOptions,
                 new AiConversationContextBuilder(),
                 actionPlanner);
+        AiReplyTimingScheduler replyTimingScheduler = new(dbContextFactory);
+        ConversationQuestionPolicyService questionPolicyService = new(
+            dbContextFactory);
+        AiIdentityContinuityService identityContinuityService = new(
+            new AiSelfMemoryService(dbContextFactory),
+            new AiInteractionDiagnosticLogService(dbContextFactory));
         GroupChatInteractionService interactionService = new(
             groupMessageService,
             messageGenerator,
             replyPlanner,
-            conversationDirector);
+            conversationDirector,
+            replyTimingScheduler,
+            questionPolicyService,
+            identityContinuityService);
 
         VocaChatConsoleApp consoleApp = new(
             aiAccountService,

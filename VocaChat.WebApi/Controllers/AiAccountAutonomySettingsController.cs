@@ -59,6 +59,11 @@ public class AiAccountAutonomySettingsController : ControllerBase
         Guid aiAccountId,
         [FromBody] UpdateAiAccountAutonomySettingsRequest request)
     {
+        if (!_settingsService.TryGetSettings(aiAccountId, out _))
+        {
+            return NotFound();
+        }
+
         if (!Enum.TryParse(
                 request.InitiativeLevel,
                 ignoreCase: true,
@@ -68,6 +73,24 @@ public class AiAccountAutonomySettingsController : ControllerBase
             return BadRequest(new { message = "主动程度无效。" });
         }
 
+        if (!Enum.TryParse(
+                request.ReplyDelayMode,
+                ignoreCase: true,
+                out AiReplyDelayMode replyDelayMode)
+            || !Enum.IsDefined(replyDelayMode))
+        {
+            return BadRequest(new { message = "回复速度模式无效。" });
+        }
+
+        if (!Enum.TryParse(
+                request.ConsecutiveMessageDelayMode,
+                ignoreCase: true,
+                out AiReplyDelayMode consecutiveMessageDelayMode)
+            || !Enum.IsDefined(consecutiveMessageDelayMode))
+        {
+            return BadRequest(new { message = "连续消息间隔模式无效。" });
+        }
+
         bool succeeded = _settingsService.TryUpdateSettings(
             aiAccountId,
             request.IsEnabled,
@@ -75,11 +98,24 @@ public class AiAccountAutonomySettingsController : ControllerBase
             request.CanInitiatePrivateChats,
             request.CanInitiateGroupChats,
             request.CanJoinGroupChats,
-            out AiAccountAutonomySettings? settings);
+            request.UseGlobalReplyDelay,
+            replyDelayMode,
+            request.FixedReplyDelayMilliseconds,
+            request.MinimumReplyDelayMilliseconds,
+            request.MaximumReplyDelayMilliseconds,
+            request.UseGlobalConsecutiveMessageDelay,
+            consecutiveMessageDelayMode,
+            request.FixedConsecutiveMessageDelayMilliseconds,
+            request.MinimumConsecutiveMessageDelayMilliseconds,
+            request.MaximumConsecutiveMessageDelayMilliseconds,
+            request.UseGlobalQuestionPolicy,
+            request.MaximumConsecutiveQuestionTurns,
+            out AiAccountAutonomySettings? settings,
+            out string errorMessage);
 
         if (!succeeded || settings is null)
         {
-            return NotFound();
+            return BadRequest(new { message = errorMessage });
         }
 
         return Ok(ToResponse(settings));
@@ -95,7 +131,27 @@ public class AiAccountAutonomySettingsController : ControllerBase
             InitiativeLevel = settings.InitiativeLevel.ToString(),
             CanInitiatePrivateChats = settings.CanInitiatePrivateChats,
             CanInitiateGroupChats = settings.CanInitiateGroupChats,
-            CanJoinGroupChats = settings.CanJoinGroupChats
+            CanJoinGroupChats = settings.CanJoinGroupChats,
+            UseGlobalReplyDelay = settings.UseGlobalReplyDelay,
+            ReplyDelayMode = settings.ReplyDelayMode.ToString(),
+            FixedReplyDelayMilliseconds = settings.FixedReplyDelayMilliseconds,
+            MinimumReplyDelayMilliseconds =
+                settings.MinimumReplyDelayMilliseconds,
+            MaximumReplyDelayMilliseconds =
+                settings.MaximumReplyDelayMilliseconds,
+            UseGlobalConsecutiveMessageDelay =
+                settings.UseGlobalConsecutiveMessageDelay,
+            ConsecutiveMessageDelayMode =
+                settings.ConsecutiveMessageDelayMode.ToString(),
+            FixedConsecutiveMessageDelayMilliseconds =
+                settings.FixedConsecutiveMessageDelayMilliseconds,
+            MinimumConsecutiveMessageDelayMilliseconds =
+                settings.MinimumConsecutiveMessageDelayMilliseconds,
+            MaximumConsecutiveMessageDelayMilliseconds =
+                settings.MaximumConsecutiveMessageDelayMilliseconds,
+            UseGlobalQuestionPolicy = settings.UseGlobalQuestionPolicy,
+            MaximumConsecutiveQuestionTurns =
+                settings.MaximumConsecutiveQuestionTurns
         };
     }
 }

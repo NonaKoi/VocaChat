@@ -5,6 +5,7 @@ using VocaChat.Models;
 using VocaChat.WebApi.Dtos.AiAccounts;
 using VocaChat.WebApi.Dtos.GroupChats;
 using VocaChat.WebApi.Dtos.GroupMessages;
+using VocaChat.WebApi.Dtos.Settings;
 
 namespace VocaChat.Tests.ApiIntegration;
 
@@ -25,14 +26,20 @@ public sealed class GroupMessagesApiTests
             member.Id);
 
         const string content = "HTTP 完整消息流程";
+        Guid clientMessageId = Guid.NewGuid();
         using HttpResponseMessage sendResponse = await client.PostAsJsonAsync(
             $"/api/group-chats/{groupChat.Id}/messages",
-            new SendGroupMessageRequest { Content = content });
+            new SendGroupMessageRequest
+            {
+                ClientMessageId = clientMessageId,
+                Content = content
+            });
         SendGroupMessageResponse? interaction = await sendResponse.Content
             .ReadFromJsonAsync<SendGroupMessageResponse>();
 
         Assert.Equal(HttpStatusCode.OK, sendResponse.StatusCode);
         Assert.NotNull(interaction);
+        Assert.Equal(clientMessageId, interaction.UserMessage.Id);
         Assert.Equal("User", interaction.UserMessage.SenderType);
         Assert.Null(interaction.UserMessage.SenderAiAccountId);
         Assert.Equal(content, interaction.UserMessage.Content);
@@ -171,6 +178,9 @@ public sealed class GroupMessagesApiTests
             HttpStatusCode.InternalServerError,
             response.StatusCode);
         Assert.NotNull(failure);
+        Assert.Equal(
+            "群聊回复暂时生成失败，已保留你发送的消息。",
+            failure.Message);
         Assert.NotNull(failure.SavedUserMessage);
         Assert.Empty(failure.SavedAiReplies);
         Assert.Equal(maximumLengthContent, failure.SavedUserMessage.Content);
@@ -178,6 +188,14 @@ public sealed class GroupMessagesApiTests
         GroupMessageResponse storedMessage = Assert.Single(history);
         Assert.Equal(failure.SavedUserMessage.Id, storedMessage.Id);
         Assert.Equal("User", storedMessage.SenderType);
+
+        List<AiInteractionDiagnosticLogResponse>? logs = await client
+            .GetFromJsonAsync<List<AiInteractionDiagnosticLogResponse>>(
+                "/api/settings/interaction-logs?limit=10");
+        AiInteractionDiagnosticLogResponse log = Assert.Single(logs!);
+        Assert.Equal("GroupPrimaryReply", log.Scenario);
+        Assert.Equal(groupChat.Id, log.ConversationId);
+        Assert.False(log.WasRecovered);
     }
 
     private static async Task<AiAccountResponse> CreateAccountAsync(

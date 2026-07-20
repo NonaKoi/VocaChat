@@ -48,6 +48,7 @@ function createMessage(
 ): ChatMessageResponse {
   return {
     id,
+    sequenceNumber: Number(id),
     senderType,
     senderDisplayName,
     senderAiAccountId,

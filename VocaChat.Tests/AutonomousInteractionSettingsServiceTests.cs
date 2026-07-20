@@ -25,6 +25,8 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
         Assert.Equal(80, settings.PrivateChatContinuationRatePercent);
         Assert.Equal(6, settings.PrivateChatMaximumRounds);
         Assert.Equal(6, settings.AutonomousGroupChatMaximumMembers);
+        Assert.Equal(80, settings.GroupChatContinuationRatePercent);
+        Assert.Equal(4, settings.GroupChatMaximumRounds);
     }
 
     [Fact]
@@ -40,6 +42,8 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
             privateChatContinuationRatePercent: 65,
             privateChatMaximumRounds: 9,
             autonomousGroupChatMaximumMembers: 14,
+            groupChatContinuationRatePercent: 72,
+            groupChatMaximumRounds: 7,
             out AutonomousInteractionSettings? savedSettings,
             out string errorMessage);
 
@@ -58,6 +62,37 @@ public sealed class AutonomousInteractionSettingsServiceTests : IDisposable
         Assert.Equal(65, reloadedSettings.PrivateChatContinuationRatePercent);
         Assert.Equal(9, reloadedSettings.PrivateChatMaximumRounds);
         Assert.Equal(14, reloadedSettings.AutonomousGroupChatMaximumMembers);
+        Assert.Equal(72, reloadedSettings.GroupChatContinuationRatePercent);
+        Assert.Equal(7, reloadedSettings.GroupChatMaximumRounds);
+    }
+
+    [Theory]
+    [InlineData(-1, 4)]
+    [InlineData(96, 4)]
+    [InlineData(80, 0)]
+    [InlineData(80, 13)]
+    public void TryUpdateSettings_WithInvalidGroupConversationLimits_DoesNotSave(
+        int continuationRatePercent,
+        int maximumRounds)
+    {
+        AutonomousInteractionSettingsService service = CreateService();
+
+        bool succeeded = service.TryUpdateSettings(
+            isEnabled: true,
+            AutonomousInteractionFrequency.Normal,
+            allowPrivateChats: true,
+            allowGroupChats: true,
+            privateChatContinuationRatePercent: 80,
+            privateChatMaximumRounds: 6,
+            autonomousGroupChatMaximumMembers: 6,
+            groupChatContinuationRatePercent: continuationRatePercent,
+            groupChatMaximumRounds: maximumRounds,
+            out AutonomousInteractionSettings? settings,
+            out _);
+
+        Assert.False(succeeded);
+        Assert.Null(settings);
+        Assert.False(service.GetSettings().IsEnabled);
     }
 
     [Fact]

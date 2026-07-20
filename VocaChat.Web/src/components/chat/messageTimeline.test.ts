@@ -41,6 +41,7 @@ function createMessage(
 ): GroupMessageResponse {
   return {
     id,
+    sequenceNumber: Number(id),
     groupChatId: 'group-1',
     senderType,
     senderDisplayName,

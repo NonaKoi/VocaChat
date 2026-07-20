@@ -67,6 +67,20 @@ public sealed record AiConversationMemory(
     DateTime OccurredAt);
 
 /// <summary>
+/// 表示当前发言账号自己的有效个人事实，与面向其他好友的方向记忆分开保存。
+/// </summary>
+public sealed record AiConversationSelfMemory(
+    Guid Id,
+    Guid AiAccountId,
+    AiSelfMemoryType Type,
+    string Summary,
+    AiSelfMemorySource Source,
+    int Salience,
+    bool IsUserLocked,
+    DateTime? OccurredAt,
+    DateTime UpdatedAt);
+
+/// <summary>
 /// 区分当前生成是在回应一条具体消息、开启话题，还是收束对话。
 /// </summary>
 public enum AiDialogueReplyTargetKind
@@ -128,6 +142,11 @@ public sealed record AiMessageGenerationRequest
     public IReadOnlyList<AiConversationMemory> RelevantMemories { get; init; } =
         Array.Empty<AiConversationMemory>();
     /// <summary>
+    /// 保存业务层为当前发言账号召回的少量个人记忆，不包含其他账号的记录。
+    /// </summary>
+    public IReadOnlyList<AiConversationSelfMemory> RelevantSelfMemories { get; init; } =
+        Array.Empty<AiConversationSelfMemory>();
+    /// <summary>
     /// 未设置时，业务层通过 ExpectedMessageCount 精确指定数量；设置后，导演可在范围内选择。
     /// </summary>
     public AiMessageCountRange? AllowedMessageCountRange { get; init; }
@@ -142,4 +161,5 @@ public sealed record AiMessageGenerationRequest
     public double? OtherToSpeakerRelationshipScore { get; init; }
     public ConversationActionPlan? ActionPlan { get; init; }
     public ConversationDirectionPlan? DirectionPlan { get; init; }
+    public ConversationQuestionPolicy? QuestionPolicy { get; init; }
 }

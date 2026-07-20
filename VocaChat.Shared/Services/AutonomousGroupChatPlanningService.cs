@@ -51,6 +51,12 @@ public sealed class AutonomousGroupChatPlanningService
             participants,
             decision.InitiatorAiAccountId.Value,
             requestedTopic);
+        AutonomousInteractionSettings settings =
+            dbContext.AutonomousInteractionSettings
+                .AsNoTracking()
+                .SingleOrDefault(item =>
+                    item.Id == AutonomousInteractionSettings.SingletonId)
+            ?? new AutonomousInteractionSettings();
 
         if (topic.Length > AutonomousGroupChatPlan.TopicMaxLength)
         {
@@ -65,6 +71,9 @@ public sealed class AutonomousGroupChatPlanningService
             InitiatorAiAccountId = decision.InitiatorAiAccountId.Value,
             Topic = topic,
             IncludesLocalUser = false,
+            MaximumRounds = settings.GroupChatMaximumRounds,
+            ContinuationRatePercent =
+                settings.GroupChatContinuationRatePercent,
             Decision = decision
         };
         errorMessage = string.Empty;

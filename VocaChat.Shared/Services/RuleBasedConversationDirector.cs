@@ -20,9 +20,10 @@ public sealed class RuleBasedConversationDirector : IConversationDirector
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return Task.FromResult(CreateDirectionPlan(
-            request,
-            _actionPlanner.CreatePlan(request)));
+        ConversationActionPlan baselinePlan = _actionPlanner.CreatePlan(request);
+        ConversationActionPlan actionPlan = request.QuestionPolicy?.ApplyTo(
+            baselinePlan) ?? baselinePlan;
+        return Task.FromResult(CreateDirectionPlan(request, actionPlan));
     }
 
     internal static ConversationDirectionPlan CreateDirectionPlan(

@@ -52,6 +52,10 @@ public sealed class ApiInfrastructureTests
             using JsonDocument document = JsonDocument.Parse(openApiJson);
             JsonElement paths = document.RootElement.GetProperty("paths");
             Assert.True(paths.TryGetProperty("/api/ai-accounts", out _));
+            Assert.True(paths.TryGetProperty(
+                "/api/ai-accounts/{id}",
+                out JsonElement aiAccountByIdPath));
+            Assert.True(aiAccountByIdPath.TryGetProperty("put", out _));
             Assert.True(paths.TryGetProperty("/api/group-chats", out _));
             Assert.True(paths.TryGetProperty(
                 "/api/group-chats/{groupChatId}/messages",

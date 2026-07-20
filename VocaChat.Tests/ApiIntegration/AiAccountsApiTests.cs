@@ -74,4 +74,92 @@ public sealed class AiAccountsApiTests
 
         Assert.Equal(HttpStatusCode.BadRequest, duplicateResponse.StatusCode);
     }
+
+    [Fact]
+    public async Task UpdateAiAccount_ReturnsUpdatedProfileAndExplicitErrors()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse target = await CreateAccount(
+            client,
+            "UpdateTarget",
+            "Update#Target");
+        AiAccountResponse existing = await CreateAccount(
+            client,
+            "ExistingAccount",
+            "Existing#01");
+        UpdateAiAccountRequest request = new()
+        {
+            Nickname = "  更新后的好友  ",
+            VcNumber = "  Updated#01  ",
+            IdentityDescription = "  正在完善个人作品集的插画师  ",
+            Personality = "温和、认真",
+            SpeakingStyle = "自然简洁",
+            Signature = "慢慢把想法画下来。",
+            Birthday = new DateOnly(1998, 2, 14),
+            Gender = "Female",
+            Location = "中国 南京",
+            Occupation = "插画师",
+            Hometown = "中国 苏州",
+            OnlineStatus = "Away",
+            InterestTags = new[] { "绘画", "旅行", "绘画" },
+            PersonalityTags = new[] { "细腻", "温和" }
+        };
+
+        using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
+            $"/api/ai-accounts/{target.Id}",
+            request);
+        AiAccountResponse? updated = await updateResponse.Content
+            .ReadFromJsonAsync<AiAccountResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        Assert.NotNull(updated);
+        Assert.Equal(target.Id, updated.Id);
+        Assert.Equal(target.CreatedAt, updated.CreatedAt);
+        Assert.Equal("更新后的好友", updated.Nickname);
+        Assert.Equal("Updated#01", updated.VcNumber);
+        Assert.Equal("正在完善个人作品集的插画师", updated.IdentityDescription);
+        Assert.Equal("Female", updated.Gender);
+        Assert.Equal("Away", updated.OnlineStatus);
+        Assert.Equal(2, updated.InterestTags.Count);
+        Assert.Contains("旅行", updated.InterestTags);
+        Assert.Contains("绘画", updated.InterestTags);
+
+        AiAccountResponse? reloaded = await client.GetFromJsonAsync<AiAccountResponse>(
+            $"/api/ai-accounts/{target.Id}");
+        Assert.NotNull(reloaded);
+        Assert.Equal(updated.Nickname, reloaded.Nickname);
+        Assert.Equal(updated.InterestTags, reloaded.InterestTags);
+
+        request.Nickname = existing.Nickname.ToUpperInvariant();
+        using HttpResponseMessage duplicateResponse = await client.PutAsJsonAsync(
+            $"/api/ai-accounts/{target.Id}",
+            request);
+        Assert.Equal(HttpStatusCode.BadRequest, duplicateResponse.StatusCode);
+
+        using HttpResponseMessage missingResponse = await client.PutAsJsonAsync(
+            $"/api/ai-accounts/{Guid.NewGuid()}",
+            new UpdateAiAccountRequest
+            {
+                Nickname = "MissingAccount",
+                VcNumber = "Missing#01"
+            });
+        Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
+    private static async Task<AiAccountResponse> CreateAccount(
+        HttpClient client,
+        string nickname,
+        string vcNumber)
+    {
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/ai-accounts",
+            new CreateAiAccountRequest
+            {
+                Nickname = nickname,
+                VcNumber = vcNumber
+            });
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<AiAccountResponse>())!;
+    }
 }

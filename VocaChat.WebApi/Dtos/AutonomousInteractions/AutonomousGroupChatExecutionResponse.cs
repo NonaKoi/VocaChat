@@ -13,6 +13,8 @@ public sealed class AutonomousGroupChatExecutionResponse
     public GroupChatResponse? GroupChat { get; init; }
     public bool GroupChatCreated { get; init; }
     public AutonomousGroupChatSessionResponse? Session { get; init; }
+    public IReadOnlyList<AutonomousGroupChatRoundResponse> Rounds { get; init; }
+        = Array.Empty<AutonomousGroupChatRoundResponse>();
     public IReadOnlyList<GroupMessageResponse> Messages { get; init; } =
         Array.Empty<GroupMessageResponse>();
     public string? ErrorMessage { get; init; }

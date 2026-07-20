@@ -291,6 +291,36 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
     }
 
     [Fact]
+    public async Task GenerateMessagesAsync_WhenDirectorAllowsNaturalQuestion_AcceptsIt()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"那你今晚还打算继续画吗？\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest request = CreateRequest(1) with
+        {
+            ActionPlan = new ConversationActionPlan(
+                ConversationAction.Ask,
+                ConversationMessageLength.Short,
+                ConversationDirectness.Direct,
+                ConversationQuestionMode.Natural,
+                ConversationEmotionVisibility.Natural,
+                ConversationTopicMovement.Stay,
+                ConversationPunctuationRhythm.Natural,
+                ConversationRelationshipTone.Unknown,
+                ConversationRelationshipBalance.Unknown,
+                MayOmitObviousContext: true,
+                MayLeaveThoughtOpen: false)
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(new[] { "那你今晚还打算继续画吗？" }, messages);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
     public async Task GenerateMessagesAsync_LabelsFactsBySenderIdentity()
     {
         RecordingHandler handler = new(CreateResponse(
@@ -446,6 +476,59 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
 
         Assert.Equal(new[] { "上次我们一起去了蓝桉剧场" }, messages);
         Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_CurrentSelfMemoryGroundsDynamicFirstPersonFact()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"我最近正在准备秋季插画展\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest baseRequest = CreateRequest(1);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            RelevantSelfMemories = new[]
+            {
+                new AiConversationSelfMemory(
+                    Guid.NewGuid(),
+                    baseRequest.Speaker.Id,
+                    AiSelfMemoryType.OngoingActivity,
+                    "最近正在准备秋季插画展",
+                    AiSelfMemorySource.User,
+                    90,
+                    true,
+                    new DateTime(2026, 7, 18),
+                    new DateTime(2026, 7, 20))
+            }
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(new[] { "我最近正在准备秋季插画展" }, messages);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_WithoutSelfMemoryRejectsDynamicFirstPersonFact()
+    {
+        RecordingHandler handler = new(
+            CreateResponse(
+                HttpStatusCode.OK,
+                "{\"messages\":[\"我最近正在准备秋季插画展\"]}"),
+            CreateResponse(
+                HttpStatusCode.OK,
+                "{\"messages\":[\"听起来还挺忙的\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(
+            handler,
+            outputValidationRetryCount: 1);
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(CreateRequest(1));
+
+        Assert.Equal(new[] { "听起来还挺忙的" }, messages);
+        Assert.Equal(2, handler.CallCount);
     }
 
     [Fact]

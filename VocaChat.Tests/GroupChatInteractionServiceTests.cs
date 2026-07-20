@@ -83,7 +83,11 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             generator,
             new GroupChatReplyPlanner(_database.CreateDbContextFactory()),
             new RuleBasedConversationDirector(
-                new ConversationActionPlanner(new ConstantRandom(0.5))));
+                new ConversationActionPlanner(new ConstantRandom(0.5))),
+            CreateNoDelayScheduler(),
+            new ConversationQuestionPolicyService(
+                _database.CreateDbContextFactory()),
+            CreateIdentityContinuityService());
 
         GroupChatInteractionResult result = await interactionService
             .ProcessUserMessageAsync(
@@ -201,7 +205,10 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             fakeAiReplyService,
             new GroupChatReplyPlanner(dbContextFactory),
             new RuleBasedConversationDirector(
-                new ConversationActionPlanner()));
+                new ConversationActionPlanner()),
+            CreateNoDelayScheduler(),
+            new ConversationQuestionPolicyService(dbContextFactory),
+            CreateIdentityContinuityService());
 
         GroupChatInteractionResult result = await interactionService
             .ProcessUserMessageAsync(storedGroupChat, content);
@@ -256,7 +263,10 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             new FakeAiReplyService(),
             new GroupChatReplyPlanner(dbContextFactory),
             new RuleBasedConversationDirector(
-                new ConversationActionPlanner()));
+                new ConversationActionPlanner()),
+            CreateNoDelayScheduler(),
+            new ConversationQuestionPolicyService(dbContextFactory),
+            CreateIdentityContinuityService());
 
         return new TestContext(
             Assert.IsType<GroupChat>(groupChat),
@@ -267,6 +277,22 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     public void Dispose()
     {
         _database.Dispose();
+    }
+
+    private AiReplyTimingScheduler CreateNoDelayScheduler()
+    {
+        return new AiReplyTimingScheduler(
+            _database.CreateDbContextFactory(),
+            (_, _) => Task.CompletedTask);
+    }
+
+    private AiIdentityContinuityService CreateIdentityContinuityService()
+    {
+        VocaChat.Data.VocaChatDbContextFactory factory =
+            _database.CreateDbContextFactory();
+        return new AiIdentityContinuityService(
+            new AiSelfMemoryService(factory),
+            new AiInteractionDiagnosticLogService(factory));
     }
 
     private sealed class TestContext

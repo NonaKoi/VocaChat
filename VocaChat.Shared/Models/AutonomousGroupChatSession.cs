@@ -14,6 +14,9 @@ public class AutonomousGroupChatSession
     public Guid InitiatorAiAccountId { get; private set; }
     public string Topic { get; private set; }
     public IReadOnlyList<AiAccount> Participants => _participants.AsReadOnly();
+    public int MaximumRounds { get; private set; }
+    public int ContinuationRatePercent { get; private set; }
+    public int CompletedRounds { get; private set; }
     public AutonomousGroupChatSessionStatus Status { get; private set; }
     public AutonomousGroupChatSessionEndReason? EndReason { get; private set; }
     public DateTime StartedAt { get; private set; }
@@ -30,6 +33,8 @@ public class AutonomousGroupChatSession
         Guid initiatorAiAccountId,
         string topic,
         IEnumerable<AiAccount> participants,
+        int maximumRounds,
+        int continuationRatePercent,
         DateTime startedAt)
     {
         Id = Guid.NewGuid();
@@ -37,6 +42,9 @@ public class AutonomousGroupChatSession
         InitiatorAiAccountId = initiatorAiAccountId;
         Topic = topic;
         _participants.AddRange(participants);
+        MaximumRounds = maximumRounds;
+        ContinuationRatePercent = continuationRatePercent;
+        CompletedRounds = 0;
         Status = AutonomousGroupChatSessionStatus.Running;
         StartedAt = startedAt;
         LastActivityAt = startedAt;
@@ -48,11 +56,39 @@ public class AutonomousGroupChatSession
         LastActivityAt = occurredAt;
     }
 
-    internal void Complete(DateTime endedAt)
+    internal void RecordCompletedRound(DateTime occurredAt)
     {
+        EnsureRunning();
+
+        if (CompletedRounds >= MaximumRounds)
+        {
+            throw new InvalidOperationException(
+                "自主好友群聊已经达到最大轮数。");
+        }
+
+        CompletedRounds++;
+        LastActivityAt = occurredAt;
+    }
+
+    internal void Complete(
+        AutonomousGroupChatSessionEndReason endReason,
+        DateTime endedAt)
+    {
+        if (endReason is not (
+                AutonomousGroupChatSessionEndReason.Completed
+                or AutonomousGroupChatSessionEndReason.NaturalConclusion
+                or AutonomousGroupChatSessionEndReason
+                    .ContinuationProbabilityDeclined
+                or AutonomousGroupChatSessionEndReason.HardLimitReached))
+        {
+            throw new ArgumentException(
+                "完成状态需要使用正常结束原因。",
+                nameof(endReason));
+        }
+
         End(
             AutonomousGroupChatSessionStatus.Completed,
-            AutonomousGroupChatSessionEndReason.Completed,
+            endReason,
             endedAt);
     }
 
@@ -60,7 +96,11 @@ public class AutonomousGroupChatSession
         AutonomousGroupChatSessionEndReason endReason,
         DateTime endedAt)
     {
-        if (endReason == AutonomousGroupChatSessionEndReason.Completed)
+        if (endReason is AutonomousGroupChatSessionEndReason.Completed
+            or AutonomousGroupChatSessionEndReason.NaturalConclusion
+            or AutonomousGroupChatSessionEndReason
+                .ContinuationProbabilityDeclined
+            or AutonomousGroupChatSessionEndReason.HardLimitReached)
         {
             throw new ArgumentException(
                 "失败状态不能使用完成原因。",

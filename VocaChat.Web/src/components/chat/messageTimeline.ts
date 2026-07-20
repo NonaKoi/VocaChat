@@ -1,9 +1,9 @@
-import type { ChatMessageResponse } from '@/api/types'
+import type { DisplayChatMessage } from '@/types/displayChatMessage'
 
 export interface MessageTimelineMessage {
   kind: 'message'
   id: string
-  message: ChatMessageResponse
+  message: DisplayChatMessage
 }
 
 export interface DateDivider {
@@ -19,7 +19,7 @@ export type MessageTimelineItem = MessageTimelineMessage | DateDivider
  * 每条消息都保留自己的发送者、时间和气泡，不合并连续发言。
  */
 export function buildMessageTimeline(
-  messages: ChatMessageResponse[],
+  messages: DisplayChatMessage[],
   now = new Date(),
 ): MessageTimelineItem[] {
   const timeline: MessageTimelineItem[] = []

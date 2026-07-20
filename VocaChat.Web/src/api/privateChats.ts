@@ -2,6 +2,8 @@ import { ApiError, getJson, postJson } from '@/api/http'
 import type {
   PrivateChatResponse,
   PrivateMessageResponse,
+  SendPrivateMessageFailureResponse,
+  SendPrivateMessageRequest,
   SendPrivateMessageResponse,
 } from '@/api/types'
 
@@ -13,12 +15,31 @@ export function getPrivateMessages(id: string): Promise<PrivateMessageResponse[]
   return getJson(`/api/private-chats/${id}/messages`)
 }
 
-export function sendPrivateMessage(id: string, content: string): Promise<SendPrivateMessageResponse> {
-  return postJson(`/api/private-chats/${id}/messages`, { content })
+export function sendPrivateMessage(
+  id: string,
+  request: SendPrivateMessageRequest,
+): Promise<SendPrivateMessageResponse> {
+  return postJson(`/api/private-chats/${id}/messages`, request)
 }
 
-export function getSavedPrivateUserMessage(error: unknown): PrivateMessageResponse | undefined {
-  if (!(error instanceof ApiError) || typeof error.responseBody !== 'object' || error.responseBody === null) return undefined
-  const value = (error.responseBody as { savedUserMessage?: unknown }).savedUserMessage
-  return typeof value === 'object' && value !== null ? value as PrivateMessageResponse : undefined
+export function getSavedPrivateMessages(error: unknown): PrivateMessageResponse[] {
+  if (!(error instanceof ApiError) || !isFailureResponse(error.responseBody)) {
+    return []
+  }
+
+  return [
+    ...(error.responseBody.savedUserMessage
+      ? [error.responseBody.savedUserMessage]
+      : []),
+    ...(error.responseBody.savedAiReplies ?? []),
+  ]
+}
+
+function isFailureResponse(
+  value: unknown,
+): value is SendPrivateMessageFailureResponse {
+  return typeof value === 'object'
+    && value !== null
+    && 'message' in value
+    && typeof value.message === 'string'
 }

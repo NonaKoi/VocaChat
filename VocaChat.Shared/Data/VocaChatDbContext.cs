@@ -17,12 +17,17 @@ public sealed class VocaChatDbContext : DbContext
     public DbSet<AiRelationshipChange> AiRelationshipChanges =>
         Set<AiRelationshipChange>();
     public DbSet<AiMemory> AiMemories => Set<AiMemory>();
+    public DbSet<AiSelfMemory> AiSelfMemories => Set<AiSelfMemory>();
     public DbSet<AutonomousPrivateChatSession> AutonomousPrivateChatSessions =>
         Set<AutonomousPrivateChatSession>();
     public DbSet<AutonomousPrivateChatRound> AutonomousPrivateChatRounds =>
         Set<AutonomousPrivateChatRound>();
     public DbSet<AutonomousGroupChatSession> AutonomousGroupChatSessions =>
         Set<AutonomousGroupChatSession>();
+    public DbSet<AutonomousGroupChatRound> AutonomousGroupChatRounds =>
+        Set<AutonomousGroupChatRound>();
+    public DbSet<AiInteractionDiagnosticLog> AiInteractionDiagnosticLogs =>
+        Set<AiInteractionDiagnosticLog>();
     public DbSet<AiAccount> AiAccounts => Set<AiAccount>();
     public DbSet<AiAccountTag> AiAccountTags => Set<AiAccountTag>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
@@ -55,12 +60,17 @@ public sealed class VocaChatDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new AiRelationshipChangeConfiguration());
         modelBuilder.ApplyConfiguration(new AiMemoryConfiguration());
+        modelBuilder.ApplyConfiguration(new AiSelfMemoryConfiguration());
         modelBuilder.ApplyConfiguration(
             new AutonomousPrivateChatSessionConfiguration());
         modelBuilder.ApplyConfiguration(
             new AutonomousPrivateChatRoundConfiguration());
         modelBuilder.ApplyConfiguration(
             new AutonomousGroupChatSessionConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AutonomousGroupChatRoundConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiInteractionDiagnosticLogConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountTagConfiguration());
         modelBuilder.ApplyConfiguration(new ContactGroupConfiguration());

@@ -343,6 +343,168 @@ public class AiAccountServiceTests : IDisposable
     }
 
     [Fact]
+    public void TryUpdateAiAccount_ReplacesProfileAndTagsWithoutChangingIdentityOrMedia()
+    {
+        AiAccountService service = CreateService();
+        Assert.True(service.TryCreateAiAccount(
+            new AiAccountCreationData
+            {
+                Nickname = "旧昵称",
+                VcNumber = "Old#Profile",
+                Signature = "旧签名",
+                InterestTags = new[] { "绘画", "阅读" },
+                PersonalityTags = new[] { "安静" }
+            },
+            out AiAccount? created,
+            out string createError), createError);
+        Assert.NotNull(created);
+        Assert.True(service.TryChangeAvatarMediaId(
+            created.Id,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            out _,
+            out _,
+            out string mediaError), mediaError);
+        DateTime originalCreatedAt = created.CreatedAt;
+
+        AiAccountUpdateStatus status = service.TryUpdateAiAccount(
+            created.Id,
+            new AiAccountUpdateData
+            {
+                Nickname = "  新昵称  ",
+                VcNumber = "  New#Profile  ",
+                IdentityDescription = "  长期生活在海边的插画师  ",
+                Personality = "  温和、认真  ",
+                SpeakingStyle = "  自然简洁  ",
+                Signature = "  慢慢画完想画的故事。  ",
+                Birthday = new DateOnly(1999, 11, 8),
+                Gender = AiAccountGender.Female,
+                Location = "  中国 厦门  ",
+                Occupation = "  插画师  ",
+                Hometown = "  中国 泉州  ",
+                OnlineStatus = OnlineStatus.Away,
+                InterestTags = new[] { "摄影", " 阅读 ", "摄影" },
+                PersonalityTags = new[] { "细腻", "温和" }
+            },
+            out AiAccount? updated,
+            out string updateError);
+
+        Assert.Equal(AiAccountUpdateStatus.Success, status);
+        Assert.Equal(string.Empty, updateError);
+        Assert.NotNull(updated);
+        AiAccount stored = Assert.IsType<AiAccount>(
+            new AiAccountService(_database.CreateDbContextFactory())
+                .FindById(created.Id));
+        Assert.Equal(created.Id, stored.Id);
+        Assert.Equal(originalCreatedAt, stored.CreatedAt);
+        Assert.Equal("New#Profile", stored.VcNumber);
+        Assert.Equal("新昵称", stored.Nickname);
+        Assert.Equal("长期生活在海边的插画师", stored.IdentityDescription);
+        Assert.Equal("慢慢画完想画的故事。", stored.Signature);
+        Assert.Equal(new DateOnly(1999, 11, 8), stored.Birthday);
+        Assert.Equal(AiAccountGender.Female, stored.Gender);
+        Assert.Equal(OnlineStatus.Away, stored.OnlineStatus);
+        Assert.Equal(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            stored.AvatarMediaId);
+        Assert.Equal(
+            new[] { "摄影", "阅读" },
+            stored.Tags
+                .Where(tag => tag.Type == AiAccountTagType.Interest)
+                .OrderBy(tag => tag.Value)
+                .Select(tag => tag.Value));
+        Assert.Equal(
+            new[] { "温和", "细腻" },
+            stored.Tags
+                .Where(tag => tag.Type == AiAccountTagType.Personality)
+                .OrderBy(tag => tag.Value)
+                .Select(tag => tag.Value));
+        Assert.DoesNotContain(stored.Tags, tag => tag.Value == "绘画");
+
+        Assert.Equal(
+            AiAccountUpdateStatus.Success,
+            service.TryUpdateAiAccount(
+                stored.Id,
+                CreateUpdateData(stored.Nickname, stored.VcNumber),
+                out _,
+                out _));
+    }
+
+    [Fact]
+    public void TryUpdateAiAccount_DuplicateIdentityValuesAreRejectedWithoutPartialChange()
+    {
+        AiAccountService service = CreateService();
+        AiAccount first = CreateAccountWithVcNumber(
+            service,
+            "FirstAccount",
+            "First#01");
+        AiAccount second = CreateAccountWithVcNumber(
+            service,
+            "SecondAccount",
+            "Second#02");
+
+        AiAccountUpdateStatus nicknameStatus = service.TryUpdateAiAccount(
+            second.Id,
+            CreateUpdateData("firstaccount", "Second#02"),
+            out _,
+            out string nicknameError);
+        AiAccountUpdateStatus vcNumberStatus = service.TryUpdateAiAccount(
+            second.Id,
+            CreateUpdateData("SecondAccount", "first#01"),
+            out _,
+            out string vcNumberError);
+
+        Assert.Equal(AiAccountUpdateStatus.DuplicateNickname, nicknameStatus);
+        Assert.Equal("昵称已存在。", nicknameError);
+        Assert.Equal(AiAccountUpdateStatus.DuplicateVcNumber, vcNumberStatus);
+        Assert.Equal("VC号已存在。", vcNumberError);
+        AiAccount unchanged = Assert.IsType<AiAccount>(service.FindById(second.Id));
+        Assert.Equal("SecondAccount", unchanged.Nickname);
+        Assert.Equal("Second#02", unchanged.VcNumber);
+        Assert.NotEqual(first.Id, unchanged.Id);
+    }
+
+    [Fact]
+    public void TryUpdateAiAccount_InvalidDataAndMissingAccountReturnExplicitStatuses()
+    {
+        AiAccountService service = CreateService();
+        AiAccount account = CreateAccount(service, "UpdateValidation");
+
+        Assert.Equal(
+            AiAccountUpdateStatus.InvalidData,
+            service.TryUpdateAiAccount(
+                account.Id,
+                CreateUpdateData("   ", account.VcNumber),
+                out _,
+                out _));
+        Assert.Equal(
+            AiAccountUpdateStatus.InvalidData,
+            service.TryUpdateAiAccount(
+                account.Id,
+                CreateUpdateData(account.Nickname, "   "),
+                out _,
+                out _));
+        Assert.Equal(
+            AiAccountUpdateStatus.InvalidData,
+            service.TryUpdateAiAccount(
+                account.Id,
+                new AiAccountUpdateData
+                {
+                    Nickname = account.Nickname,
+                    VcNumber = account.VcNumber,
+                    Birthday = DateOnly.FromDateTime(DateTime.Today).AddDays(1)
+                },
+                out _,
+                out _));
+        Assert.Equal(
+            AiAccountUpdateStatus.AccountNotFound,
+            service.TryUpdateAiAccount(
+                Guid.NewGuid(),
+                CreateUpdateData("MissingAccount", "Missing#01"),
+                out _,
+                out _));
+    }
+
+    [Fact]
     public void TryChangeMediaIds_PersistsOpaqueIdentifiersAcrossServiceInstances()
     {
         AiAccountService firstService = CreateService();
@@ -424,5 +586,16 @@ public class AiAccountServiceTests : IDisposable
 
         Assert.True(succeeded, errorMessage);
         return Assert.IsType<AiAccount>(account);
+    }
+
+    private static AiAccountUpdateData CreateUpdateData(
+        string nickname,
+        string vcNumber)
+    {
+        return new AiAccountUpdateData
+        {
+            Nickname = nickname,
+            VcNumber = vcNumber
+        };
     }
 }

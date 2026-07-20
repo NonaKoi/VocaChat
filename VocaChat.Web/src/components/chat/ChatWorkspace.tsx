@@ -10,7 +10,6 @@ import {
 import { useEffect, useState } from 'react'
 import type {
   AiAccountResponse,
-  ChatMessageResponse,
   ContactResponse,
   ConversationCategory,
   ConversationKind,
@@ -25,6 +24,7 @@ import { EmptyState } from '@/components/feedback/EmptyState'
 import { LoadingState } from '@/components/feedback/LoadingState'
 import { Button } from '@/components/ui/button'
 import type { MessageSendOutcome } from '@/types/messageSendOutcome'
+import type { DisplayChatMessage } from '@/types/displayChatMessage'
 import type { RemoteStatus } from '@/types/remoteStatus'
 
 interface Props {
@@ -38,7 +38,7 @@ interface Props {
   groupChat?: GroupChatResponse
   contacts: ContactResponse[]
   contactStatus: RemoteStatus
-  messages: ChatMessageResponse[]
+  messages: DisplayChatMessage[]
   messageStatus: RemoteStatus
   messageError?: string
   sendError?: string

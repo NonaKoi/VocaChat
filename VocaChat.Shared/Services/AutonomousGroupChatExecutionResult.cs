@@ -12,6 +12,8 @@ public sealed class AutonomousGroupChatExecutionResult
     public GroupChat? GroupChat { get; init; }
     public bool GroupChatCreated { get; init; }
     public AutonomousGroupChatSession? Session { get; init; }
+    public IReadOnlyList<AutonomousGroupChatRound> Rounds { get; init; } =
+        Array.Empty<AutonomousGroupChatRound>();
     public IReadOnlyList<GroupMessage> Messages { get; init; } =
         Array.Empty<GroupMessage>();
     public string ErrorMessage { get; init; } = string.Empty;

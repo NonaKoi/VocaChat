@@ -13,7 +13,6 @@ import {
 } from 'lucide-react'
 import type { AiAccountGender, AiAccountResponse, OnlineStatus } from '@/api/types'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
-import { ProfileMediaUploadButton } from '@/components/aiAccounts/ProfileMediaUploadButton'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/feedback/EmptyState'
 import { LoadingState } from '@/components/feedback/LoadingState'
@@ -23,11 +22,6 @@ interface AiAccountDetailsProps {
   account?: AiAccountResponse
   status: RemoteStatus
   isEmpty: boolean
-  isUploadingAvatar?: boolean
-  isUploadingCover?: boolean
-  mediaUploadErrorMessage?: string
-  onUploadAvatar?: (file: File) => Promise<unknown>
-  onUploadCover?: (file: File) => Promise<unknown>
   onSendMessage?: () => void
 }
 
@@ -52,11 +46,6 @@ export function AiAccountDetails({
   account,
   status,
   isEmpty,
-  isUploadingAvatar = false,
-  isUploadingCover = false,
-  mediaUploadErrorMessage,
-  onUploadAvatar,
-  onUploadCover,
   onSendMessage,
 }: AiAccountDetailsProps) {
   if (status === 'idle' || status === 'loading') return <LoadingState variant="detail" />
@@ -94,16 +83,6 @@ export function AiAccountDetails({
             <span className="friend-profile-orbit friend-profile-orbit-two" aria-hidden="true" />
           </>
         )}
-        {onUploadCover && (
-          <ProfileMediaUploadButton
-            inputId={`friend-cover-upload-${account.id}`}
-            mediaKind="cover"
-            isUploading={isUploadingCover}
-            disabled={isUploadingAvatar}
-            className="absolute top-4 right-5 z-10 border-white/35 bg-surface/92 text-foreground hover:bg-surface"
-            onUpload={onUploadCover}
-          />
-        )}
       </div>
 
       <div className="mx-auto -mt-12 w-full max-w-5xl px-6 xl:px-10">
@@ -117,17 +96,6 @@ export function AiAccountDetails({
                 size="large"
                 className="size-24 rounded-2xl ring-4 ring-surface"
               />
-              {onUploadAvatar && (
-                <ProfileMediaUploadButton
-                  inputId={`friend-avatar-upload-${account.id}`}
-                  mediaKind="avatar"
-                  isUploading={isUploadingAvatar}
-                  disabled={isUploadingCover}
-                  compact
-                  className="absolute -top-2 -right-2 z-10 size-8 rounded-full bg-surface shadow-message"
-                  onUpload={onUploadAvatar}
-                />
-              )}
               <span
                 className={`absolute right-0 bottom-1 size-4 rounded-full border-[3px] border-surface ${statusPresentation.className}`}
                 aria-hidden="true"
@@ -156,16 +124,6 @@ export function AiAccountDetails({
             )}
           </div>
         </header>
-
-        {mediaUploadErrorMessage && (
-          <div
-            className="mt-4 rounded-lg border border-destructive/20 bg-danger-soft px-4 py-3 text-sm text-destructive"
-            role="alert"
-          >
-            <strong className="font-semibold">图片上传失败：</strong>
-            {mediaUploadErrorMessage}
-          </div>
-        )}
 
         <section className="mt-5 overflow-hidden rounded-xl border border-border bg-surface" aria-labelledby="friend-basic-profile-title">
           <h2 id="friend-basic-profile-title" className="sr-only">基础资料</h2>

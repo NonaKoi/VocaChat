@@ -13,6 +13,7 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
     private const int DirectorGoalMaximumLength = 200;
     private const int DirectorListItemMaximumLength = 120;
     private const int DirectorListMaximumCount = 5;
+    private const int DirectorSelfMemoryProposalMaximumCount = 2;
     private readonly OpenAiCompatibleChatClient _chatClient;
     private readonly AiMessageGenerationOptions _options;
     private readonly AiConversationContextBuilder _contextBuilder;
@@ -39,7 +40,9 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ConversationActionPlan baselinePlan = _actionPlanner.CreatePlan(request);
+        ConversationActionPlan initialPlan = _actionPlanner.CreatePlan(request);
+        ConversationActionPlan baselinePlan = request.QuestionPolicy?.ApplyTo(
+            initialPlan) ?? initialPlan;
 
         AiMessageCountRange messageCountRange = GetMessageCountRange(request);
         if (messageCountRange.Maximum == 0)
@@ -73,7 +76,7 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                     topP: 0.7,
                     maximumCompletionTokens: Math.Min(
                         _options.MaximumCompletionTokens,
-                        384),
+                        512),
                     cancellationToken);
 
                 try
@@ -133,6 +136,31 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             && action != ConversationAction.Answer)
         {
             throw new AiMessageGenerationException("目标消息需要直接回答，导演不能改变该硬约束。");
+        }
+
+        if (request.QuestionPolicy?.ForceDeclarativeReply == true
+            && action == ConversationAction.Ask)
+        {
+            throw new AiMessageGenerationException(
+                "连续疑问轮次已达到上限，本轮不能继续使用 Ask 动作。");
+        }
+
+        string questionModeText = GetRequiredString(root, "questionMode");
+        if (!Enum.TryParse(
+                questionModeText,
+                ignoreCase: true,
+                out ConversationQuestionMode questionMode)
+            || !Enum.IsDefined(questionMode))
+        {
+            throw new AiMessageGenerationException(
+                "导演返回了不支持的疑问句模式。");
+        }
+
+        if (request.QuestionPolicy?.ForceDeclarativeReply == true
+            && questionMode != ConversationQuestionMode.None)
+        {
+            throw new AiMessageGenerationException(
+                "连续疑问轮次已达到上限，本轮必须使用 None 疑问句模式。");
         }
 
         if (request.Scenario ==
@@ -200,6 +228,11 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         IReadOnlyList<string> forbiddenClaims = ParseStringList(
             root,
             "forbiddenClaims");
+        IReadOnlyList<Guid> referencedSelfMemoryIds = ParseOptionalGuidList(
+            root,
+            "referencedSelfMemoryIds");
+        IReadOnlyList<AiSelfMemoryProposal> selfMemoryProposals =
+            ParseOptionalSelfMemoryProposals(root);
         int selectedMessageCount = GetRequiredInt(root, "messageCount");
         AiMessageCountRange allowedRange = GetMessageCountRange(request);
         if (!allowedRange.Contains(selectedMessageCount))
@@ -208,8 +241,13 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                 $"导演选择的消息数量必须在 {allowedRange.Minimum} 到 {allowedRange.Maximum} 之间。");
         }
 
+        ConversationActionPlan actionPlan = _actionPlanner
+            .CreatePlan(request, action) with
+        {
+            QuestionMode = questionMode
+        };
         return new ConversationDirectionPlan(
-            _actionPlanner.CreatePlan(request, action),
+            request.QuestionPolicy?.ApplyTo(actionPlan) ?? actionPlan,
             beat,
             topicFocus,
             responseGoal,
@@ -220,7 +258,9 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             avoidedTopics,
             forbiddenClaims,
             false,
-            selectedMessageCount);
+            selectedMessageCount,
+            referencedSelfMemoryIds,
+            selfMemoryProposals);
     }
 
     private static IReadOnlyList<string> ParseStringList(
@@ -255,6 +295,119 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             .AsReadOnly();
     }
 
+    private static IReadOnlyList<Guid> ParseOptionalGuidList(
+        JsonElement root,
+        string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement element))
+        {
+            return Array.Empty<Guid>();
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            throw new AiMessageGenerationException(
+                $"导演计划中的 {propertyName} 必须是数组。");
+        }
+
+        List<Guid> ids = new();
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(item.GetString(), out Guid id))
+            {
+                throw new AiMessageGenerationException(
+                    $"导演计划中的 {propertyName} 包含无效 Id。");
+            }
+
+            ids.Add(id);
+        }
+
+        if (ids.Count > 6)
+        {
+            throw new AiMessageGenerationException(
+                $"导演计划中的 {propertyName} 最多包含 6 项。");
+        }
+
+        return ids.Distinct().ToList().AsReadOnly();
+    }
+
+    private static IReadOnlyList<AiSelfMemoryProposal>
+        ParseOptionalSelfMemoryProposals(JsonElement root)
+    {
+        if (!root.TryGetProperty(
+                "selfMemoryProposals",
+                out JsonElement element))
+        {
+            return Array.Empty<AiSelfMemoryProposal>();
+        }
+
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() >
+                DirectorSelfMemoryProposalMaximumCount)
+        {
+            throw new AiMessageGenerationException(
+                "导演计划中的个人记忆建议必须是最多两项的数组。");
+        }
+
+        List<AiSelfMemoryProposal> proposals = new();
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            string operationText = GetRequiredString(item, "operation");
+            string typeText = GetRequiredString(item, "type");
+            if (!Enum.TryParse(
+                    operationText,
+                    ignoreCase: true,
+                    out AiSelfMemoryProposalOperation operation)
+                || !Enum.IsDefined(operation)
+                || !Enum.TryParse(
+                    typeText,
+                    ignoreCase: true,
+                    out AiSelfMemoryType type)
+                || !Enum.IsDefined(type))
+            {
+                throw new AiMessageGenerationException(
+                    "导演返回了不支持的个人记忆操作或类型。");
+            }
+
+            Guid? targetMemoryId = null;
+            if (item.TryGetProperty(
+                    "targetMemoryId",
+                    out JsonElement targetElement)
+                && targetElement.ValueKind != JsonValueKind.Null)
+            {
+                if (targetElement.ValueKind != JsonValueKind.String
+                    || !Guid.TryParse(
+                        targetElement.GetString(),
+                        out Guid parsedTargetId))
+                {
+                    throw new AiMessageGenerationException(
+                        "导演返回的目标个人记忆 Id 无效。");
+                }
+
+                targetMemoryId = parsedTargetId;
+            }
+
+            string summary = GetRequiredString(item, "summary");
+            string reason = GetRequiredString(item, "reason");
+            if (summary.Length > AiSelfMemory.SummaryMaxLength
+                || reason.Length > 200)
+            {
+                throw new AiMessageGenerationException(
+                    "导演返回的个人记忆摘要或原因过长。");
+            }
+
+            proposals.Add(new AiSelfMemoryProposal(
+                operation,
+                targetMemoryId,
+                type,
+                summary,
+                reason));
+        }
+
+        return proposals.AsReadOnly();
+    }
+
     private string BuildUserPrompt(
         AiMessageGenerationRequest request,
         ConversationActionPlan baselinePlan)
@@ -283,6 +436,10 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         builder.AppendLine($"规则基线动作：{baselinePlan.Action}");
         builder.AppendLine($"关系距离：{baselinePlan.RelationshipTone}");
         builder.AppendLine($"关系投入对比：{baselinePlan.RelationshipBalance}");
+        builder.AppendLine(
+            request.QuestionPolicy?.ForceDeclarativeReply == true
+                ? $"疑问句策略：此前已经连续 {request.QuestionPolicy.ConsecutiveQuestionTurns} 轮以问题收尾，本轮必须使用 questionMode=None，且不能选择 Ask"
+                : "疑问句策略：可根据当前回应目的选择 None、Optional 或 Natural，不需要为了延续对话而强行提问");
         AiMessageCountRange messageCountRange = GetMessageCountRange(request);
         builder.AppendLine(
             messageCountRange.Minimum == messageCountRange.Maximum
@@ -315,11 +472,15 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             AppendContextMessage(builder, message);
         }
 
+        AppendSelfMemories(builder, context.SelfMemories);
         AppendMemories(builder, context.Memories);
 
         builder.AppendLine("先从整段会话判断已经表达过什么、原始要求还有什么没完成，再选择一个会话节拍和动作。");
         builder.AppendLine("newContribution 必须指出本轮相对最近消息新增的内容，不能只是换一种说法赞同上一句。");
         builder.AppendLine("forbiddenClaims 必须包含当前好友没有资料或本人历史依据、因此不能声称亲历的事实类型。");
+        builder.AppendLine("referencedSelfMemoryIds 只能填写本轮确实需要使用的本人个人记忆 Id；没有使用时返回空数组。");
+        builder.AppendLine("selfMemoryProposals 只记录本轮最终台词确实准备表达、且以后仍需保持一致的动态个人事实，最多两项。普通寒暄、即时情绪和对其他人的事实不得记录。");
+        builder.AppendLine("新增稳定身份事实不属于本轮权限；只可建议 OngoingActivity、Plan、Experience 或 Preference。Add 的 targetMemoryId 为 null；Update 和 Archive 必须指向上方当前账号的有效导演记忆。");
         builder.AppendLine("messageCount 必须在允许范围内；简单反应通常一条，需要解释或包含多个关联信息时可以自然拆成多条，不能为了凑数切碎同一句话。");
         builder.AppendLine("用户明确要求多说几句、分开说或不要只回一句时，只要允许范围容纳，messageCount 至少选择 2。");
         return builder.ToString();
@@ -332,17 +493,21 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             "业务层已经确定发言者、参与者、允许的消息数量范围、轮次和目标消息；你绝不能改变这些事实。",
             "可选 action 只有 Acknowledge、Answer、Ask、Share、React、Comfort、Tease、Disagree、Evade、ShiftTopic、Close。",
             "可选 beat 只有 Introduce、Develop、Contrast、Clarify、Resolve、Close，用来表示整段会话的推进位置。",
+            "questionMode 只能是 None、Optional、Natural，由你根据本轮动作和自然交流需要决定。",
             "如果规则基线动作为 Answer 或 Close，必须保持该动作。",
             "targetMessageId 必须原样返回；没有目标消息时返回空字符串。",
             "topicFocus 和 responseGoal 应具体、简短，不得包含最终聊天台词。",
             "coveredPoints 列出最近已经说清楚的观点；unresolvedGoals 列出原始要求中仍待完成的部分。",
             "newContribution 指定本轮必须新增的观点、决定、信息或情绪变化，不能只要求附和或复述。",
             "avoidedTopics 列出不要恢复的旧话题；forbiddenClaims 列出没有身份资料或本人历史依据、不可虚构的第一人称事实。",
+            "referencedSelfMemoryIds 只列出本轮实际用于规划的当前发言者个人记忆 Id。",
+            "selfMemoryProposals 最多两项，每项包含 operation、targetMemoryId、type、summary、reason。只建议最终台词会自然表达、以后仍需保持一致的本人动态事实；不能记录他人的经历、普通寒暄或瞬时情绪。",
+            "个人记忆 operation 只能是 Add、Update、Archive；类型只能使用 OngoingActivity、Plan、Experience、Preference。Add 的 targetMemoryId 返回 null，Update 和 Archive 必须引用提供的有效导演记忆。",
             "长期记忆只代表当前发言者过去对当前对象形成的认识。只有与本轮目标自然相关时才能用于规划，不能让记忆取代目标消息，也不能把对方经历归到当前发言者名下。",
             "messageCount 表示本轮应独立发送几条聊天消息，必须处于业务层允许范围内。消息数量服务于完整表达和自然节奏，不用于机械切句。",
-            "四个数组没有内容时返回空数组，每个数组最多五项。",
+            "各数组没有内容时返回空数组；普通语义数组最多五项，个人记忆建议最多两项。",
             "严格输出 json 对象，不要输出 Markdown 或额外解释。",
-            "json 示例：{\"action\":\"Answer\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"messageCount\":2,\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"]}");
+            "json 示例：{\"action\":\"Answer\",\"questionMode\":\"Optional\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"messageCount\":2,\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"],\"referencedSelfMemoryIds\":[],\"selfMemoryProposals\":[]}");
 
     private static AiMessageCountRange GetMessageCountRange(
         AiMessageGenerationRequest request) =>
@@ -399,6 +564,25 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                 $"[{memory.Type}] 关于{memory.SubjectDisplayName}："
                 + $"{Truncate(memory.Summary, 300)}"
                 + $"（{memory.OccurredAt:yyyy-MM-dd}）");
+        }
+    }
+
+    private static void AppendSelfMemories(
+        StringBuilder builder,
+        IReadOnlyList<AiConversationSelfMemory> memories)
+    {
+        builder.AppendLine("当前发言者自己的有效个人记忆：");
+        if (memories.Count == 0)
+        {
+            builder.AppendLine("（暂无）");
+            return;
+        }
+
+        foreach (AiConversationSelfMemory memory in memories)
+        {
+            builder.AppendLine(
+                $"[{memory.Id}] [{memory.Type}] {Truncate(memory.Summary, 300)}"
+                + $"（来源：{memory.Source}，用户锁定：{memory.IsUserLocked}）");
         }
     }
 

@@ -16,6 +16,24 @@ public class AutonomousInteractionSettings
     internal const int MaximumPrivateChatMaximumRounds = 12;
     internal const int DefaultAutonomousGroupChatMaximumMembers = 6;
     internal const int MinimumAutonomousGroupChatMaximumMembers = 3;
+    internal const int DefaultGroupChatContinuationRatePercent = 80;
+    internal const int MinimumGroupChatContinuationRatePercent = 0;
+    internal const int MaximumGroupChatContinuationRatePercent = 95;
+    internal const int DefaultGroupChatMaximumRounds = 4;
+    internal const int MinimumGroupChatMaximumRounds = 1;
+    internal const int MaximumGroupChatMaximumRounds = 12;
+    internal const AiReplyDelayMode DefaultReplyDelayMode =
+        AiReplyDelayMode.RandomRange;
+    internal const long DefaultFixedReplyDelayMilliseconds = 1200;
+    internal const long DefaultMinimumReplyDelayMilliseconds = 800;
+    internal const long DefaultMaximumReplyDelayMilliseconds = 1800;
+    internal const AiReplyDelayMode DefaultConsecutiveMessageDelayMode =
+        AiReplyDelayMode.RandomRange;
+    internal const long DefaultFixedConsecutiveMessageDelayMilliseconds = 700;
+    internal const long DefaultMinimumConsecutiveMessageDelayMilliseconds = 400;
+    internal const long DefaultMaximumConsecutiveMessageDelayMilliseconds = 1200;
+    internal const int DefaultMaximumConsecutiveQuestionTurns = 2;
+    internal const int MinimumMaximumConsecutiveQuestionTurns = 1;
 
     public int Id { get; private set; }
     public bool IsEnabled { get; private set; }
@@ -25,6 +43,17 @@ public class AutonomousInteractionSettings
     public int PrivateChatContinuationRatePercent { get; private set; }
     public int PrivateChatMaximumRounds { get; private set; }
     public int AutonomousGroupChatMaximumMembers { get; private set; }
+    public int GroupChatContinuationRatePercent { get; private set; }
+    public int GroupChatMaximumRounds { get; private set; }
+    public AiReplyDelayMode ReplyDelayMode { get; private set; }
+    public long FixedReplyDelayMilliseconds { get; private set; }
+    public long MinimumReplyDelayMilliseconds { get; private set; }
+    public long MaximumReplyDelayMilliseconds { get; private set; }
+    public AiReplyDelayMode ConsecutiveMessageDelayMode { get; private set; }
+    public long FixedConsecutiveMessageDelayMilliseconds { get; private set; }
+    public long MinimumConsecutiveMessageDelayMilliseconds { get; private set; }
+    public long MaximumConsecutiveMessageDelayMilliseconds { get; private set; }
+    public int MaximumConsecutiveQuestionTurns { get; private set; }
 
     /// <summary>
     /// 创建尚未保存的默认设置，或供 EF Core 从数据库还原设置。
@@ -41,6 +70,22 @@ public class AutonomousInteractionSettings
         PrivateChatMaximumRounds = DefaultPrivateChatMaximumRounds;
         AutonomousGroupChatMaximumMembers =
             DefaultAutonomousGroupChatMaximumMembers;
+        GroupChatContinuationRatePercent =
+            DefaultGroupChatContinuationRatePercent;
+        GroupChatMaximumRounds = DefaultGroupChatMaximumRounds;
+        ReplyDelayMode = DefaultReplyDelayMode;
+        FixedReplyDelayMilliseconds = DefaultFixedReplyDelayMilliseconds;
+        MinimumReplyDelayMilliseconds = DefaultMinimumReplyDelayMilliseconds;
+        MaximumReplyDelayMilliseconds = DefaultMaximumReplyDelayMilliseconds;
+        ConsecutiveMessageDelayMode = DefaultConsecutiveMessageDelayMode;
+        FixedConsecutiveMessageDelayMilliseconds =
+            DefaultFixedConsecutiveMessageDelayMilliseconds;
+        MinimumConsecutiveMessageDelayMilliseconds =
+            DefaultMinimumConsecutiveMessageDelayMilliseconds;
+        MaximumConsecutiveMessageDelayMilliseconds =
+            DefaultMaximumConsecutiveMessageDelayMilliseconds;
+        MaximumConsecutiveQuestionTurns =
+            DefaultMaximumConsecutiveQuestionTurns;
     }
 
     /// <summary>
@@ -53,7 +98,18 @@ public class AutonomousInteractionSettings
         bool allowGroupChats,
         int privateChatContinuationRatePercent,
         int privateChatMaximumRounds,
-        int autonomousGroupChatMaximumMembers)
+        int autonomousGroupChatMaximumMembers,
+        int groupChatContinuationRatePercent,
+        int groupChatMaximumRounds,
+        AiReplyDelayMode replyDelayMode,
+        long fixedReplyDelayMilliseconds,
+        long minimumReplyDelayMilliseconds,
+        long maximumReplyDelayMilliseconds,
+        AiReplyDelayMode consecutiveMessageDelayMode,
+        long fixedConsecutiveMessageDelayMilliseconds,
+        long minimumConsecutiveMessageDelayMilliseconds,
+        long maximumConsecutiveMessageDelayMilliseconds,
+        int maximumConsecutiveQuestionTurns)
     {
         IsEnabled = isEnabled;
         Frequency = frequency;
@@ -64,5 +120,19 @@ public class AutonomousInteractionSettings
         PrivateChatMaximumRounds = privateChatMaximumRounds;
         AutonomousGroupChatMaximumMembers =
             autonomousGroupChatMaximumMembers;
+        GroupChatContinuationRatePercent = groupChatContinuationRatePercent;
+        GroupChatMaximumRounds = groupChatMaximumRounds;
+        ReplyDelayMode = replyDelayMode;
+        FixedReplyDelayMilliseconds = fixedReplyDelayMilliseconds;
+        MinimumReplyDelayMilliseconds = minimumReplyDelayMilliseconds;
+        MaximumReplyDelayMilliseconds = maximumReplyDelayMilliseconds;
+        ConsecutiveMessageDelayMode = consecutiveMessageDelayMode;
+        FixedConsecutiveMessageDelayMilliseconds =
+            fixedConsecutiveMessageDelayMilliseconds;
+        MinimumConsecutiveMessageDelayMilliseconds =
+            minimumConsecutiveMessageDelayMilliseconds;
+        MaximumConsecutiveMessageDelayMilliseconds =
+            maximumConsecutiveMessageDelayMilliseconds;
+        MaximumConsecutiveQuestionTurns = maximumConsecutiveQuestionTurns;
     }
 }

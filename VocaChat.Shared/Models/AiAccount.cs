@@ -121,6 +121,37 @@ public class AiAccount
     }
 
     /// <summary>
+    /// 更新可编辑的完整账号档案；系统主键、创建时间和媒体标识保持不变。
+    /// </summary>
+    internal void UpdateProfile(
+        string vcNumber,
+        string nickname,
+        string identityDescription,
+        string personality,
+        string speakingStyle,
+        string signature,
+        DateOnly? birthday,
+        AiAccountGender gender,
+        string location,
+        string occupation,
+        string hometown,
+        OnlineStatus onlineStatus)
+    {
+        VcNumber = vcNumber;
+        Nickname = nickname;
+        IdentityDescription = identityDescription;
+        Personality = personality;
+        SpeakingStyle = speakingStyle;
+        Signature = signature;
+        Birthday = birthday;
+        Gender = gender;
+        Location = location;
+        Occupation = occupation;
+        Hometown = hometown;
+        OnlineStatus = onlineStatus;
+    }
+
+    /// <summary>
     /// 更新头像对应的本地媒体标识；实体不保存文件系统绝对路径。
     /// </summary>
     internal void ChangeAvatarMediaId(string mediaId)
@@ -142,6 +173,33 @@ public class AiAccount
     internal void AddTag(AiAccountTagType type, string value)
     {
         _tags.Add(new AiAccountTag(Id, type, value));
+    }
+
+    /// <summary>
+    /// 将一种标签同步为指定集合，保留相同标签并移除不再需要的标签。
+    /// </summary>
+    internal void SynchronizeTags(
+        AiAccountTagType type,
+        IReadOnlyCollection<string> values)
+    {
+        HashSet<string> expectedValues = values.ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+        _tags.RemoveAll(tag =>
+            tag.Type == type
+            && !expectedValues.Contains(tag.Value));
+
+        foreach (string value in expectedValues)
+        {
+            if (!_tags.Any(tag =>
+                    tag.Type == type
+                    && string.Equals(
+                        tag.Value,
+                        value,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                AddTag(type, value);
+            }
+        }
     }
 
     /// <summary>

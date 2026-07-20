@@ -22,6 +22,19 @@ public sealed class AutonomousGroupChatSessionConfiguration
                 + $"(\"Status\" IN ({(int)AutonomousGroupChatSessionStatus.Completed}, "
                 + $"{(int)AutonomousGroupChatSessionStatus.Failed}) "
                 + "AND \"EndReason\" IS NOT NULL AND \"EndedAt\" IS NOT NULL)");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousGroupChatSessions_MaximumRounds",
+                $"\"MaximumRounds\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatMaximumRounds} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatMaximumRounds}");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousGroupChatSessions_ContinuationRate",
+                $"\"ContinuationRatePercent\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatContinuationRatePercent} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatContinuationRatePercent}");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousGroupChatSessions_CompletedRounds",
+                "\"CompletedRounds\" >= 0 AND \"CompletedRounds\" <= \"MaximumRounds\"");
         });
 
         builder.HasKey(session => session.Id);
@@ -30,6 +43,19 @@ public sealed class AutonomousGroupChatSessionConfiguration
             .IsRequired()
             .HasMaxLength(AutonomousGroupChatSession.TopicMaxLength);
         builder.Property(session => session.Status).IsRequired();
+        builder.Property(session => session.MaximumRounds)
+            .HasDefaultValue(
+                AutonomousInteractionSettings.DefaultGroupChatMaximumRounds)
+            .IsRequired();
+        builder.Property(session => session.ContinuationRatePercent)
+            .HasDefaultValue(
+                AutonomousInteractionSettings
+                    .DefaultGroupChatContinuationRatePercent)
+            .HasSentinel(-1)
+            .IsRequired();
+        builder.Property(session => session.CompletedRounds)
+            .HasDefaultValue(0)
+            .IsRequired();
         builder.Property(session => session.StartedAt).IsRequired();
         builder.Property(session => session.LastActivityAt).IsRequired();
 

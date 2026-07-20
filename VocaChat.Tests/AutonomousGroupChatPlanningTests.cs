@@ -181,6 +181,42 @@ public sealed class AutonomousGroupChatPlanningTests : IDisposable
         Assert.True(decision.SharedInterestBonus > 0);
     }
 
+    [Fact]
+    public void SpeakerPlanner_AfterFirstRound_PrioritizesMemberWhoDidNotSpeak()
+    {
+        IReadOnlyList<AiAccount> accounts = Enumerable.Range(1, 4)
+            .Select(index => CreateAccount($"Rotation{index}"))
+            .ToList()
+            .AsReadOnly();
+        SetStrongRelationships(accounts);
+        AutonomousGroupChatPlan plan = new()
+        {
+            MemberAiAccountIds = accounts.Select(account => account.Id)
+                .ToList()
+                .AsReadOnly(),
+            InitiatorAiAccountId = accounts[0].Id,
+            Decision = new AutonomousGroupChatDecision
+            {
+                AverageRelationshipScore = 85,
+                WeakestRelationshipScore = 80
+            }
+        };
+        AutonomousGroupChatSpeakerPlanner planner = new(
+            _database.CreateDbContextFactory());
+
+        IReadOnlyList<Guid> speakers = planner.Plan(
+            plan,
+            previousRoundSpeakerIds: accounts.Take(3)
+                .Select(account => account.Id)
+                .ToHashSet(),
+            latestSpeakerId: accounts[2].Id,
+            desiredSpeakerCount: 2,
+            requireInitiator: false);
+
+        Assert.Contains(accounts[3].Id, speakers);
+        Assert.Equal(2, speakers.Count);
+    }
+
     private IReadOnlyList<AiAccount> CreateGroup(string prefix)
     {
         return Enumerable.Range(1, 3)

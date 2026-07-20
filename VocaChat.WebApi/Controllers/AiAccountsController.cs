@@ -123,6 +123,78 @@ public class AiAccountsController : ControllerBase
     }
 
     /// <summary>
+    /// 更新指定 AI 账号的完整档案；系统主键、创建时间和媒体保持不变。
+    /// </summary>
+    [HttpPut("{id}")]
+    [ProducesResponseType(typeof(AiAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public ActionResult<AiAccountResponse> Update(
+        Guid id,
+        [FromBody] UpdateAiAccountRequest request)
+    {
+        if (!TryParseProfileEnum(
+                request.Gender,
+                AiAccountGender.Unspecified,
+                out AiAccountGender gender))
+        {
+            return BadRequest(new { message = "性别值无效。" });
+        }
+
+        if (!TryParseProfileEnum(
+                request.OnlineStatus,
+                OnlineStatus.Offline,
+                out OnlineStatus onlineStatus))
+        {
+            return BadRequest(new { message = "在线状态值无效。" });
+        }
+
+        AiAccountUpdateStatus status = _aiAccountService.TryUpdateAiAccount(
+            id,
+            new AiAccountUpdateData
+            {
+                Nickname = request.Nickname ?? string.Empty,
+                VcNumber = request.VcNumber ?? string.Empty,
+                IdentityDescription =
+                    request.IdentityDescription ?? string.Empty,
+                Personality = request.Personality ?? string.Empty,
+                SpeakingStyle = request.SpeakingStyle ?? string.Empty,
+                Signature = request.Signature ?? string.Empty,
+                Birthday = request.Birthday,
+                Gender = gender,
+                Location = request.Location ?? string.Empty,
+                Occupation = request.Occupation ?? string.Empty,
+                Hometown = request.Hometown ?? string.Empty,
+                OnlineStatus = onlineStatus,
+                InterestTags = request.InterestTags ?? Array.Empty<string>(),
+                PersonalityTags =
+                    request.PersonalityTags ?? Array.Empty<string>()
+            },
+            out AiAccount? aiAccount,
+            out string errorMessage);
+
+        if (status == AiAccountUpdateStatus.AccountNotFound)
+        {
+            return NotFound();
+        }
+
+        if (status == AiAccountUpdateStatus.PersistenceFailed)
+        {
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new { message = errorMessage });
+        }
+
+        if (status != AiAccountUpdateStatus.Success || aiAccount is null)
+        {
+            return BadRequest(new { message = errorMessage });
+        }
+
+        return Ok(AiAccountResponseMapper.ToResponse(aiAccount));
+    }
+
+    /// <summary>
     /// 使用 multipart/form-data 替换指定账号的头像。
     /// </summary>
     [HttpPut("{id}/avatar")]

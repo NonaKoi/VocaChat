@@ -12,4 +12,15 @@ public sealed class AutonomousInteractionSettingsResponse
     public int PrivateChatContinuationRatePercent { get; init; }
     public int PrivateChatMaximumRounds { get; init; }
     public int AutonomousGroupChatMaximumMembers { get; init; }
+    public int GroupChatContinuationRatePercent { get; init; }
+    public int GroupChatMaximumRounds { get; init; }
+    public string ReplyDelayMode { get; init; } = string.Empty;
+    public long FixedReplyDelayMilliseconds { get; init; }
+    public long MinimumReplyDelayMilliseconds { get; init; }
+    public long MaximumReplyDelayMilliseconds { get; init; }
+    public string ConsecutiveMessageDelayMode { get; init; } = string.Empty;
+    public long FixedConsecutiveMessageDelayMilliseconds { get; init; }
+    public long MinimumConsecutiveMessageDelayMilliseconds { get; init; }
+    public long MaximumConsecutiveMessageDelayMilliseconds { get; init; }
+    public int MaximumConsecutiveQuestionTurns { get; init; }
 }

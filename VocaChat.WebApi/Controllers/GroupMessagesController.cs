@@ -20,19 +20,22 @@ public sealed class GroupMessagesController : ControllerBase
     private readonly GroupChatService _groupChatService;
     private readonly GroupMessageService _groupMessageService;
     private readonly GroupChatInteractionService _interactionService;
+    private readonly AiInteractionDiagnosticLogService _diagnosticLogService;
 
     public GroupMessagesController(
         GroupChatService groupChatService,
         GroupMessageService groupMessageService,
-        GroupChatInteractionService interactionService)
+        GroupChatInteractionService interactionService,
+        AiInteractionDiagnosticLogService diagnosticLogService)
     {
         _groupChatService = groupChatService;
         _groupMessageService = groupMessageService;
         _interactionService = interactionService;
+        _diagnosticLogService = diagnosticLogService;
     }
 
     /// <summary>
-    /// 返回指定群聊按发送时间和消息 Id 稳定排序的聊天记录。
+    /// 返回指定群聊按持久化会话序号稳定排序的聊天记录。
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<GroupMessageResponse>), StatusCodes.Status200OK)]
@@ -82,6 +85,7 @@ public sealed class GroupMessagesController : ControllerBase
             .ProcessUserMessageAsync(
                 groupChat,
                 request.Content ?? string.Empty,
+                request.ClientMessageId,
                 cancellationToken);
 
         if (result.Status == GroupChatInteractionStatus.UserMessageRejected)
@@ -94,11 +98,19 @@ public sealed class GroupMessagesController : ControllerBase
 
         if (result.Status == GroupChatInteractionStatus.AiReplyFailed)
         {
+            _diagnosticLogService.TryRecord(
+                AiInteractionDiagnosticSeverity.Error,
+                AiInteractionDiagnosticCode.MessageGenerationFailed,
+                AiMessageGenerationScenario.GroupPrimaryReply,
+                result.AiReplies.LastOrDefault()?.SenderAiAccountId,
+                groupChat.Id,
+                "群聊回复生成失败，用户消息已经保存。",
+                result.ErrorMessage);
             return StatusCode(
                 StatusCodes.Status500InternalServerError,
                 new SendGroupMessageFailureResponse
                 {
-                    Message = result.ErrorMessage,
+                    Message = "群聊回复暂时生成失败，已保留你发送的消息。",
                     SavedUserMessage = result.UserMessage is null
                         ? null
                         : GroupMessageResponseMapper.ToResponse(
@@ -110,6 +122,18 @@ public sealed class GroupMessagesController : ControllerBase
                             groupChat.Members))
                         .ToList()
                 });
+        }
+
+        if (result.Status == GroupChatInteractionStatus.PartiallySucceeded)
+        {
+            _diagnosticLogService.TryRecord(
+                AiInteractionDiagnosticSeverity.Warning,
+                AiInteractionDiagnosticCode.MessageGenerationFailed,
+                AiMessageGenerationScenario.GroupFollowUpReply,
+                result.AiReplies.LastOrDefault()?.SenderAiAccountId,
+                groupChat.Id,
+                "群聊只完成了部分回复。",
+                result.ErrorMessage);
         }
 
         if (result.UserMessage is null || result.AiReplies.Count == 0)
@@ -138,7 +162,7 @@ public sealed class GroupMessagesController : ControllerBase
                     : "Complete",
             WarningMessage = result.Status
                 == GroupChatInteractionStatus.PartiallySucceeded
-                    ? result.ErrorMessage
+                    ? "群聊只完成了部分回复，详细信息已记录到互动日志。"
                     : null
         });
     }

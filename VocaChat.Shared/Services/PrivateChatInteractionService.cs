@@ -10,15 +10,26 @@ public sealed class PrivateChatInteractionService
     private readonly PrivateChatService _privateChatService;
     private readonly IAiMessageGenerator _messageGenerator;
     private readonly IConversationDirector _conversationDirector;
+    private readonly AiReplyTimingScheduler _replyTimingScheduler;
+    private readonly ConversationQuestionPolicyService _questionPolicyService;
+    private readonly AiIdentityContinuityService _identityContinuityService;
 
     public PrivateChatInteractionService(
         PrivateChatService privateChatService,
         IAiMessageGenerator messageGenerator,
-        IConversationDirector conversationDirector)
+        IConversationDirector conversationDirector,
+        AiReplyTimingScheduler replyTimingScheduler,
+        ConversationQuestionPolicyService questionPolicyService,
+        AiIdentityContinuityService identityContinuityService)
     {
         _privateChatService = privateChatService;
         _messageGenerator = messageGenerator;
         _conversationDirector = conversationDirector;
+        _replyTimingScheduler = replyTimingScheduler;
+        _questionPolicyService = questionPolicyService
+            ?? throw new ArgumentNullException(nameof(questionPolicyService));
+        _identityContinuityService = identityContinuityService
+            ?? throw new ArgumentNullException(nameof(identityContinuityService));
     }
 
     public async Task<PrivateChatInteractionResult> ProcessUserMessageAsync(
@@ -26,9 +37,26 @@ public sealed class PrivateChatInteractionService
         string content,
         CancellationToken cancellationToken = default)
     {
+        return await ProcessUserMessageAsync(
+            privateChat,
+            content,
+            null,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// 使用客户端预先生成的消息 Id 执行私聊交互，便于界面立即展示待发送消息。
+    /// </summary>
+    public async Task<PrivateChatInteractionResult> ProcessUserMessageAsync(
+        PrivateChat privateChat,
+        string content,
+        Guid? userMessageId,
+        CancellationToken cancellationToken = default)
+    {
         if (!_privateChatService.TrySaveUserMessage(
                 privateChat,
                 content,
+                userMessageId,
                 out PrivateMessage? userMessage,
                 out string userMessageError))
         {
@@ -38,6 +66,8 @@ public sealed class PrivateChatInteractionService
 
         AiAccount aiAccount = privateChat.Contact!.AiAccount;
         IReadOnlyList<string> replyContents;
+        AiMessageGenerationRequest? completedRequest = null;
+        AiIdentityContinuityPlan? continuityPlan = null;
 
         try
         {
@@ -48,14 +78,8 @@ public sealed class PrivateChatInteractionService
                 userMessage.SenderAiAccountId,
                 userMessage.Id,
                 userMessage.SentAt);
-            AiMessageGenerationRequest generationRequest = new()
-            {
-                Scenario = AiMessageGenerationScenario.UserPrivateChat,
-                Speaker = aiAccount,
-                FocusContent = replyTarget.Content,
-                ReplyTarget = AiDialogueReplyTarget.ReplyTo(replyTarget),
-                ConversationAnchor = replyTarget,
-                RecentMessages = _privateChatService
+            IReadOnlyList<AiDialogueMessage> recentMessages =
+                _privateChatService
                     .GetOrderedChatHistory(privateChat.Id)
                     .TakeLast(12)
                     .Select(message => new AiDialogueMessage(
@@ -66,14 +90,30 @@ public sealed class PrivateChatInteractionService
                         message.Id,
                         message.SentAt))
                     .ToList()
-                    .AsReadOnly(),
+                    .AsReadOnly();
+            AiMessageGenerationRequest generationRequest = new()
+            {
+                Scenario = AiMessageGenerationScenario.UserPrivateChat,
+                Speaker = aiAccount,
+                FocusContent = replyTarget.Content,
+                ReplyTarget = AiDialogueReplyTarget.ReplyTo(replyTarget),
+                ConversationAnchor = replyTarget,
+                RecentMessages = recentMessages,
+                QuestionPolicy = _questionPolicyService.CreatePolicy(
+                    aiAccount.Id,
+                    recentMessages),
                 AllowedMessageCountRange = new AiMessageCountRange(1, 3),
                 ExpectedMessageCount = 1
             };
+            generationRequest = _identityContinuityService
+                .PrepareGenerationRequest(generationRequest);
             ConversationDirectionPlan directionPlan =
                 await _conversationDirector.CreatePlanAsync(
                     generationRequest,
                     cancellationToken);
+            continuityPlan = _identityContinuityService
+                .ValidateDirectionPlan(generationRequest, directionPlan);
+            directionPlan = continuityPlan.DirectionPlan;
             generationRequest = generationRequest with
             {
                 DirectionPlan = directionPlan,
@@ -84,6 +124,7 @@ public sealed class PrivateChatInteractionService
                 await _messageGenerator.GenerateMessagesAsync(
                     generationRequest,
                     cancellationToken);
+            completedRequest = generationRequest;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -92,25 +133,114 @@ public sealed class PrivateChatInteractionService
                 exception.Message);
         }
 
-        if (!_privateChatService.TrySaveAiReplies(
-                privateChat,
-                aiAccount,
-                replyContents,
-                out IReadOnlyList<PrivateMessage> aiReplies,
-                out string aiReplyError))
+        List<PrivateMessage> savedAiReplies = new();
+
+        for (int replyIndex = 0; replyIndex < replyContents.Count; replyIndex++)
         {
-            return PrivateChatInteractionResult.AiReplyFailed(
-                userMessage,
-                aiReplyError);
+            string replyContent = replyContents[replyIndex];
+            PrivateMessage previousMessage =
+                savedAiReplies.LastOrDefault() ?? userMessage!;
+            try
+            {
+                if (replyIndex == 0)
+                {
+                    await _replyTimingScheduler.WaitForReplyAsync(
+                        aiAccount.Id,
+                        previousMessage.SentAt,
+                        cancellationToken);
+                }
+                else
+                {
+                    await _replyTimingScheduler.WaitForConsecutiveMessageAsync(
+                        aiAccount.Id,
+                        previousMessage.SentAt,
+                        cancellationToken);
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                ApplyIdentityContinuity(
+                    privateChat.Id,
+                    completedRequest,
+                    continuityPlan,
+                    savedAiReplies);
+                return savedAiReplies.Count == 0
+                    ? PrivateChatInteractionResult.AiReplyFailed(
+                        userMessage!,
+                        savedAiReplies.AsReadOnly(),
+                        exception.Message)
+                    : PrivateChatInteractionResult.PartiallySucceeded(
+                        userMessage!,
+                        savedAiReplies.AsReadOnly(),
+                        exception.Message);
+            }
+
+            if (!_privateChatService.TrySaveAiReply(
+                    privateChat,
+                    aiAccount,
+                    replyContent,
+                    out PrivateMessage? aiReply,
+                    out string aiReplyError)
+                || aiReply is null)
+            {
+                ApplyIdentityContinuity(
+                    privateChat.Id,
+                    completedRequest,
+                    continuityPlan,
+                    savedAiReplies);
+                return savedAiReplies.Count == 0
+                    ? PrivateChatInteractionResult.AiReplyFailed(
+                        userMessage!,
+                        savedAiReplies.AsReadOnly(),
+                        aiReplyError)
+                    : PrivateChatInteractionResult.PartiallySucceeded(
+                        userMessage!,
+                        savedAiReplies.AsReadOnly(),
+                        aiReplyError);
+            }
+
+            savedAiReplies.Add(aiReply);
         }
 
-        return PrivateChatInteractionResult.Succeeded(userMessage, aiReplies);
+        ApplyIdentityContinuity(
+            privateChat.Id,
+            completedRequest,
+            continuityPlan,
+            savedAiReplies);
+
+        return PrivateChatInteractionResult.Succeeded(
+            userMessage!,
+            savedAiReplies.AsReadOnly());
+    }
+
+    private void ApplyIdentityContinuity(
+        Guid privateChatId,
+        AiMessageGenerationRequest? request,
+        AiIdentityContinuityPlan? continuityPlan,
+        IReadOnlyList<PrivateMessage> messages)
+    {
+        if (request is null || continuityPlan is null || messages.Count == 0)
+        {
+            return;
+        }
+
+        _identityContinuityService.ApplyAfterMessagesSaved(
+            request,
+            continuityPlan,
+            privateChatId,
+            messages.Select(message => new AiPersistedMessageEvidence(
+                    message.Id,
+                    message.Content,
+                    message.SentAt))
+                .ToList()
+                .AsReadOnly());
     }
 }
 
 public enum PrivateChatInteractionStatus
 {
     Succeeded,
+    PartiallySucceeded,
     UserMessageRejected,
     AiReplyFailed
 }
@@ -153,10 +283,29 @@ public sealed class PrivateChatInteractionResult
 
     public static PrivateChatInteractionResult AiReplyFailed(
         PrivateMessage userMessage,
+        IReadOnlyList<PrivateMessage> savedAiReplies,
         string errorMessage) =>
         new(
             PrivateChatInteractionStatus.AiReplyFailed,
             userMessage,
+            savedAiReplies,
+            errorMessage);
+
+    public static PrivateChatInteractionResult AiReplyFailed(
+        PrivateMessage userMessage,
+        string errorMessage) =>
+        AiReplyFailed(
+            userMessage,
             Array.Empty<PrivateMessage>(),
+            errorMessage);
+
+    public static PrivateChatInteractionResult PartiallySucceeded(
+        PrivateMessage userMessage,
+        IReadOnlyList<PrivateMessage> savedAiReplies,
+        string errorMessage) =>
+        new(
+            PrivateChatInteractionStatus.PartiallySucceeded,
+            userMessage,
+            savedAiReplies,
             errorMessage);
 }

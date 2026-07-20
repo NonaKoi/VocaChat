@@ -42,6 +42,7 @@ internal sealed class VocaChatWebApiFactory
             services.RemoveAll<IAiMessageGenerator>();
             services.RemoveAll<IConversationDirector>();
             services.RemoveAll<ISessionInsightAnalyzer>();
+            services.RemoveAll<AiReplyTimingScheduler>();
             services.AddSingleton(_database.CreateDbContextFactory());
             services.AddSingleton(
                 new LocalMediaStorageService(_mediaDirectory));
@@ -52,6 +53,11 @@ internal sealed class VocaChatWebApiFactory
             services.AddSingleton<
                 ISessionInsightAnalyzer,
                 RuleBasedSessionInsightAnalyzer>();
+            services.AddSingleton(serviceProvider =>
+                new AiReplyTimingScheduler(
+                    serviceProvider.GetRequiredService<
+                        VocaChatDbContextFactory>(),
+                    (_, _) => Task.CompletedTask));
         });
     }
 

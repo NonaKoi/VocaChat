@@ -16,6 +16,7 @@ public class PrivateMessage
     public Guid? AutonomousPrivateChatSessionId { get; private set; }
     public Guid? AutonomousPrivateChatRoundId { get; private set; }
     public int? AutonomousSequenceNumber { get; private set; }
+    public long SequenceNumber { get; private set; }
     public string Content { get; private set; }
     public DateTime SentAt { get; private set; }
 
@@ -53,9 +54,11 @@ public class PrivateMessage
         DateTime sentAt,
         Guid? autonomousPrivateChatSessionId = null,
         Guid? autonomousPrivateChatRoundId = null,
-        int? autonomousSequenceNumber = null)
+        int? autonomousSequenceNumber = null,
+        Guid? messageId = null,
+        long sequenceNumber = 0)
     {
-        Id = Guid.NewGuid();
+        Id = messageId ?? Guid.NewGuid();
         PrivateChatId = privateChatId;
         SenderType = senderType;
         SenderDisplayName = senderDisplayName;
@@ -63,6 +66,7 @@ public class PrivateMessage
         AutonomousPrivateChatSessionId = autonomousPrivateChatSessionId;
         AutonomousPrivateChatRoundId = autonomousPrivateChatRoundId;
         AutonomousSequenceNumber = autonomousSequenceNumber;
+        SequenceNumber = sequenceNumber;
         Content = content;
         SentAt = sentAt;
     }

@@ -27,15 +27,18 @@ public sealed class AiConversationContext
     public AiConversationContextMessage? ReplyTarget { get; }
     public IReadOnlyList<AiConversationContextMessage> Messages { get; }
     public IReadOnlyList<AiConversationMemory> Memories { get; }
+    public IReadOnlyList<AiConversationSelfMemory> SelfMemories { get; }
 
     internal AiConversationContext(
         AiConversationContextMessage? replyTarget,
         IReadOnlyList<AiConversationContextMessage> messages,
-        IReadOnlyList<AiConversationMemory> memories)
+        IReadOnlyList<AiConversationMemory> memories,
+        IReadOnlyList<AiConversationSelfMemory> selfMemories)
     {
         ReplyTarget = replyTarget;
         Messages = messages;
         Memories = memories;
+        SelfMemories = selfMemories;
     }
 }
 
@@ -45,6 +48,7 @@ public sealed class AiConversationContext
 public sealed class AiConversationContextBuilder
 {
     private const int MaximumMemoryCount = 4;
+    private const int MaximumSelfMemoryCount = 6;
 
     public AiConversationContext Build(
         AiMessageGenerationRequest request,
@@ -82,11 +86,19 @@ public sealed class AiConversationContextBuilder
                 && !string.IsNullOrWhiteSpace(memory.Summary))
             .Take(MaximumMemoryCount)
             .ToList();
+        List<AiConversationSelfMemory> selfMemories = request
+            .RelevantSelfMemories
+            .Where(memory =>
+                memory.AiAccountId == request.Speaker.Id
+                && !string.IsNullOrWhiteSpace(memory.Summary))
+            .Take(MaximumSelfMemoryCount)
+            .ToList();
 
         return new AiConversationContext(
             replyTarget,
             messages.AsReadOnly(),
-            memories.AsReadOnly());
+            memories.AsReadOnly(),
+            selfMemories.AsReadOnly());
     }
 
     private static bool IsSameMessage(

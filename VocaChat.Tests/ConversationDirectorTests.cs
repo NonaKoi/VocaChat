@@ -199,6 +199,71 @@ public sealed class ConversationDirectorTests
     }
 
     [Fact]
+    public async Task CreatePlanAsync_ParsesCurrentSpeakerSelfMemoryPlan()
+    {
+        AiMessageGenerationRequest baseRequest = CreateTargetedRequest();
+        Guid memoryId = Guid.NewGuid();
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            RelevantSelfMemories = new[]
+            {
+                new AiConversationSelfMemory(
+                    memoryId,
+                    baseRequest.Speaker.Id,
+                    AiSelfMemoryType.OngoingActivity,
+                    "最近正在准备秋季插画展",
+                    AiSelfMemorySource.User,
+                    90,
+                    true,
+                    new DateTime(2026, 7, 18),
+                    new DateTime(2026, 7, 20))
+            }
+        };
+        string directorJson = JsonSerializer.Serialize(new
+        {
+            action = "Answer",
+            questionMode = "Optional",
+            beat = "Clarify",
+            topicFocus = "插画展进度",
+            responseGoal = "说明当前准备进度",
+            messageCount = 1,
+            targetMessageId = request.ReplyTarget!.Message!.MessageId,
+            coveredPoints = Array.Empty<string>(),
+            unresolvedGoals = new[] { "说明目前进度" },
+            newContribution = "补充正在整理最后一批作品",
+            avoidedTopics = Array.Empty<string>(),
+            forbiddenClaims = Array.Empty<string>(),
+            referencedSelfMemoryIds = new[] { memoryId },
+            selfMemoryProposals = new[]
+            {
+                new
+                {
+                    operation = "Add",
+                    targetMemoryId = (string?)null,
+                    type = "OngoingActivity",
+                    summary = "正在为插画展整理最后一批作品",
+                    reason = "本轮准备明确表达当前进度"
+                }
+            }
+        });
+        RecordingHandler handler = new(CreateResponse(directorJson));
+        OpenAiCompatibleConversationDirector director = CreateDirector(handler);
+
+        ConversationDirectionPlan plan = await director.CreatePlanAsync(request);
+
+        Assert.Equal(new[] { memoryId }, plan.ReferencedSelfMemoryIds);
+        AiSelfMemoryProposal proposal = Assert.Single(plan.SelfMemoryProposals);
+        Assert.Equal(AiSelfMemoryProposalOperation.Add, proposal.Operation);
+        Assert.Equal(AiSelfMemoryType.OngoingActivity, proposal.Type);
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string userPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains(memoryId.ToString(), userPrompt);
+        Assert.Contains("最近正在准备秋季插画展", userPrompt);
+    }
+
+    [Fact]
     public async Task CreatePlanAsync_UserPrivateChat_SelectsCountWithinRangeAndWritesSceneBoundary()
     {
         AiMessageGenerationRequest request = CreateTargetedRequest() with
@@ -289,6 +354,7 @@ public sealed class ConversationDirectorTests
         JsonSerializer.Serialize(new
         {
             action,
+            questionMode = action == "Ask" ? "Natural" : "Optional",
             beat = "Clarify",
             topicFocus,
             responseGoal,

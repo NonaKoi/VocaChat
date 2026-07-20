@@ -49,6 +49,7 @@ public static class PrivateChatResponseMapper
             SenderType = message.SenderType.ToString(),
             SenderDisplayName = message.SenderDisplayName,
             SenderAiAccountId = message.SenderAiAccountId,
+            SequenceNumber = message.SequenceNumber,
             SenderAvatarUrl = sender is null
                 ? null
                 : AiAccountMediaUrls.GetAvatarUrl(sender),

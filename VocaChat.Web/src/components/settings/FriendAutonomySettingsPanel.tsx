@@ -3,6 +3,7 @@ import {
   CircleGauge,
   MessageCircleMore,
   Search,
+  TimerReset,
   UserRound,
   UsersRound,
 } from 'lucide-react'
@@ -16,9 +17,15 @@ import { EmptyState } from '@/components/feedback/EmptyState'
 import { ErrorState } from '@/components/feedback/ErrorState'
 import {
   SettingsSaveBar,
+  SettingsNumberField,
   StatusRow,
 } from '@/components/settings/GlobalAutonomySettingsPanel'
 import { SettingsLevelSelector } from '@/components/settings/SettingsLevelSelector'
+import { ReplyTimingFields } from '@/components/settings/ReplyTimingFields'
+import {
+  formatReplyTiming,
+  isReplyTimingValid,
+} from '@/components/settings/replyTiming'
 import { getLevelLabel } from '@/components/settings/settingsLabels'
 import { SettingsToggle } from '@/components/settings/SettingsToggle'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -76,6 +83,17 @@ export function FriendAutonomySettingsPanel({
       && !areSettingsEqual(draft, settings.data),
     ),
     [draft, settings.data],
+  )
+  const settingsAreValid = Boolean(
+    draft
+    && isReplyTimingValid(draft)
+    && isReplyTimingValid({
+      fixedReplyDelayMilliseconds: draft.fixedConsecutiveMessageDelayMilliseconds,
+      minimumReplyDelayMilliseconds: draft.minimumConsecutiveMessageDelayMilliseconds,
+      maximumReplyDelayMilliseconds: draft.maximumConsecutiveMessageDelayMilliseconds,
+    })
+    && Number.isInteger(draft.maximumConsecutiveQuestionTurns)
+    && draft.maximumConsecutiveQuestionTurns >= 1,
   )
 
   useEffect(() => {
@@ -252,6 +270,74 @@ export function FriendAutonomySettingsPanel({
                 />
 
                 <SettingsToggle
+                  id={`friend-use-global-reply-delay-${selectedContact.friend.id}`}
+                  label="沿用通用回复速度"
+                  description="关闭后，可以为这位好友单独设置消息回复间隔。"
+                  checked={draft.useGlobalReplyDelay}
+                  disabled={!draft.isEnabled}
+                  onCheckedChange={(checked) => updateDraft({ useGlobalReplyDelay: checked })}
+                />
+
+                <ReplyTimingFields
+                  idPrefix={`friend-reply-timing-${selectedContact.friend.id}`}
+                  title="回复等待"
+                  description="控制收到消息后，这位好友等待多久再开始回复。"
+                  mode={draft.replyDelayMode}
+                  fixedDelayMilliseconds={draft.fixedReplyDelayMilliseconds}
+                  minimumDelayMilliseconds={draft.minimumReplyDelayMilliseconds}
+                  maximumDelayMilliseconds={draft.maximumReplyDelayMilliseconds}
+                  disabled={!draft.isEnabled || draft.useGlobalReplyDelay}
+                  onModeChange={(replyDelayMode) => updateDraft({ replyDelayMode })}
+                  onFixedDelayChange={(fixedReplyDelayMilliseconds) => updateDraft({ fixedReplyDelayMilliseconds })}
+                  onMinimumDelayChange={(minimumReplyDelayMilliseconds) => updateDraft({ minimumReplyDelayMilliseconds })}
+                  onMaximumDelayChange={(maximumReplyDelayMilliseconds) => updateDraft({ maximumReplyDelayMilliseconds })}
+                />
+
+                <SettingsToggle
+                  id={`friend-use-global-consecutive-delay-${selectedContact.friend.id}`}
+                  label="沿用通用连发间隔"
+                  description="关闭后，可以为这位好友单独设置一次回复中多条消息的间隔。"
+                  checked={draft.useGlobalConsecutiveMessageDelay}
+                  disabled={!draft.isEnabled}
+                  onCheckedChange={(checked) => updateDraft({ useGlobalConsecutiveMessageDelay: checked })}
+                />
+
+                <ReplyTimingFields
+                  idPrefix={`friend-consecutive-timing-${selectedContact.friend.id}`}
+                  title="同次多条消息间隔"
+                  description="只作用于这位好友一次回复拆成的第二条及后续消息。"
+                  mode={draft.consecutiveMessageDelayMode}
+                  fixedDelayMilliseconds={draft.fixedConsecutiveMessageDelayMilliseconds}
+                  minimumDelayMilliseconds={draft.minimumConsecutiveMessageDelayMilliseconds}
+                  maximumDelayMilliseconds={draft.maximumConsecutiveMessageDelayMilliseconds}
+                  disabled={!draft.isEnabled || draft.useGlobalConsecutiveMessageDelay}
+                  onModeChange={(consecutiveMessageDelayMode) => updateDraft({ consecutiveMessageDelayMode })}
+                  onFixedDelayChange={(fixedConsecutiveMessageDelayMilliseconds) => updateDraft({ fixedConsecutiveMessageDelayMilliseconds })}
+                  onMinimumDelayChange={(minimumConsecutiveMessageDelayMilliseconds) => updateDraft({ minimumConsecutiveMessageDelayMilliseconds })}
+                  onMaximumDelayChange={(maximumConsecutiveMessageDelayMilliseconds) => updateDraft({ maximumConsecutiveMessageDelayMilliseconds })}
+                />
+
+                <SettingsToggle
+                  id={`friend-use-global-question-policy-${selectedContact.friend.id}`}
+                  label="沿用通用疑问节奏"
+                  description="关闭后，可以为这位好友单独设置连续疑问轮次上限。"
+                  checked={draft.useGlobalQuestionPolicy}
+                  disabled={!draft.isEnabled}
+                  onCheckedChange={(checked) => updateDraft({ useGlobalQuestionPolicy: checked })}
+                />
+
+                <SettingsNumberField
+                  id={`friend-maximum-question-turns-${selectedContact.friend.id}`}
+                  label="连续疑问轮次上限"
+                  description="达到上限后，这位好友下一轮必须使用陈述语气收尾。"
+                  value={draft.maximumConsecutiveQuestionTurns}
+                  min={1}
+                  suffix="轮"
+                  disabled={!draft.isEnabled || draft.useGlobalQuestionPolicy}
+                  onValueChange={(maximumConsecutiveQuestionTurns) => updateDraft({ maximumConsecutiveQuestionTurns })}
+                />
+
+                <SettingsToggle
                   id={`friend-private-chat-enabled-${selectedContact.friend.id}`}
                   label="允许主动发起私信"
                   description="允许这位好友主动向其他好友发起一对一会话。"
@@ -281,6 +367,7 @@ export function FriendAutonomySettingsPanel({
 
               <SettingsSaveBar
                 hasChanges={hasChanges}
+                canSave={settingsAreValid}
                 didSave={didSave}
                 isSaving={settings.isSaving}
                 errorMessage={settings.saveErrorMessage}
@@ -308,6 +395,13 @@ export function FriendAutonomySettingsPanel({
                   icon={UsersRound}
                   label="互动权限"
                   value={getFriendScopeLabel(draft)}
+                />
+                <StatusRow
+                  icon={TimerReset}
+                  label="回复间隔"
+                  value={draft.useGlobalReplyDelay
+                    ? '沿用通用设置'
+                    : formatReplyTiming(draft)}
                 />
               </dl>
             </aside>
@@ -354,6 +448,18 @@ function areSettingsEqual(
     && first.canInitiatePrivateChats === second.canInitiatePrivateChats
     && first.canInitiateGroupChats === second.canInitiateGroupChats
     && first.canJoinGroupChats === second.canJoinGroupChats
+    && first.useGlobalReplyDelay === second.useGlobalReplyDelay
+    && first.replyDelayMode === second.replyDelayMode
+    && first.fixedReplyDelayMilliseconds === second.fixedReplyDelayMilliseconds
+    && first.minimumReplyDelayMilliseconds === second.minimumReplyDelayMilliseconds
+    && first.maximumReplyDelayMilliseconds === second.maximumReplyDelayMilliseconds
+    && first.useGlobalConsecutiveMessageDelay === second.useGlobalConsecutiveMessageDelay
+    && first.consecutiveMessageDelayMode === second.consecutiveMessageDelayMode
+    && first.fixedConsecutiveMessageDelayMilliseconds === second.fixedConsecutiveMessageDelayMilliseconds
+    && first.minimumConsecutiveMessageDelayMilliseconds === second.minimumConsecutiveMessageDelayMilliseconds
+    && first.maximumConsecutiveMessageDelayMilliseconds === second.maximumConsecutiveMessageDelayMilliseconds
+    && first.useGlobalQuestionPolicy === second.useGlobalQuestionPolicy
+    && first.maximumConsecutiveQuestionTurns === second.maximumConsecutiveQuestionTurns
 }
 
 function toUpdateRequest(
@@ -365,6 +471,18 @@ function toUpdateRequest(
     canInitiatePrivateChats: settings.canInitiatePrivateChats,
     canInitiateGroupChats: settings.canInitiateGroupChats,
     canJoinGroupChats: settings.canJoinGroupChats,
+    useGlobalReplyDelay: settings.useGlobalReplyDelay,
+    replyDelayMode: settings.replyDelayMode,
+    fixedReplyDelayMilliseconds: settings.fixedReplyDelayMilliseconds,
+    minimumReplyDelayMilliseconds: settings.minimumReplyDelayMilliseconds,
+    maximumReplyDelayMilliseconds: settings.maximumReplyDelayMilliseconds,
+    useGlobalConsecutiveMessageDelay: settings.useGlobalConsecutiveMessageDelay,
+    consecutiveMessageDelayMode: settings.consecutiveMessageDelayMode,
+    fixedConsecutiveMessageDelayMilliseconds: settings.fixedConsecutiveMessageDelayMilliseconds,
+    minimumConsecutiveMessageDelayMilliseconds: settings.minimumConsecutiveMessageDelayMilliseconds,
+    maximumConsecutiveMessageDelayMilliseconds: settings.maximumConsecutiveMessageDelayMilliseconds,
+    useGlobalQuestionPolicy: settings.useGlobalQuestionPolicy,
+    maximumConsecutiveQuestionTurns: settings.maximumConsecutiveQuestionTurns,
   }
 }
 

@@ -396,7 +396,10 @@ public sealed class AutonomousPrivateChatSessionService
             sentAt,
             storedSession.Id,
             round.Id,
-            nextSequenceNumber);
+            nextSequenceNumber,
+            sequenceNumber: (dbContext.PrivateMessages
+                .Where(item => item.PrivateChatId == storedSession.PrivateChatId)
+                .Max(item => (long?)item.SequenceNumber) ?? 0) + 1);
 
         storedSession.RecordMessageActivity(sentAt);
         dbContext.PrivateMessages.Add(newMessage);

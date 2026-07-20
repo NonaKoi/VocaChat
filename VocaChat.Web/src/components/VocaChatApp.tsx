@@ -15,7 +15,7 @@ import { ContactList } from '@/components/contacts/ContactList'
 import { GroupChatCreatePanel } from '@/components/groupChats/GroupChatCreatePanel'
 import { AppShell } from '@/components/layout/AppShell'
 import { NavigationRail } from '@/components/layout/NavigationRail'
-import { AutonomousInteractionSettingsPage } from '@/components/settings/AutonomousInteractionSettingsPage'
+import { SettingsPage } from '@/components/settings/SettingsPage'
 import { useAiAccounts } from '@/hooks/useAiAccounts'
 import { useContacts } from '@/hooks/useContacts'
 import { useConversations } from '@/hooks/useConversations'
@@ -91,12 +91,6 @@ export function VocaChatApp() {
     ) ?? toGroupConversation(updatedGroupChat)
     setSelectedConversation(updatedConversation)
     return true
-  }
-  async function uploadMedia(kind: 'avatar' | 'cover', file: File) {
-    if (!selectedContact) return
-    if (kind === 'avatar') await aiAccounts.uploadAvatar(selectedContact.friend.id, file)
-    else await aiAccounts.uploadCover(selectedContact.friend.id, file)
-    await contacts.reload()
   }
   async function openAutonomousPrivateChat(privateChatId: string) {
     const refreshedConversations = await conversations.reload()
@@ -207,16 +201,38 @@ export function VocaChatApp() {
           />
         )
   } else if (activeSection === 'friends') {
-    contentPanel = isAccountCreateOpen ? <AiAccountCreateForm values={aiAccountDraft} isSubmitting={aiAccounts.isCreating} errorMessage={aiAccounts.createErrorMessage} onValuesChange={setAiAccountDraft} onCancel={() => { setIsAccountCreateOpen(false); setAiAccountDraft(emptyAiAccountDraft) }} onCreate={createAccount} /> : <div className="h-full overflow-y-auto bg-surface-muted"><AiAccountDetails account={selectedContact?.friend} status={contacts.status} isEmpty={contacts.data.length === 0} isUploadingAvatar={aiAccounts.uploadingMedia?.accountId === selectedContact?.friend.id && aiAccounts.uploadingMedia?.kind === 'avatar'} isUploadingCover={aiAccounts.uploadingMedia?.accountId === selectedContact?.friend.id && aiAccounts.uploadingMedia?.kind === 'cover'} mediaUploadErrorMessage={aiAccounts.mediaUploadErrorMessage} onUploadAvatar={selectedContact ? (file) => uploadMedia('avatar', file) : undefined} onUploadCover={selectedContact ? (file) => uploadMedia('cover', file) : undefined} onSendMessage={selectedContact ? startPrivateChat : undefined} /></div>
+    contentPanel = isAccountCreateOpen ? <AiAccountCreateForm values={aiAccountDraft} isSubmitting={aiAccounts.isCreating} errorMessage={aiAccounts.createErrorMessage} onValuesChange={setAiAccountDraft} onCancel={() => { setIsAccountCreateOpen(false); setAiAccountDraft(emptyAiAccountDraft) }} onCreate={createAccount} /> : <div className="h-full overflow-y-auto bg-surface-muted"><AiAccountDetails account={selectedContact?.friend} status={contacts.status} isEmpty={contacts.data.length === 0} onSendMessage={selectedContact ? startPrivateChat : undefined} /></div>
   } else if (activeSection === 'activity') {
     contentPanel = <ActivityFeed posts={posts.data} status={posts.status} errorMessage={posts.errorMessage} actionError={posts.actionError} onRetry={posts.reload} onToggleLike={(id, liked) => void posts.toggleLike(id, liked)} onComment={(id, content) => void posts.addComment(id, content)} />
   } else if (activeSection === 'settings') {
     contentPanel = (
-      <AutonomousInteractionSettingsPage
+      <SettingsPage
+        accounts={aiAccounts.data}
+        accountStatus={aiAccounts.status}
+        accountErrorMessage={aiAccounts.errorMessage}
+        updatingAccountId={aiAccounts.updatingAccountId}
+        updateErrorMessage={aiAccounts.updateErrorMessage}
+        uploadingMedia={aiAccounts.uploadingMedia}
+        mediaErrorMessage={aiAccounts.mediaUploadErrorMessage}
         contacts={contacts.data}
         contactStatus={contacts.status}
         contactErrorMessage={contacts.errorMessage}
+        onReloadAccounts={aiAccounts.reload}
         onReloadContacts={async () => { await contacts.reload() }}
+        onUpdateAccount={aiAccounts.update}
+        onUploadAvatar={aiAccounts.uploadAvatar}
+        onUploadCover={aiAccounts.uploadCover}
+        onClearAccountErrors={() => {
+          aiAccounts.clearUpdateError()
+          aiAccounts.clearMediaUploadError()
+        }}
+        onAccountChanged={async () => {
+          await Promise.all([
+            contacts.reload(),
+            conversations.reload(),
+            groupChats.reload(),
+          ])
+        }}
         onDirtyChange={setHasUnsavedSettings}
         onOpenPrivateChat={openAutonomousPrivateChat}
         onOpenGroupChat={openAutonomousGroupChat}

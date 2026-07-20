@@ -113,7 +113,7 @@ export function ProfileTagInput({
           onKeyDown={handleKeyDown}
           aria-describedby={`${id}-description${errorMessage ? ` ${errorId}` : ''}`}
           aria-invalid={Boolean(errorMessage)}
-          placeholder="输入后按 Enter 添加"
+          placeholder="输入后按 Enter 添加…"
           className="form-control min-w-0 flex-1"
         />
         <Button

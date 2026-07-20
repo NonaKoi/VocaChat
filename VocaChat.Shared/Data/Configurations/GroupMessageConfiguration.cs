@@ -31,6 +31,13 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
                 + "AND \"SenderAiAccountId\" IS NULL) "
                 + $"OR (\"SenderType\" = {(int)MessageSenderType.AiAccount} "
                 + "AND \"SenderAiAccountId\" IS NOT NULL)");
+            tableBuilder.HasCheckConstraint(
+                "CK_GroupMessages_AutonomousRound_Consistency",
+                "\"AutonomousGroupChatRoundId\" IS NULL "
+                + "OR \"AutonomousGroupChatSessionId\" IS NOT NULL");
+            tableBuilder.HasCheckConstraint(
+                "CK_GroupMessages_SequenceNumber_Positive",
+                "\"SequenceNumber\" > 0");
         });
 
         builder.HasKey(message => message.Id);
@@ -55,6 +62,9 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
         builder.Property(message => message.SentAt)
             .IsRequired();
 
+        builder.Property(message => message.SequenceNumber)
+            .IsRequired();
+
         builder.HasOne<GroupChat>()
             .WithMany()
             .HasForeignKey(message => message.GroupChatId)
@@ -70,12 +80,22 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
             .HasForeignKey(message => message.AutonomousGroupChatSessionId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<AutonomousGroupChatRound>()
+            .WithMany()
+            .HasForeignKey(message => message.AutonomousGroupChatRoundId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(message => new
         {
             message.GroupChatId,
-            message.SentAt,
-            message.Id
+            message.SequenceNumber
+        }).IsUnique();
+        builder.HasIndex(message => new
+        {
+            message.GroupChatId,
+            message.SentAt
         });
         builder.HasIndex(message => message.AutonomousGroupChatSessionId);
+        builder.HasIndex(message => message.AutonomousGroupChatRoundId);
     }
 }

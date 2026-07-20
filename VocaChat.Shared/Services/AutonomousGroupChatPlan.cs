@@ -12,5 +12,7 @@ public sealed class AutonomousGroupChatPlan
     public Guid InitiatorAiAccountId { get; init; }
     public string Topic { get; init; } = string.Empty;
     public bool IncludesLocalUser { get; init; }
+    public int MaximumRounds { get; init; }
+    public int ContinuationRatePercent { get; init; }
     public AutonomousGroupChatDecision Decision { get; init; } = null!;
 }

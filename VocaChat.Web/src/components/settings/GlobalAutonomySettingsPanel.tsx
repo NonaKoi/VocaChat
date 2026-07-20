@@ -7,6 +7,11 @@ import type {
 } from '@/api/types'
 import { ErrorState } from '@/components/feedback/ErrorState'
 import { SettingsLevelSelector } from '@/components/settings/SettingsLevelSelector'
+import { ReplyTimingFields } from '@/components/settings/ReplyTimingFields'
+import {
+  formatReplyTiming,
+  isReplyTimingValid,
+} from '@/components/settings/replyTiming'
 import { getLevelLabel } from '@/components/settings/settingsLabels'
 import { SettingsToggle } from '@/components/settings/SettingsToggle'
 import { Button } from '@/components/ui/button'
@@ -46,7 +51,21 @@ export function GlobalAutonomySettingsPanel({
     && draft.privateChatMaximumRounds >= 1
     && draft.privateChatMaximumRounds <= 12
     && Number.isInteger(draft.autonomousGroupChatMaximumMembers)
-    && draft.autonomousGroupChatMaximumMembers >= 3,
+    && draft.autonomousGroupChatMaximumMembers >= 3
+    && Number.isInteger(draft.groupChatContinuationRatePercent)
+    && draft.groupChatContinuationRatePercent >= 0
+    && draft.groupChatContinuationRatePercent <= 95
+    && Number.isInteger(draft.groupChatMaximumRounds)
+    && draft.groupChatMaximumRounds >= 1
+    && draft.groupChatMaximumRounds <= 12
+    && isReplyTimingValid(draft)
+    && isReplyTimingValid({
+      fixedReplyDelayMilliseconds: draft.fixedConsecutiveMessageDelayMilliseconds,
+      minimumReplyDelayMilliseconds: draft.minimumConsecutiveMessageDelayMilliseconds,
+      maximumReplyDelayMilliseconds: draft.maximumConsecutiveMessageDelayMilliseconds,
+    })
+    && Number.isInteger(draft.maximumConsecutiveQuestionTurns)
+    && draft.maximumConsecutiveQuestionTurns >= 1,
   )
 
   useEffect(() => {
@@ -116,6 +135,45 @@ export function GlobalAutonomySettingsPanel({
             onValueChange={(frequency) => updateDraft({ frequency })}
           />
 
+          <ReplyTimingFields
+            idPrefix="global-reply-timing"
+            title="回复等待"
+            description="控制收到对方消息后，好友等待多久再开始回复；模型生成耗时会计入等待。"
+            mode={draft.replyDelayMode}
+            fixedDelayMilliseconds={draft.fixedReplyDelayMilliseconds}
+            minimumDelayMilliseconds={draft.minimumReplyDelayMilliseconds}
+            maximumDelayMilliseconds={draft.maximumReplyDelayMilliseconds}
+            onModeChange={(replyDelayMode) => updateDraft({ replyDelayMode })}
+            onFixedDelayChange={(fixedReplyDelayMilliseconds) => updateDraft({ fixedReplyDelayMilliseconds })}
+            onMinimumDelayChange={(minimumReplyDelayMilliseconds) => updateDraft({ minimumReplyDelayMilliseconds })}
+            onMaximumDelayChange={(maximumReplyDelayMilliseconds) => updateDraft({ maximumReplyDelayMilliseconds })}
+          />
+
+          <ReplyTimingFields
+            idPrefix="global-consecutive-message-timing"
+            title="同次多条消息间隔"
+            description="控制同一位好友一次回复拆成多条消息时，相邻消息之间的发送间隔。"
+            mode={draft.consecutiveMessageDelayMode}
+            fixedDelayMilliseconds={draft.fixedConsecutiveMessageDelayMilliseconds}
+            minimumDelayMilliseconds={draft.minimumConsecutiveMessageDelayMilliseconds}
+            maximumDelayMilliseconds={draft.maximumConsecutiveMessageDelayMilliseconds}
+            onModeChange={(consecutiveMessageDelayMode) => updateDraft({ consecutiveMessageDelayMode })}
+            onFixedDelayChange={(fixedConsecutiveMessageDelayMilliseconds) => updateDraft({ fixedConsecutiveMessageDelayMilliseconds })}
+            onMinimumDelayChange={(minimumConsecutiveMessageDelayMilliseconds) => updateDraft({ minimumConsecutiveMessageDelayMilliseconds })}
+            onMaximumDelayChange={(maximumConsecutiveMessageDelayMilliseconds) => updateDraft({ maximumConsecutiveMessageDelayMilliseconds })}
+          />
+
+          <SettingsNumberField
+            id="maximum-consecutive-question-turns"
+            label="连续疑问轮次上限"
+            description="同一好友连续以问题收尾达到此轮数后，下一轮由导演强制使用陈述语气。"
+            value={draft.maximumConsecutiveQuestionTurns}
+            min={1}
+            suffix="轮"
+            disabled={false}
+            onValueChange={(maximumConsecutiveQuestionTurns) => updateDraft({ maximumConsecutiveQuestionTurns })}
+          />
+
           <SettingsToggle
             id="autonomous-private-chats-enabled"
             label="允许好友自主发起私信"
@@ -168,6 +226,30 @@ export function GlobalAutonomySettingsPanel({
             disabled={!draft.isEnabled || !draft.allowGroupChats}
             onValueChange={(autonomousGroupChatMaximumMembers) => updateDraft({ autonomousGroupChatMaximumMembers })}
           />
+
+          <SettingsNumberField
+            id="group-chat-continuation-rate"
+            label="好友群聊下一轮概率保留比例"
+            description="每完成一轮后，下一轮的基础概率按此比例递减，并继续接受群关系和参与情况修正。"
+            value={draft.groupChatContinuationRatePercent}
+            min={0}
+            max={95}
+            suffix="%"
+            disabled={!draft.isEnabled || !draft.allowGroupChats}
+            onValueChange={(groupChatContinuationRatePercent) => updateDraft({ groupChatContinuationRatePercent })}
+          />
+
+          <SettingsNumberField
+            id="group-chat-maximum-rounds"
+            label="单次好友群聊最大轮数"
+            description="达到此普通轮数后会强制进入一次收束，避免群聊无限持续。"
+            value={draft.groupChatMaximumRounds}
+            min={1}
+            max={12}
+            suffix="轮"
+            disabled={!draft.isEnabled || !draft.allowGroupChats}
+            onValueChange={(groupChatMaximumRounds) => updateDraft({ groupChatMaximumRounds })}
+          />
         </div>
 
         <SettingsSaveBar
@@ -206,13 +288,33 @@ export function GlobalAutonomySettingsPanel({
           />
           <StatusRow
             icon={TimerReset}
+            label="回复间隔"
+            value={formatReplyTiming(draft)}
+          />
+          <StatusRow
+            icon={TimerReset}
+            label="连发间隔"
+            value={formatReplyTiming({
+              replyDelayMode: draft.consecutiveMessageDelayMode,
+              fixedReplyDelayMilliseconds: draft.fixedConsecutiveMessageDelayMilliseconds,
+              minimumReplyDelayMilliseconds: draft.minimumConsecutiveMessageDelayMilliseconds,
+              maximumReplyDelayMilliseconds: draft.maximumConsecutiveMessageDelayMilliseconds,
+            })}
+          />
+          <StatusRow
+            icon={MessageCircleMore}
+            label="疑问节奏"
+            value={`连续 ${draft.maximumConsecutiveQuestionTurns} 轮后强制陈述`}
+          />
+          <StatusRow
+            icon={TimerReset}
             label="单次私信"
             value={`${draft.privateChatContinuationRatePercent}% · 最多 ${draft.privateChatMaximumRounds} 轮`}
           />
           <StatusRow
             icon={Users}
             label="单次好友群聊"
-            value={`3–${draft.autonomousGroupChatMaximumMembers} 人`}
+            value={`3–${draft.autonomousGroupChatMaximumMembers} 人 · ${draft.groupChatContinuationRatePercent}% · 最多 ${draft.groupChatMaximumRounds} 轮`}
           />
         </dl>
         <p className="m-4 rounded-lg bg-primary-soft p-3 text-xs leading-5 text-primary">
@@ -257,7 +359,7 @@ export function SettingsSaveBar({
   )
 }
 
-function SettingsNumberField({
+export function SettingsNumberField({
   id,
   label,
   description,
@@ -382,6 +484,17 @@ function areSettingsEqual(
     && first.privateChatContinuationRatePercent === second.privateChatContinuationRatePercent
     && first.privateChatMaximumRounds === second.privateChatMaximumRounds
     && first.autonomousGroupChatMaximumMembers === second.autonomousGroupChatMaximumMembers
+    && first.groupChatContinuationRatePercent === second.groupChatContinuationRatePercent
+    && first.groupChatMaximumRounds === second.groupChatMaximumRounds
+    && first.replyDelayMode === second.replyDelayMode
+    && first.fixedReplyDelayMilliseconds === second.fixedReplyDelayMilliseconds
+    && first.minimumReplyDelayMilliseconds === second.minimumReplyDelayMilliseconds
+    && first.maximumReplyDelayMilliseconds === second.maximumReplyDelayMilliseconds
+    && first.consecutiveMessageDelayMode === second.consecutiveMessageDelayMode
+    && first.fixedConsecutiveMessageDelayMilliseconds === second.fixedConsecutiveMessageDelayMilliseconds
+    && first.minimumConsecutiveMessageDelayMilliseconds === second.minimumConsecutiveMessageDelayMilliseconds
+    && first.maximumConsecutiveMessageDelayMilliseconds === second.maximumConsecutiveMessageDelayMilliseconds
+    && first.maximumConsecutiveQuestionTurns === second.maximumConsecutiveQuestionTurns
 }
 
 function getScopeLabel(settings: UpdateAutonomousInteractionSettingsRequest) {

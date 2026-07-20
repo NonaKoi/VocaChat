@@ -267,11 +267,12 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         }
 
         if (request.ActionPlan!.QuestionMode == ConversationQuestionMode.None
-            && messages.Any(message =>
-                message.Contains('?') || message.Contains('？')))
+            && messages.Any(ConversationQuestionPolicyService.EndsWithQuestion))
         {
             throw new AiMessageGenerationException(
-                "本次表达计划不允许用问题句强行延续对话。");
+                request.QuestionPolicy?.ForceDeclarativeReply == true
+                    ? "连续疑问轮次已达到上限，本轮必须使用陈述语气收尾。"
+                    : "本次导演计划要求使用陈述语气收尾。");
         }
     }
 
@@ -297,7 +298,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             $"- 个性签名：{DisplayOrDefault(speaker.Signature)}",
             $"- 兴趣背景：{interests}",
             $"- 个性标签：{personalityTags}",
-            "身份事实边界：只有上面当前好友自己的资料，以及明确标记为“本人过去说过”的历史消息，才能作为你的第一人称经历。",
+            "身份事实边界：只有上面当前好友自己的资料、明确提供的本人个人记忆、本人在当前会话已经说过的内容，以及本轮已通过业务验证的个人记忆建议，才能作为第一人称事实依据。",
             "其他好友或本地用户说过的事情只代表他们的陈述。可以回应、追问或引用，但绝不能改写成你亲身做过、见过、拥有或经历过的事情。",
             "标记为“本人对对方的长期记忆”的内容只代表你过去对该对话对象形成的认识。仅在与当前目标自然相关时使用，不要逐条复述、展示记忆类型，或把对方的经历改写成自己的经历。",
             "本轮如果提供了必须回应的目标消息，先衔接这条消息；更早记录只用于理解背景，不能抢走当前话题。",
@@ -348,6 +349,16 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 builder.AppendLine(
                     $"本轮不得声称的事实：{string.Join("、", request.DirectionPlan.ForbiddenClaims)}");
             }
+            if (request.DirectionPlan.SelfMemoryProposals.Count > 0)
+            {
+                builder.AppendLine("本轮已经通过业务验证、必须自然表达后才会保存的个人事实：");
+                foreach (AiSelfMemoryProposal proposal in request.DirectionPlan
+                             .SelfMemoryProposals)
+                {
+                    builder.AppendLine(
+                        $"- [{proposal.Operation}] [{proposal.Type}] {proposal.Summary}");
+                }
+            }
         }
         if (actionPlan.Action == ConversationAction.Answer)
         {
@@ -388,6 +399,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             _options.RecentMessageLimit);
         AppendReplyTarget(builder, request, conversationContext);
         AppendConversationAnchor(builder, request);
+        AppendSelfMemories(builder, conversationContext.SelfMemories);
         AppendMemories(builder, conversationContext.Memories);
 
         builder.AppendLine("更早的最近消息（仅作背景，方括号内是严格的事实归属）：");
@@ -435,6 +447,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
 
         builder.AppendLine("只完成指定的一个交流动作，不要同时回答、总结、安慰、建议并追问。除非计划要求提问，否则不要用问题句硬续话题。");
         builder.AppendLine("如果想分享自己的经历，但上下文和本人资料中没有可靠依据，就改为表达即时感受、一般看法或追问，不得借用别人刚说的具体经历。");
+        builder.AppendLine("如果本轮具有已验证的个人记忆建议，只有在消息中确实表达该事实后业务层才会保存；不要添加建议之外的新近况、新计划或新经历。");
         builder.AppendLine("与最近消息语义相同的附和、结论或经历，即使换了几个词也不算新内容；必须完成导演指定的新增内容。");
         return builder.ToString();
     }
@@ -457,6 +470,25 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 $"[{GetMemoryTypeDescription(memory.Type)}] 关于{memory.SubjectDisplayName}："
                 + $"{Truncate(memory.Summary, ContextMessageCharacterLimit)}"
                 + $"（{memory.OccurredAt:yyyy-MM-dd}）");
+        }
+    }
+
+    private static void AppendSelfMemories(
+        StringBuilder builder,
+        IReadOnlyList<AiConversationSelfMemory> memories)
+    {
+        builder.AppendLine("本人有效个人记忆（可作为第一人称事实，但不要逐条复述）：");
+        if (memories.Count == 0)
+        {
+            builder.AppendLine("（暂无）");
+            return;
+        }
+
+        foreach (AiConversationSelfMemory memory in memories)
+        {
+            builder.AppendLine(
+                $"[{memory.Id}] [{memory.Type}] "
+                + Truncate(memory.Summary, ContextMessageCharacterLimit));
         }
     }
 
@@ -749,7 +781,8 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         string[] temporalMarkers =
         {
             "上次", "之前", "以前", "昨晚", "昨天", "前天", "当时",
-            "那次", "去年", "小时候"
+            "那次", "去年", "小时候", "最近", "这阵子", "目前",
+            "正在", "刚完成", "刚接到", "准备", "计划", "明天"
         };
         string[] experienceVerbs =
         {
@@ -759,7 +792,9 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         string[] explicitFirstPersonExperienceMarkers =
         {
             "我去过", "我看过", "我做过", "我买过", "我遇到过",
-            "我参加过", "我住过", "我养过", "我经历过", "我曾经"
+            "我参加过", "我住过", "我养过", "我经历过", "我曾经",
+            "我最近", "我这阵子", "我目前", "我正在", "我刚完成",
+            "我刚接到", "我准备", "我计划", "我明天"
         };
 
         bool explicitlyAboutOther = explicitOtherSubjectMarkers.Any(marker =>
@@ -791,6 +826,13 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 && message.SenderAiAccountId == request.Speaker.Id)
             .Select(message => message.Content)
             .ToList();
+        ownGrounding.AddRange(GetProfileGrounding(request.Speaker));
+        ownGrounding.AddRange(request.RelevantSelfMemories
+            .Where(memory => memory.AiAccountId == request.Speaker.Id)
+            .Select(memory => memory.Summary));
+        ownGrounding.AddRange(request.DirectionPlan?.SelfMemoryProposals
+            .Select(proposal => proposal.Summary)
+            ?? Array.Empty<string>());
         ownGrounding.AddRange(GetValidSharedMemorySummaries(request));
 
         return !ownGrounding.Any(content =>
@@ -815,9 +857,9 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         string generatedMessage,
         string source)
     {
-        string normalizedGenerated = NormalizeForComparison(generatedMessage);
-        return GetDistinctiveFragments(source).Any(fragment =>
-            normalizedGenerated.Contains(fragment, StringComparison.Ordinal));
+        return AiFactGroundingMatcher.HasGroundingOverlap(
+            generatedMessage,
+            source);
     }
 
     private static bool HasLikelyBorrowedFirstPersonExperience(
@@ -838,7 +880,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             return false;
         }
 
-        if (GetValidSharedMemorySummaries(request).Any(summary =>
+        if (GetValidOwnFactSummaries(request).Any(summary =>
                 HasGroundingOverlap(generatedMessage, summary)))
         {
             return false;
@@ -865,6 +907,33 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 && participantIds.Contains(memory.SubjectAiAccountId)
                 && memory.Type == AiMemoryType.SharedExperience)
             .Select(memory => memory.Summary);
+    }
+
+    private static IEnumerable<string> GetValidOwnFactSummaries(
+        AiMessageGenerationRequest request)
+    {
+        return GetProfileGrounding(request.Speaker)
+            .Concat(request.RelevantSelfMemories
+                .Where(memory => memory.AiAccountId == request.Speaker.Id)
+                .Select(memory => memory.Summary))
+            .Concat(request.DirectionPlan?.SelfMemoryProposals
+                .Select(proposal => proposal.Summary)
+                ?? Array.Empty<string>())
+            .Concat(GetValidSharedMemorySummaries(request));
+    }
+
+    private static IEnumerable<string> GetProfileGrounding(AiAccount account)
+    {
+        return new[]
+        {
+            account.IdentityDescription,
+            account.Personality,
+            account.SpeakingStyle,
+            account.Signature,
+            account.Location,
+            account.Occupation,
+            account.Hometown
+        }.Where(value => !string.IsNullOrWhiteSpace(value));
     }
 
     private static IEnumerable<string> GetDistinctiveFragments(string value)

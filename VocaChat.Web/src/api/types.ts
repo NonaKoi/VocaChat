@@ -42,6 +42,66 @@ export interface CreateAiAccountRequest {
   personalityTags: string[]
 }
 
+export interface UpdateAiAccountRequest {
+  nickname: string
+  vcNumber: string
+  identityDescription: string
+  personality: string
+  speakingStyle: string
+  signature: string
+  birthday: string
+  gender: AiAccountGender
+  location: string
+  occupation: string
+  hometown: string
+  onlineStatus: OnlineStatus
+  interestTags: string[]
+  personalityTags: string[]
+}
+
+export type AiSelfMemoryType =
+  | 'PersonalFact'
+  | 'OngoingActivity'
+  | 'Plan'
+  | 'Experience'
+  | 'Preference'
+
+export type AiSelfMemorySource = 'User' | 'Director'
+
+export type AiSelfMemoryStatus = 'Active' | 'Superseded' | 'Archived'
+
+export interface AiSelfMemoryResponse {
+  id: string
+  aiAccountId: string
+  type: AiSelfMemoryType
+  summary: string
+  source: AiSelfMemorySource
+  status: AiSelfMemoryStatus
+  salience: number
+  isUserLocked: boolean
+  sourceConversationId: string | null
+  sourceMessageId: string | null
+  occurredAt: string | null
+  validFrom: string | null
+  validUntil: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SaveAiSelfMemoryRequest {
+  type: AiSelfMemoryType
+  summary: string
+  salience: number
+  isUserLocked: boolean
+  occurredAt: string | null
+  validFrom: string | null
+  validUntil: string | null
+}
+
+export interface UpdateAiSelfMemoryStatusRequest {
+  status: 'Active' | 'Archived'
+}
+
 export interface GroupChatMemberResponse {
   id: string
   nickname: string
@@ -74,12 +134,14 @@ export interface GroupMessageResponse {
   senderType: MessageSenderType
   senderDisplayName: string
   senderAiAccountId: string | null
+  sequenceNumber: number
   senderAvatarUrl: string | null
   content: string
   sentAt: string
 }
 
 export interface SendGroupMessageRequest {
+  clientMessageId: string
   content: string
 }
 
@@ -147,6 +209,7 @@ export interface ChatMessageResponse {
   senderType: MessageSenderType
   senderDisplayName: string
   senderAiAccountId: string | null
+  sequenceNumber: number
   senderAvatarUrl: string | null
   content: string
   sentAt: string
@@ -156,9 +219,22 @@ export interface PrivateMessageResponse extends ChatMessageResponse {
   privateChatId: string
 }
 
+export interface SendPrivateMessageRequest {
+  clientMessageId: string
+  content: string
+}
+
 export interface SendPrivateMessageResponse {
   userMessage: PrivateMessageResponse
   aiReplies: PrivateMessageResponse[]
+  replyCompletion: 'Complete' | 'Partial'
+  warningMessage: string | null
+}
+
+export interface SendPrivateMessageFailureResponse {
+  message: string
+  savedUserMessage?: PrivateMessageResponse | null
+  savedAiReplies?: PrivateMessageResponse[]
 }
 
 export interface PostImageResponse {
@@ -191,6 +267,7 @@ export interface PostResponse {
 export type AutonomyLevel = 'Low' | 'Normal' | 'High'
 export type AutonomousInteractionFrequency = AutonomyLevel
 export type AutonomousInteractionInitiativeLevel = AutonomyLevel
+export type AiReplyDelayMode = 'Fixed' | 'RandomRange'
 
 export interface AutonomousInteractionSettingsResponse {
   isEnabled: boolean
@@ -200,6 +277,17 @@ export interface AutonomousInteractionSettingsResponse {
   privateChatContinuationRatePercent: number
   privateChatMaximumRounds: number
   autonomousGroupChatMaximumMembers: number
+  groupChatContinuationRatePercent: number
+  groupChatMaximumRounds: number
+  replyDelayMode: AiReplyDelayMode
+  fixedReplyDelayMilliseconds: number
+  minimumReplyDelayMilliseconds: number
+  maximumReplyDelayMilliseconds: number
+  consecutiveMessageDelayMode: AiReplyDelayMode
+  fixedConsecutiveMessageDelayMilliseconds: number
+  minimumConsecutiveMessageDelayMilliseconds: number
+  maximumConsecutiveMessageDelayMilliseconds: number
+  maximumConsecutiveQuestionTurns: number
 }
 
 export interface UpdateAutonomousInteractionSettingsRequest {
@@ -210,6 +298,17 @@ export interface UpdateAutonomousInteractionSettingsRequest {
   privateChatContinuationRatePercent: number
   privateChatMaximumRounds: number
   autonomousGroupChatMaximumMembers: number
+  groupChatContinuationRatePercent: number
+  groupChatMaximumRounds: number
+  replyDelayMode: AiReplyDelayMode
+  fixedReplyDelayMilliseconds: number
+  minimumReplyDelayMilliseconds: number
+  maximumReplyDelayMilliseconds: number
+  consecutiveMessageDelayMode: AiReplyDelayMode
+  fixedConsecutiveMessageDelayMilliseconds: number
+  minimumConsecutiveMessageDelayMilliseconds: number
+  maximumConsecutiveMessageDelayMilliseconds: number
+  maximumConsecutiveQuestionTurns: number
 }
 
 export interface AiAccountAutonomySettingsResponse {
@@ -219,6 +318,18 @@ export interface AiAccountAutonomySettingsResponse {
   canInitiatePrivateChats: boolean
   canInitiateGroupChats: boolean
   canJoinGroupChats: boolean
+  useGlobalReplyDelay: boolean
+  replyDelayMode: AiReplyDelayMode
+  fixedReplyDelayMilliseconds: number
+  minimumReplyDelayMilliseconds: number
+  maximumReplyDelayMilliseconds: number
+  useGlobalConsecutiveMessageDelay: boolean
+  consecutiveMessageDelayMode: AiReplyDelayMode
+  fixedConsecutiveMessageDelayMilliseconds: number
+  minimumConsecutiveMessageDelayMilliseconds: number
+  maximumConsecutiveMessageDelayMilliseconds: number
+  useGlobalQuestionPolicy: boolean
+  maximumConsecutiveQuestionTurns: number
 }
 
 export interface UpdateAiAccountAutonomySettingsRequest {
@@ -227,6 +338,31 @@ export interface UpdateAiAccountAutonomySettingsRequest {
   canInitiatePrivateChats: boolean
   canInitiateGroupChats: boolean
   canJoinGroupChats: boolean
+  useGlobalReplyDelay: boolean
+  replyDelayMode: AiReplyDelayMode
+  fixedReplyDelayMilliseconds: number
+  minimumReplyDelayMilliseconds: number
+  maximumReplyDelayMilliseconds: number
+  useGlobalConsecutiveMessageDelay: boolean
+  consecutiveMessageDelayMode: AiReplyDelayMode
+  fixedConsecutiveMessageDelayMilliseconds: number
+  minimumConsecutiveMessageDelayMilliseconds: number
+  maximumConsecutiveMessageDelayMilliseconds: number
+  useGlobalQuestionPolicy: boolean
+  maximumConsecutiveQuestionTurns: number
+}
+
+export interface AiInteractionDiagnosticLogResponse {
+  id: string
+  occurredAt: string
+  severity: 'Information' | 'Warning' | 'Error'
+  code: 'MessageGenerationFailed' | 'MessagePersistenceFailed' | 'ReplyTimingFailed'
+  scenario: string
+  aiAccountId: string | null
+  conversationId: string | null
+  summary: string
+  detail: string
+  wasRecovered: boolean
 }
 
 export interface AiRelationshipResponse {
@@ -411,16 +547,34 @@ export interface AutonomousGroupChatSessionResponse {
   initiatorAiAccountId: string
   topic: string
   participantAiAccountIds: string[]
+  maximumRounds: number
+  continuationRatePercent: number
+  completedRounds: number
   status: 'Running' | 'Completed' | 'Failed'
   endReason:
     | 'Completed'
     | 'ParticipantUnavailable'
     | 'GenerationFailed'
     | 'MessagePersistenceFailed'
+    | 'NaturalConclusion'
+    | 'ContinuationProbabilityDeclined'
+    | 'HardLimitReached'
     | null
   startedAt: string
   lastActivityAt: string
   endedAt: string | null
+}
+
+export interface AutonomousGroupChatRoundResponse {
+  id: string
+  roundNumber: number
+  isClosing: boolean
+  occurrenceProbability: number | null
+  randomRoll: number | null
+  plannedSpeakerCount: number
+  plannedMessageCount: number
+  startedAt: string
+  completedAt: string | null
 }
 
 export interface AutonomousGroupChatExecutionResponse {
@@ -429,6 +583,7 @@ export interface AutonomousGroupChatExecutionResponse {
   groupChat: GroupChatResponse | null
   groupChatCreated: boolean
   session: AutonomousGroupChatSessionResponse | null
+  rounds: AutonomousGroupChatRoundResponse[]
   messages: GroupMessageResponse[]
   errorMessage: string | null
 }
