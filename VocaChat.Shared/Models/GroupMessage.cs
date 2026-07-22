@@ -17,6 +17,8 @@ public class GroupMessage
     public Guid? SenderAiAccountId { get; private set; }
     public Guid? AutonomousGroupChatSessionId { get; private set; }
     public Guid? AutonomousGroupChatRoundId { get; private set; }
+    public Guid? InteractionBatchId { get; private set; }
+    public Guid? ReplyToMessageId { get; private set; }
     public long SequenceNumber { get; private set; }
     public string Content { get; private set; }
     public DateTime SentAt { get; private set; }
@@ -62,7 +64,9 @@ public class GroupMessage
         Guid? autonomousGroupChatSessionId = null,
         Guid? autonomousGroupChatRoundId = null,
         Guid? messageId = null,
-        long sequenceNumber = 0)
+        long sequenceNumber = 0,
+        Guid? interactionBatchId = null,
+        Guid? replyToMessageId = null)
     {
         Id = messageId ?? Guid.NewGuid();
         GroupChatId = groupChatId;
@@ -71,6 +75,8 @@ public class GroupMessage
         SenderAiAccountId = senderAiAccountId;
         AutonomousGroupChatSessionId = autonomousGroupChatSessionId;
         AutonomousGroupChatRoundId = autonomousGroupChatRoundId;
+        InteractionBatchId = interactionBatchId;
+        ReplyToMessageId = replyToMessageId;
         SequenceNumber = sequenceNumber;
         Content = content;
         SentAt = sentAt;

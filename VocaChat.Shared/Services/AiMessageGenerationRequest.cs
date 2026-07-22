@@ -22,18 +22,18 @@ public sealed record AiMessageCountRange
 
     public AiMessageCountRange(int minimum, int maximum)
     {
-        if (minimum is < 0 or > 3)
+        if (minimum is < 0 or > 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(minimum),
-                "最少消息数量必须在 0 到 3 之间。");
+                "最少消息数量必须在 0 到 4 之间。");
         }
 
-        if (maximum < minimum || maximum > 3)
+        if (maximum < minimum || maximum > 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(maximum),
-                "最多消息数量必须不小于最少数量，并且不能超过 3。");
+                "最多消息数量必须不小于最少数量，并且不能超过 4。");
         }
 
         Minimum = minimum;
@@ -126,6 +126,11 @@ public sealed record AiMessageGenerationRequest
     public required AiAccount Speaker { get; init; }
     public IReadOnlyList<AiAccount> OtherParticipants { get; init; } =
         Array.Empty<AiAccount>();
+    /// <summary>
+    /// 当前发言者在本轮用于读取有方向关系和关系记忆的具体 AI 对象。
+    /// 回应本地用户或没有可靠对象时保持为空，不能从群成员中任意猜测。
+    /// </summary>
+    public AiAccount? RelationshipTarget { get; init; }
     public AiAccount? PrimarySpeaker { get; init; }
     public string Topic { get; init; } = string.Empty;
     public string FocusContent { get; init; } = string.Empty;
@@ -162,4 +167,8 @@ public sealed record AiMessageGenerationRequest
     public ConversationActionPlan? ActionPlan { get; init; }
     public ConversationDirectionPlan? DirectionPlan { get; init; }
     public ConversationQuestionPolicy? QuestionPolicy { get; init; }
+    /// <summary>
+    /// 用户群聊中由群级导演分配给当前发言者的受众、职责与新增内容。
+    /// </summary>
+    public GroupConversationSpeakerPlan? GroupConversationPlan { get; init; }
 }

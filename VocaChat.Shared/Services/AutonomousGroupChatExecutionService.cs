@@ -17,11 +17,19 @@ public sealed class AutonomousGroupChatExecutionService
     private readonly AiAccountService _aiAccountService;
     private readonly GroupChatService _groupChatService;
     private readonly GroupMessageService _groupMessageService;
+    private readonly GroupChatReplyPlanner _replyPlanner;
+    private readonly IGroupConversationDirector _groupConversationDirector;
+    private readonly GroupConversationPlanValidator _groupPlanValidator;
     private readonly IConversationDirector _conversationDirector;
     private readonly IAiMessageGenerator _messageGenerator;
     private readonly AiReplyTimingScheduler _replyTimingScheduler;
     private readonly ConversationQuestionPolicyService _questionPolicyService;
     private readonly AiIdentityContinuityService _identityContinuityService;
+    private readonly AiReplyMessageCountSettingsResolver
+        _replyMessageCountSettingsResolver;
+    private readonly GroupConversationContextService _conversationContextService;
+    private readonly GroupConversationDensitySettingsResolver _densityResolver;
+    private readonly GroupConversationDiagnosticService _groupDiagnosticService;
 
     public AutonomousGroupChatExecutionService(
         AutonomousGroupChatJudge judge,
@@ -34,11 +42,18 @@ public sealed class AutonomousGroupChatExecutionService
         AiAccountService aiAccountService,
         GroupChatService groupChatService,
         GroupMessageService groupMessageService,
+        GroupChatReplyPlanner replyPlanner,
+        IGroupConversationDirector groupConversationDirector,
+        GroupConversationPlanValidator groupPlanValidator,
         IConversationDirector conversationDirector,
         IAiMessageGenerator messageGenerator,
         AiReplyTimingScheduler replyTimingScheduler,
         ConversationQuestionPolicyService questionPolicyService,
-        AiIdentityContinuityService identityContinuityService)
+        AiIdentityContinuityService identityContinuityService,
+        AiReplyMessageCountSettingsResolver replyMessageCountSettingsResolver,
+        GroupConversationContextService conversationContextService,
+        GroupConversationDensitySettingsResolver densityResolver,
+        GroupConversationDiagnosticService groupDiagnosticService)
     {
         _judge = judge;
         _planningService = planningService;
@@ -50,6 +65,13 @@ public sealed class AutonomousGroupChatExecutionService
         _aiAccountService = aiAccountService;
         _groupChatService = groupChatService;
         _groupMessageService = groupMessageService;
+        _replyPlanner = replyPlanner
+            ?? throw new ArgumentNullException(nameof(replyPlanner));
+        _groupConversationDirector = groupConversationDirector
+            ?? throw new ArgumentNullException(
+                nameof(groupConversationDirector));
+        _groupPlanValidator = groupPlanValidator
+            ?? throw new ArgumentNullException(nameof(groupPlanValidator));
         _conversationDirector = conversationDirector;
         _messageGenerator = messageGenerator;
         _replyTimingScheduler = replyTimingScheduler
@@ -58,6 +80,16 @@ public sealed class AutonomousGroupChatExecutionService
             ?? throw new ArgumentNullException(nameof(questionPolicyService));
         _identityContinuityService = identityContinuityService
             ?? throw new ArgumentNullException(nameof(identityContinuityService));
+        _replyMessageCountSettingsResolver = replyMessageCountSettingsResolver
+            ?? throw new ArgumentNullException(
+                nameof(replyMessageCountSettingsResolver));
+        _conversationContextService = conversationContextService
+            ?? throw new ArgumentNullException(
+                nameof(conversationContextService));
+        _densityResolver = densityResolver
+            ?? throw new ArgumentNullException(nameof(densityResolver));
+        _groupDiagnosticService = groupDiagnosticService
+            ?? throw new ArgumentNullException(nameof(groupDiagnosticService));
     }
 
     public async Task<AutonomousGroupChatExecutionResult> ExecuteAsync(
@@ -139,6 +171,9 @@ public sealed class AutonomousGroupChatExecutionService
                 errorMessage: sessionError);
         }
 
+        GroupConversationDensitySettings densitySettings =
+            _densityResolver.Resolve();
+
         List<AutonomousGroupChatRound> rounds = new();
         List<GroupMessage> messages = new();
         DateTime messageTime = evaluatedAt;
@@ -158,7 +193,7 @@ public sealed class AutonomousGroupChatExecutionService
                 .Select(item => item.SpeakerAiAccountId)
                 .ToHashSet()
                 ?? new HashSet<Guid>();
-            AutonomousGroupChatRoundPlan roundPlan = _roundPlanner.Plan(
+            AutonomousGroupChatRoundPlan fallbackRoundPlan = _roundPlanner.Plan(
                 plan,
                 roundNumber,
                 previousSpeakerIds,
@@ -166,12 +201,46 @@ public sealed class AutonomousGroupChatExecutionService
                 _randomSource.NextUnit(),
                 NextRolls(3),
                 NextRolls(3));
+            GroupConversationTurnPlan turnPlan;
+            try
+            {
+                turnPlan = await CreateValidatedGroupPlanAsync(
+                    CreatePlanningRequest(
+                        groupChat,
+                        plan,
+                        session,
+                        roundNumber == 1
+                            ? GroupConversationPlanningScenario
+                                .AutonomousOpening
+                            : GroupConversationPlanningScenario
+                                .AutonomousContinuation,
+                        fallbackRoundPlan,
+                        densitySettings),
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                return FailSessionAndCreateResult(
+                    AutonomousGroupChatExecutionStatus.GenerationFailed,
+                    AutonomousGroupChatSessionEndReason.GenerationFailed,
+                    decision,
+                    groupChat,
+                    groupChatCreated,
+                    session,
+                    rounds,
+                    messages,
+                    messageTime,
+                    $"自主好友群聊语义规划失败：{exception.Message}");
+            }
+
+            AutonomousGroupChatRoundPlan roundPlan = ToRoundPlan(turnPlan);
             RoundExecutionAttempt roundAttempt = await TryExecuteRoundAsync(
                 session,
                 plan,
                 participants,
                 groupChat,
                 roundPlan,
+                turnPlan,
                 isClosing: false,
                 currentOccurrenceProbability,
                 currentRandomRoll,
@@ -179,6 +248,7 @@ public sealed class AutonomousGroupChatExecutionService
                 messageTime,
                 rounds,
                 messages,
+                densitySettings.MaximumMessagesPerTurn,
                 cancellationToken);
             messageTime = roundAttempt.MessageTime;
 
@@ -263,12 +333,42 @@ public sealed class AutonomousGroupChatExecutionService
             _randomSource.NextUnit(),
             NextRolls(2),
             NextRolls(2));
+        GroupConversationTurnPlan closingTurnPlan;
+        try
+        {
+            closingTurnPlan = await CreateValidatedGroupPlanAsync(
+                CreatePlanningRequest(
+                    groupChat,
+                    plan,
+                    session,
+                    GroupConversationPlanningScenario.AutonomousClosing,
+                    closingPlan,
+                    densitySettings),
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return FailSessionAndCreateResult(
+                AutonomousGroupChatExecutionStatus.GenerationFailed,
+                AutonomousGroupChatSessionEndReason.GenerationFailed,
+                decision,
+                groupChat,
+                groupChatCreated,
+                session,
+                rounds,
+                messages,
+                messageTime,
+                $"自主好友群聊收束规划失败：{exception.Message}");
+        }
+
+        closingPlan = ToRoundPlan(closingTurnPlan);
         RoundExecutionAttempt closingAttempt = await TryExecuteRoundAsync(
             session,
             plan,
             participants,
             groupChat,
             closingPlan,
+            closingTurnPlan,
             isClosing: true,
             occurrenceProbability: null,
             randomRoll: null,
@@ -276,6 +376,7 @@ public sealed class AutonomousGroupChatExecutionService
             messageTime,
             rounds,
             messages,
+            densitySettings.MaximumMessagesPerTurn,
             cancellationToken);
         messageTime = closingAttempt.MessageTime;
 
@@ -333,6 +434,7 @@ public sealed class AutonomousGroupChatExecutionService
         IReadOnlyList<AiAccount> participants,
         GroupChat groupChat,
         AutonomousGroupChatRoundPlan roundPlan,
+        GroupConversationTurnPlan turnPlan,
         bool isClosing,
         double? occurrenceProbability,
         double? randomRoll,
@@ -340,6 +442,7 @@ public sealed class AutonomousGroupChatExecutionService
         DateTime messageTime,
         List<AutonomousGroupChatRound> rounds,
         List<GroupMessage> messages,
+        int maximumTotalMessageCount,
         CancellationToken cancellationToken)
     {
         if (!_sessionService.TryStartRound(
@@ -354,6 +457,13 @@ public sealed class AutonomousGroupChatExecutionService
                 out string errorMessage)
             || round is null)
         {
+            _groupDiagnosticService.RecordFailure(
+                AiMessageGenerationScenario.AutonomousGroupChat,
+                groupChat.Id,
+                null,
+                "轮次保存",
+                errorMessage,
+                messages.Count > 0);
             return RoundExecutionAttempt.Failed(
                 session,
                 AutonomousGroupChatSessionEndReason.MessagePersistenceFailed,
@@ -364,10 +474,18 @@ public sealed class AutonomousGroupChatExecutionService
         rounds.Add(round);
         AutonomousGroupChatSession? progressedSession = session;
 
-        foreach (AutonomousGroupChatSpeakerPlan speakerPlan in roundPlan.Speakers)
+        int savedRoundMessageCount = 0;
+        for (int speakerIndex = 0;
+             speakerIndex < roundPlan.Speakers.Count;
+             speakerIndex++)
         {
+            AutonomousGroupChatSpeakerPlan speakerPlan =
+                roundPlan.Speakers[speakerIndex];
             AiAccount speaker = participants.Single(account =>
                 account.Id == speakerPlan.SpeakerAiAccountId);
+            GroupConversationSpeakerPlan semanticSpeakerPlan =
+                turnPlan.Speakers.Single(item =>
+                    item.SpeakerAiAccountId == speaker.Id);
             AiDirectedMessageBatch batch;
 
             try
@@ -378,19 +496,31 @@ public sealed class AutonomousGroupChatExecutionService
                     plan,
                     participants,
                     speaker,
-                    speakerPlan.MessageCount,
+                    semanticSpeakerPlan,
                     roundNumber,
                     isClosing,
+                    ApplyMessageBudget(
+                        _replyMessageCountSettingsResolver.Resolve(speaker.Id),
+                        maximumTotalMessageCount,
+                        savedRoundMessageCount,
+                        roundPlan.Speakers.Count - speakerIndex - 1),
                     cancellationToken);
 
-                if (batch.Contents.Count != speakerPlan.MessageCount)
+                if (batch.Contents.Count != batch.Request.ExpectedMessageCount)
                 {
                     throw new InvalidOperationException(
-                        $"计划生成 {speakerPlan.MessageCount} 条消息，实际返回 {batch.Contents.Count} 条。");
+                        $"计划生成 {batch.Request.ExpectedMessageCount} 条消息，实际返回 {batch.Contents.Count} 条。");
                 }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                _groupDiagnosticService.RecordFailure(
+                    AiMessageGenerationScenario.AutonomousGroupChat,
+                    groupChat.Id,
+                    speaker.Id,
+                    "消息生成",
+                    exception.Message,
+                    savedRoundMessageCount > 0);
                 return RoundExecutionAttempt.Failed(
                     progressedSession,
                     AutonomousGroupChatSessionEndReason.GenerationFailed,
@@ -398,22 +528,85 @@ public sealed class AutonomousGroupChatExecutionService
                     messageTime);
             }
 
+            if (savedRoundMessageCount + batch.Contents.Count
+                > maximumTotalMessageCount)
+            {
+                const string densityError =
+                    "好友群聊消息超过本轮允许的消息总量。";
+                _groupDiagnosticService.RecordFailure(
+                    AiMessageGenerationScenario.AutonomousGroupChat,
+                    groupChat.Id,
+                    speaker.Id,
+                    "消息数量控制",
+                    densityError,
+                    savedRoundMessageCount > 0);
+                return RoundExecutionAttempt.Failed(
+                    progressedSession,
+                    AutonomousGroupChatSessionEndReason.GenerationFailed,
+                    densityError,
+                    messageTime);
+            }
+
+            int adjustedPlannedMessageCount = round.PlannedMessageCount
+                + batch.Contents.Count
+                - speakerPlan.MessageCount;
+            if (!_sessionService.TryUpdateRoundPlannedMessageCount(
+                    round.Id,
+                    adjustedPlannedMessageCount,
+                    out errorMessage))
+            {
+                _groupDiagnosticService.RecordFailure(
+                    AiMessageGenerationScenario.AutonomousGroupChat,
+                    groupChat.Id,
+                    speaker.Id,
+                    "轮次计划保存",
+                    errorMessage,
+                    savedRoundMessageCount > 0);
+                return RoundExecutionAttempt.Failed(
+                    progressedSession,
+                    AutonomousGroupChatSessionEndReason
+                        .MessagePersistenceFailed,
+                    errorMessage,
+                    messageTime);
+            }
+
+            round = _sessionService.FindRoundById(round.Id) ?? round;
+
             List<GroupMessage> savedSpeakerMessages = new();
             for (int index = 0; index < batch.Contents.Count; index++)
             {
-                if (index == 0)
+                try
                 {
-                    await _replyTimingScheduler.WaitForReplyAsync(
-                        speaker.Id,
-                        messageTime,
-                        cancellationToken);
+                    if (index == 0)
+                    {
+                        await _replyTimingScheduler.WaitForReplyAsync(
+                            speaker.Id,
+                            messageTime,
+                            cancellationToken);
+                    }
+                    else
+                    {
+                        await _replyTimingScheduler
+                            .WaitForConsecutiveMessageAsync(
+                                speaker.Id,
+                                messageTime,
+                                cancellationToken);
+                    }
                 }
-                else
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    await _replyTimingScheduler.WaitForConsecutiveMessageAsync(
+                    _groupDiagnosticService.RecordFailure(
+                        AiMessageGenerationScenario.AutonomousGroupChat,
+                        groupChat.Id,
                         speaker.Id,
-                        messageTime,
-                        cancellationToken);
+                        "回复等待",
+                        exception.Message,
+                        savedRoundMessageCount > 0);
+                    return RoundExecutionAttempt.Failed(
+                        progressedSession,
+                        AutonomousGroupChatSessionEndReason.GenerationFailed,
+                        exception.Message,
+                        messageTime);
                 }
 
                 messageTime = DateTime.Now;
@@ -422,6 +615,7 @@ public sealed class AutonomousGroupChatExecutionService
                         speaker,
                         batch.Contents[index],
                         messageTime,
+                        batch.Request.ReplyTarget?.Message?.MessageId,
                         out GroupMessage? message,
                         out progressedSession,
                         out errorMessage)
@@ -431,6 +625,13 @@ public sealed class AutonomousGroupChatExecutionService
                         groupChat.Id,
                         batch,
                         savedSpeakerMessages);
+                    _groupDiagnosticService.RecordFailure(
+                        AiMessageGenerationScenario.AutonomousGroupChat,
+                        groupChat.Id,
+                        speaker.Id,
+                        "消息保存",
+                        errorMessage,
+                        savedRoundMessageCount > 0);
                     return RoundExecutionAttempt.Failed(
                         progressedSession,
                         AutonomousGroupChatSessionEndReason
@@ -441,6 +642,7 @@ public sealed class AutonomousGroupChatExecutionService
 
                 messages.Add(message);
                 savedSpeakerMessages.Add(message);
+                savedRoundMessageCount++;
             }
 
             ApplyIdentityContinuity(
@@ -455,6 +657,13 @@ public sealed class AutonomousGroupChatExecutionService
                 out progressedSession,
                 out errorMessage))
         {
+            _groupDiagnosticService.RecordFailure(
+                AiMessageGenerationScenario.AutonomousGroupChat,
+                groupChat.Id,
+                null,
+                "轮次完成保存",
+                errorMessage,
+                savedRoundMessageCount > 0);
             return RoundExecutionAttempt.Failed(
                 progressedSession,
                 AutonomousGroupChatSessionEndReason.MessagePersistenceFailed,
@@ -478,9 +687,10 @@ public sealed class AutonomousGroupChatExecutionService
         AutonomousGroupChatPlan plan,
         IReadOnlyList<AiAccount> participants,
         AiAccount speaker,
-        int messageCount,
+        GroupConversationSpeakerPlan speakerPlan,
         int roundNumber,
         bool isClosing,
+        AiMessageCountRange allowedMessageCountRange,
         CancellationToken cancellationToken)
     {
         IReadOnlyList<GroupMessage> recentHistory = _groupMessageService
@@ -491,14 +701,31 @@ public sealed class AutonomousGroupChatExecutionService
             .Select(ToDialogueMessage)
             .ToList()
             .AsReadOnly();
-        GroupMessage? latestSessionMessage = recentHistory.LastOrDefault(
-            message => message.AutonomousGroupChatSessionId == session.Id);
+        IReadOnlyList<GroupMessage> sessionHistory = recentHistory
+            .Where(message =>
+                message.AutonomousGroupChatSessionId == session.Id)
+            .ToList()
+            .AsReadOnly();
+        GroupMessage? latestSessionMessage = sessionHistory.LastOrDefault();
+        GroupMessage? conversationAnchorMessage = sessionHistory
+            .FirstOrDefault();
+        GroupMessage? targetMessage = ResolveTargetMessage(
+            speakerPlan,
+            sessionHistory,
+            speaker);
+        AiAccount? relationshipTarget = ResolveRelationshipTarget(
+            participants,
+            speakerPlan,
+            targetMessage,
+            speaker);
         AiDialogueReplyTarget replyTarget = CreateReplyTarget(
-            latestSessionMessage,
-            speaker,
+            targetMessage,
             roundNumber,
             isClosing,
-            plan.InitiatorAiAccountId);
+            speaker.Id == plan.InitiatorAiAccountId);
+        AiDialogueMessage? conversationAnchor = conversationAnchorMessage is null
+            ? null
+            : ToDialogueMessage(conversationAnchorMessage);
         AiMessageGenerationRequest request = new()
         {
             Scenario = AiMessageGenerationScenario.AutonomousGroupChat,
@@ -506,28 +733,30 @@ public sealed class AutonomousGroupChatExecutionService
             OtherParticipants = participants
                 .Where(account => account.Id != speaker.Id)
                 .OrderByDescending(account =>
-                    account.Id == latestSessionMessage?.SenderAiAccountId)
+                    account.Id == relationshipTarget?.Id)
                 .ToList()
                 .AsReadOnly(),
             PrimarySpeaker = participants.Single(account =>
                 account.Id == plan.InitiatorAiAccountId),
             Topic = plan.Topic,
-            FocusContent = latestSessionMessage?.Content ?? plan.Topic,
+            FocusContent = targetMessage?.Content ?? plan.Topic,
             ReplyTarget = replyTarget,
+            ConversationAnchor = conversationAnchor,
             RecentMessages = recentMessages,
-            ExpectedMessageCount = messageCount,
+            ExpectedMessageCount = 1,
+            AllowedMessageCountRange = allowedMessageCountRange,
             RoundNumber = roundNumber,
             IsInitiator = speaker.Id == plan.InitiatorAiAccountId,
-            OtherParticipantHasResponded = latestSessionMessage is not null,
-            SpeakerToOtherRelationshipScore =
-                plan.Decision.AverageRelationshipScore,
-            OtherToSpeakerRelationshipScore =
-                plan.Decision.AverageRelationshipScore,
+            OtherParticipantHasResponded = latestSessionMessage is not null
+                && latestSessionMessage.SenderAiAccountId != speaker.Id,
             QuestionPolicy = _questionPolicyService.CreatePolicy(
                 speaker.Id,
-                recentMessages)
+                recentMessages),
+            GroupConversationPlan = speakerPlan
         };
-        request = _identityContinuityService.PrepareGenerationRequest(request);
+        request = _conversationContextService.PrepareGenerationRequest(
+            request,
+            relationshipTarget);
         ConversationDirectionPlan directionPlan =
             await _conversationDirector.CreatePlanAsync(
                 request,
@@ -538,14 +767,247 @@ public sealed class AutonomousGroupChatExecutionService
         request = request with
         {
             DirectionPlan = directionPlan,
-            ActionPlan = directionPlan.ActionPlan
+            ActionPlan = directionPlan.ActionPlan,
+            ExpectedMessageCount = directionPlan.SelectedMessageCount
         };
 
         IReadOnlyList<string> contents =
             await _messageGenerator.GenerateMessagesAsync(
-            request,
-            cancellationToken);
+                request,
+                cancellationToken);
         return new AiDirectedMessageBatch(request, continuityPlan, contents);
+    }
+
+    private static GroupMessage? ResolveTargetMessage(
+        GroupConversationSpeakerPlan speakerPlan,
+        IReadOnlyList<GroupMessage> recentHistory,
+        AiAccount speaker)
+    {
+        if (speakerPlan.Audience ==
+                GroupConversationAudience.SpecificAiAccount
+            && speakerPlan.TargetAiAccountId is Guid targetAiAccountId)
+        {
+            GroupMessage? targetedMessage = recentHistory.LastOrDefault(
+                message => message.SenderAiAccountId == targetAiAccountId);
+            if (targetedMessage is not null)
+            {
+                return targetedMessage;
+            }
+        }
+
+        if (speakerPlan.ReplyTargetMessageId is Guid replyTargetMessageId)
+        {
+            GroupMessage? targetedMessage = recentHistory.LastOrDefault(
+                message => message.Id == replyTargetMessageId);
+            if (targetedMessage is not null)
+            {
+                return targetedMessage;
+            }
+        }
+
+        return recentHistory.LastOrDefault(message =>
+            message.AutonomousGroupChatSessionId is not null
+            && message.SenderAiAccountId != speaker.Id);
+    }
+
+    private static AiAccount? ResolveRelationshipTarget(
+        IReadOnlyList<AiAccount> participants,
+        GroupConversationSpeakerPlan speakerPlan,
+        GroupMessage? targetMessage,
+        AiAccount speaker)
+    {
+        Guid? targetAiAccountId = targetMessage?.SenderAiAccountId
+            ?? speakerPlan.TargetAiAccountId;
+        return targetAiAccountId is null || targetAiAccountId == speaker.Id
+            ? null
+            : participants.SingleOrDefault(account =>
+                account.Id == targetAiAccountId);
+    }
+
+    private static AiDialogueReplyTarget CreateReplyTarget(
+        GroupMessage? targetMessage,
+        int roundNumber,
+        bool isClosing,
+        bool isInitiator)
+    {
+        AiDialogueMessage? dialogueTarget = targetMessage is null
+            ? null
+            : ToDialogueMessage(targetMessage);
+
+        if (isClosing)
+        {
+            return AiDialogueReplyTarget.CloseConversation(dialogueTarget);
+        }
+
+        if (roundNumber == 1 && isInitiator && dialogueTarget is null)
+        {
+            return AiDialogueReplyTarget.OpenTopic();
+        }
+
+        return dialogueTarget is null
+            ? AiDialogueReplyTarget.ContinueTopic()
+            : AiDialogueReplyTarget.ReplyTo(dialogueTarget);
+    }
+
+    private GroupConversationPlanningRequest CreatePlanningRequest(
+        GroupChat groupChat,
+        AutonomousGroupChatPlan plan,
+        AutonomousGroupChatSession session,
+        GroupConversationPlanningScenario scenario,
+        AutonomousGroupChatRoundPlan fallbackRoundPlan,
+        GroupConversationDensitySettings densitySettings)
+    {
+        IReadOnlyList<GroupMessage> recentHistory = _groupMessageService
+            .GetOrderedChatHistory(groupChat)
+            .TakeLast(12)
+            .ToList()
+            .AsReadOnly();
+        GroupMessage? anchorMessage = scenario ==
+                GroupConversationPlanningScenario.AutonomousOpening
+            ? null
+            : recentHistory.LastOrDefault(message =>
+                message.AutonomousGroupChatSessionId == session.Id);
+
+        return new GroupConversationPlanningRequest
+        {
+            GroupChat = groupChat,
+            Scenario = scenario,
+            AnchorMessage = anchorMessage,
+            Topic = plan.Topic,
+            RequiredSpeakerAiAccountId = scenario ==
+                    GroupConversationPlanningScenario.AutonomousOpening
+                ? plan.InitiatorAiAccountId
+                : null,
+            PreferredSpeakerAiAccountIds = fallbackRoundPlan.Speakers
+                .Select(item => item.SpeakerAiAccountId)
+                .ToList()
+                .AsReadOnly(),
+            RecentMessages = recentHistory,
+            MaximumSpeakerCount = scenario ==
+                    GroupConversationPlanningScenario.AutonomousClosing
+                ? Math.Min(
+                    2,
+                    densitySettings.WholeGroupMaximumSpeakersPerTurn)
+                : densitySettings.WholeGroupMaximumSpeakersPerTurn,
+            MaximumTotalMessageCount = densitySettings.MaximumMessagesPerTurn
+        };
+    }
+
+    private async Task<GroupConversationTurnPlan> CreateValidatedGroupPlanAsync(
+        GroupConversationPlanningRequest request,
+        CancellationToken cancellationToken)
+    {
+        GroupConversationTurnPlan? plan = null;
+        string? rejectedModelPlanReason = null;
+
+        try
+        {
+            plan = await _groupConversationDirector.CreatePlanAsync(
+                request,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // 模型群级导演不可用时，继续使用同一业务边界内的规则计划。
+            rejectedModelPlanReason = $"模型导演调用失败：{exception.Message}";
+        }
+
+        if (_groupPlanValidator.TryValidate(
+                request,
+                plan,
+                out string modelPlanError))
+        {
+            _groupDiagnosticService.RecordPlan(request, plan!);
+            return plan!;
+        }
+
+        rejectedModelPlanReason ??= modelPlanError;
+
+        RuleBasedGroupConversationDirector fallbackDirector = new(
+            _replyPlanner);
+        GroupConversationTurnPlan fallbackPlan;
+        try
+        {
+            fallbackPlan = await fallbackDirector.CreatePlanAsync(
+                request,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _groupDiagnosticService.RecordFailure(
+                AiMessageGenerationScenario.AutonomousGroupChat,
+                request.GroupChat.Id,
+                null,
+                "群聊规划",
+                exception.Message,
+                false);
+            throw;
+        }
+        if (!_groupPlanValidator.TryValidate(
+                request,
+                fallbackPlan,
+                out string fallbackError))
+        {
+            _groupDiagnosticService.RecordFailure(
+                AiMessageGenerationScenario.AutonomousGroupChat,
+                request.GroupChat.Id,
+                null,
+                "群聊规划",
+                fallbackError,
+                false);
+            throw new AiMessageGenerationException(fallbackError);
+        }
+
+        _groupDiagnosticService.RecordPlan(
+            request,
+            fallbackPlan,
+            rejectedModelPlanReason);
+        return fallbackPlan;
+    }
+
+    private static AiMessageCountRange ApplyMessageBudget(
+        AiMessageCountRange accountRange,
+        int maximumTotalMessageCount,
+        int savedMessageCount,
+        int remainingSpeakerCount)
+    {
+        int currentCapacity = maximumTotalMessageCount
+            - savedMessageCount
+            - remainingSpeakerCount;
+        int maximum = Math.Min(accountRange.Maximum, currentCapacity);
+        int minimum = Math.Min(accountRange.Minimum, maximum);
+
+        if (maximum < 1)
+        {
+            throw new AiMessageGenerationException(
+                "好友群聊单轮消息总量不足以让已选中的好友完成发言。");
+        }
+
+        return new AiMessageCountRange(Math.Max(1, minimum), maximum);
+    }
+
+    private static AutonomousGroupChatRoundPlan ToRoundPlan(
+        GroupConversationTurnPlan turnPlan)
+    {
+        return new AutonomousGroupChatRoundPlan
+        {
+            Speakers = turnPlan.Speakers
+                .Select(speaker => new AutonomousGroupChatSpeakerPlan
+                {
+                    SpeakerAiAccountId = speaker.SpeakerAiAccountId,
+                    MessageCount = 1
+                })
+                .ToList()
+                .AsReadOnly()
+        };
     }
 
     private void ApplyIdentityContinuity(
@@ -609,38 +1071,6 @@ public sealed class AutonomousGroupChatExecutionService
             .Select(_ => _randomSource.NextUnit())
             .ToList()
             .AsReadOnly();
-    }
-
-    private static AiDialogueReplyTarget CreateReplyTarget(
-        GroupMessage? latestSessionMessage,
-        AiAccount speaker,
-        int roundNumber,
-        bool isClosing,
-        Guid initiatorId)
-    {
-        if (isClosing)
-        {
-            return AiDialogueReplyTarget.CloseConversation(
-                latestSessionMessage is null
-                    ? null
-                    : ToDialogueMessage(latestSessionMessage));
-        }
-
-        if (roundNumber == 1 && speaker.Id == initiatorId
-            && latestSessionMessage is null)
-        {
-            return AiDialogueReplyTarget.OpenTopic();
-        }
-
-        if (latestSessionMessage?.SenderAiAccountId == speaker.Id)
-        {
-            return AiDialogueReplyTarget.ContinueTopic();
-        }
-
-        return latestSessionMessage is null
-            ? AiDialogueReplyTarget.ContinueTopic()
-            : AiDialogueReplyTarget.ReplyTo(
-                ToDialogueMessage(latestSessionMessage));
     }
 
     private static string CreateGroupName(IReadOnlyList<AiAccount> participants)

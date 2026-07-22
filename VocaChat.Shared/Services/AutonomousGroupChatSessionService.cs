@@ -198,6 +198,7 @@ public sealed class AutonomousGroupChatSessionService
         AiAccount sender,
         string content,
         DateTime sentAt,
+        Guid? replyToMessageId,
         out GroupMessage? message,
         out AutonomousGroupChatSession? session,
         out string errorMessage)
@@ -261,7 +262,9 @@ public sealed class AutonomousGroupChatSessionService
             round.Id,
             sequenceNumber: (dbContext.GroupMessages
                 .Where(item => item.GroupChatId == storedSession.GroupChatId)
-                .Max(item => (long?)item.SequenceNumber) ?? 0) + 1);
+                .Max(item => (long?)item.SequenceNumber) ?? 0) + 1,
+            interactionBatchId: round.Id,
+            replyToMessageId: replyToMessageId);
         storedSession.RecordMessageActivity(sentAt);
         dbContext.GroupMessages.Add(newMessage);
         dbContext.SaveChanges();
@@ -270,6 +273,50 @@ public sealed class AutonomousGroupChatSessionService
         session = storedSession;
         errorMessage = string.Empty;
         return true;
+    }
+
+    /// <summary>
+    /// 在单人导演确定实际消息条数后，更新当前轮次最终需要保存的消息总数。
+    /// </summary>
+    public bool TryUpdateRoundPlannedMessageCount(
+        Guid roundId,
+        int plannedMessageCount,
+        out string errorMessage)
+    {
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        AutonomousGroupChatRound? round = dbContext.AutonomousGroupChatRounds
+            .SingleOrDefault(item => item.Id == roundId);
+        if (round is null)
+        {
+            errorMessage = "自主好友群聊轮次不存在。";
+            return false;
+        }
+
+        int savedMessageCount = dbContext.GroupMessages.Count(message =>
+            message.AutonomousGroupChatRoundId == roundId);
+        if (plannedMessageCount < savedMessageCount)
+        {
+            errorMessage = "计划消息数不能少于当前轮次已经保存的消息数。";
+            return false;
+        }
+
+        try
+        {
+            round.UpdatePlannedMessageCount(plannedMessageCount);
+            dbContext.SaveChanges();
+            errorMessage = string.Empty;
+            return true;
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            errorMessage = exception.Message;
+            return false;
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+            return false;
+        }
     }
 
     public bool TryCompleteRound(
@@ -454,8 +501,10 @@ public sealed class AutonomousGroupChatSessionService
         int plannedMessageCount,
         out string errorMessage)
     {
-        if (plannedSpeakerCount is < 0 or > 3
-            || plannedMessageCount is < 0 or > 9
+        if (plannedSpeakerCount is < 0 or >
+                AutonomousGroupChatRound.MaximumPlannedSpeakerCount
+            || plannedMessageCount is < 0 or >
+                AutonomousGroupChatRound.MaximumPlannedMessageCount
             || plannedMessageCount < plannedSpeakerCount)
         {
             errorMessage = "自主好友群聊轮次的发言者或消息数量无效。";

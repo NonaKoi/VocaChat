@@ -3,13 +3,16 @@ import {
   CircleGauge,
   MessageCircleMore,
   Search,
+  Server,
   TimerReset,
   UserRound,
   UsersRound,
 } from 'lucide-react'
 import type {
   AiAccountAutonomySettingsResponse,
+  AiAccountModelConnectionSettingsResponse,
   ContactResponse,
+  UpdateAiAccountModelConnectionSettingsRequest,
   UpdateAiAccountAutonomySettingsRequest,
 } from '@/api/types'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
@@ -23,13 +26,20 @@ import {
 import { SettingsLevelSelector } from '@/components/settings/SettingsLevelSelector'
 import { ReplyTimingFields } from '@/components/settings/ReplyTimingFields'
 import {
+  ReplyMessageCountFields,
+} from '@/components/settings/ReplyMessageCountFields'
+import { isReplyMessageCountRangeValid } from '@/components/settings/replyMessageCount'
+import {
   formatReplyTiming,
   isReplyTimingValid,
 } from '@/components/settings/replyTiming'
 import { getLevelLabel } from '@/components/settings/settingsLabels'
 import { SettingsToggle } from '@/components/settings/SettingsToggle'
+import { AiModelConnectionFields } from '@/components/settings/AiModelConnectionFields'
+import { isAiModelConnectionValid } from '@/components/settings/aiModelConnectionForm'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAiAccountAutonomySettings } from '@/hooks/useAiAccountAutonomySettings'
+import { useAiAccountModelConnectionSettings } from '@/hooks/useAiAccountModelConnectionSettings'
 import { cn } from '@/lib/utils'
 import type { RemoteStatus } from '@/types/remoteStatus'
 
@@ -57,7 +67,11 @@ export function FriendAutonomySettingsPanel({
     (contact) => contact.friend.id === selectedAccountId,
   )
   const settings = useAiAccountAutonomySettings(selectedContact?.friend.id)
+  const modelSettings = useAiAccountModelConnectionSettings(
+    selectedContact?.friend.id,
+  )
   const [draft, setDraft] = useState<UpdateAiAccountAutonomySettingsRequest>()
+  const [modelDraft, setModelDraft] = useState<UpdateAiAccountModelConnectionSettingsRequest>()
   const [didSave, setDidSave] = useState(false)
 
   useEffect(() => {
@@ -76,6 +90,15 @@ export function FriendAutonomySettingsPanel({
     setDraft(settings.data ? toUpdateRequest(settings.data) : undefined)
   }, [settings.data, selectedAccountId])
 
+  useEffect(() => {
+    setDidSave(false)
+    setModelDraft(
+      modelSettings.data
+        ? toModelUpdateRequest(modelSettings.data)
+        : undefined,
+    )
+  }, [modelSettings.data, selectedAccountId])
+
   const hasChanges = useMemo(
     () => Boolean(
       draft
@@ -84,6 +107,15 @@ export function FriendAutonomySettingsPanel({
     ),
     [draft, settings.data],
   )
+  const modelHasChanges = useMemo(
+    () => Boolean(
+      modelDraft
+      && modelSettings.data
+      && !areModelSettingsEqual(modelDraft, modelSettings.data),
+    ),
+    [modelDraft, modelSettings.data],
+  )
+  const anyChanges = hasChanges || modelHasChanges
   const settingsAreValid = Boolean(
     draft
     && isReplyTimingValid(draft)
@@ -93,12 +125,21 @@ export function FriendAutonomySettingsPanel({
       maximumReplyDelayMilliseconds: draft.maximumConsecutiveMessageDelayMilliseconds,
     })
     && Number.isInteger(draft.maximumConsecutiveQuestionTurns)
-    && draft.maximumConsecutiveQuestionTurns >= 1,
+    && draft.maximumConsecutiveQuestionTurns >= 1
+    && isReplyMessageCountRangeValid(
+      draft.minimumReplyMessageCount,
+      draft.maximumReplyMessageCount,
+    )
+    && modelDraft
+    && isAiModelConnectionValid(
+      modelDraft,
+      modelDraft.useGlobalSettings,
+    ),
   )
 
   useEffect(() => {
-    onDirtyChange(hasChanges)
-  }, [hasChanges, onDirtyChange])
+    onDirtyChange(anyChanges)
+  }, [anyChanges, onDirtyChange])
 
   const visibleContacts = useMemo(() => {
     const keyword = searchTerm.trim().toLocaleLowerCase('zh-CN')
@@ -114,12 +155,13 @@ export function FriendAutonomySettingsPanel({
 
   function selectFriend(accountId: string) {
     if (accountId === selectedAccountId) return
-    if (hasChanges && !window.confirm('当前好友的设置尚未保存，确定要切换吗？')) {
+    if (anyChanges && !window.confirm('当前好友的设置尚未保存，确定要切换吗？')) {
       return
     }
 
     setSelectedAccountId(accountId)
     setDraft(undefined)
+    setModelDraft(undefined)
     setDidSave(false)
     const url = new URL(window.location.href)
     url.searchParams.set('friendSetting', accountId)
@@ -131,13 +173,29 @@ export function FriendAutonomySettingsPanel({
     setDraft((current) => current ? { ...current, ...values } : current)
   }
 
+  function updateModelDraft(
+    values: Partial<UpdateAiAccountModelConnectionSettingsRequest>,
+  ) {
+    setDidSave(false)
+    setModelDraft((current) => current ? { ...current, ...values } : current)
+  }
+
   async function saveChanges() {
-    if (!draft) return
-    const saved = await settings.save(draft)
-    if (saved) {
-      setDraft(toUpdateRequest(saved))
-      setDidSave(true)
+    if (!draft || !modelDraft) return
+
+    if (modelHasChanges) {
+      const savedModelSettings = await modelSettings.save(modelDraft)
+      if (!savedModelSettings) return
+      setModelDraft(toModelUpdateRequest(savedModelSettings))
     }
+
+    if (hasChanges) {
+      const savedSettings = await settings.save(draft)
+      if (!savedSettings) return
+      setDraft(toUpdateRequest(savedSettings))
+    }
+
+    setDidSave(true)
   }
 
   if (contactStatus === 'loading' || contactStatus === 'idle') {
@@ -229,13 +287,25 @@ export function FriendAutonomySettingsPanel({
       </aside>
 
       <div className="min-w-0 bg-surface-muted p-4 xl:p-5">
-        {settings.status === 'loading' && <FriendDetailLoadingState />}
-        {settings.status === 'error' && (
+        {(settings.status === 'loading' || modelSettings.status === 'loading') && (
+          <FriendDetailLoadingState />
+        )}
+        {(settings.status === 'error' || modelSettings.status === 'error') && (
           <div className="max-w-xl">
-            <ErrorState message={settings.errorMessage} onRetry={settings.reload} />
+            <ErrorState
+              message={settings.errorMessage ?? modelSettings.errorMessage}
+              onRetry={() => void Promise.all([
+                settings.reload(),
+                modelSettings.reload(),
+              ])}
+            />
           </div>
         )}
-        {settings.status === 'success' && selectedContact && draft && (
+        {settings.status === 'success'
+          && modelSettings.status === 'success'
+          && selectedContact
+          && draft
+          && modelDraft && (
           <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_230px]">
             <section className="overflow-hidden rounded-xl border border-border bg-surface" aria-labelledby="friend-autonomy-settings-title">
               <div className="flex items-center gap-3 border-b border-border px-5 py-4">
@@ -253,6 +323,24 @@ export function FriendAutonomySettingsPanel({
               </div>
 
               <div className="divide-y divide-border">
+                <SettingsToggle
+                  id={`friend-use-global-ai-model-${selectedContact.friend.id}`}
+                  label="沿用通用 AI 接口"
+                  description="关闭后，这位好友的接口地址、模型和 API Key 将整套覆盖通用设置。"
+                  checked={modelDraft.useGlobalSettings}
+                  onCheckedChange={(checked) => updateModelDraft({
+                    useGlobalSettings: checked,
+                  })}
+                />
+
+                <AiModelConnectionFields
+                  idPrefix={`friend-ai-model-${selectedContact.friend.id}`}
+                  draft={modelDraft}
+                  hasApiKey={modelSettings.data?.hasApiKey ?? false}
+                  disabled={modelDraft.useGlobalSettings}
+                  onChange={updateModelDraft}
+                />
+
                 <SettingsToggle
                   id={`friend-autonomy-enabled-${selectedContact.friend.id}`}
                   label="参与自主互动"
@@ -318,6 +406,24 @@ export function FriendAutonomySettingsPanel({
                 />
 
                 <SettingsToggle
+                  id={`friend-use-global-reply-message-count-${selectedContact.friend.id}`}
+                  label="沿用通用回复条数"
+                  description="关闭后，可以为这位好友单独设置一次回复包含的消息条数范围。"
+                  checked={draft.useGlobalReplyMessageCount}
+                  disabled={!draft.isEnabled}
+                  onCheckedChange={(checked) => updateDraft({ useGlobalReplyMessageCount: checked })}
+                />
+
+                <ReplyMessageCountFields
+                  idPrefix={`friend-reply-message-count-${selectedContact.friend.id}`}
+                  minimum={draft.minimumReplyMessageCount}
+                  maximum={draft.maximumReplyMessageCount}
+                  disabled={!draft.isEnabled || draft.useGlobalReplyMessageCount}
+                  onMinimumChange={(minimumReplyMessageCount) => updateDraft({ minimumReplyMessageCount })}
+                  onMaximumChange={(maximumReplyMessageCount) => updateDraft({ maximumReplyMessageCount })}
+                />
+
+                <SettingsToggle
                   id={`friend-use-global-question-policy-${selectedContact.friend.id}`}
                   label="沿用通用疑问节奏"
                   description="关闭后，可以为这位好友单独设置连续疑问轮次上限。"
@@ -366,11 +472,11 @@ export function FriendAutonomySettingsPanel({
               </div>
 
               <SettingsSaveBar
-                hasChanges={hasChanges}
+                hasChanges={anyChanges}
                 canSave={settingsAreValid}
                 didSave={didSave}
-                isSaving={settings.isSaving}
-                errorMessage={settings.saveErrorMessage}
+                isSaving={settings.isSaving || modelSettings.isSaving}
+                errorMessage={settings.saveErrorMessage ?? modelSettings.saveErrorMessage}
                 onSave={() => void saveChanges()}
               />
             </section>
@@ -380,6 +486,11 @@ export function FriendAutonomySettingsPanel({
                 <h3 className="text-sm font-semibold text-foreground">当前状态</h3>
               </div>
               <dl className="divide-y divide-border px-5">
+                <StatusRow
+                  icon={Server}
+                  label="AI 模型"
+                  value={modelSettings.data?.effectiveModel || '未配置'}
+                />
                 <StatusRow
                   icon={CircleGauge}
                   label="参与状态"
@@ -460,6 +571,20 @@ function areSettingsEqual(
     && first.maximumConsecutiveMessageDelayMilliseconds === second.maximumConsecutiveMessageDelayMilliseconds
     && first.useGlobalQuestionPolicy === second.useGlobalQuestionPolicy
     && first.maximumConsecutiveQuestionTurns === second.maximumConsecutiveQuestionTurns
+    && first.useGlobalReplyMessageCount === second.useGlobalReplyMessageCount
+    && first.minimumReplyMessageCount === second.minimumReplyMessageCount
+    && first.maximumReplyMessageCount === second.maximumReplyMessageCount
+}
+
+function areModelSettingsEqual(
+  first: UpdateAiAccountModelConnectionSettingsRequest,
+  second: AiAccountModelConnectionSettingsResponse,
+) {
+  return first.useGlobalSettings === second.useGlobalSettings
+    && first.baseUrl === second.baseUrl
+    && first.model === second.model
+    && first.apiKey.length === 0
+    && !first.clearApiKey
 }
 
 function toUpdateRequest(
@@ -483,6 +608,21 @@ function toUpdateRequest(
     maximumConsecutiveMessageDelayMilliseconds: settings.maximumConsecutiveMessageDelayMilliseconds,
     useGlobalQuestionPolicy: settings.useGlobalQuestionPolicy,
     maximumConsecutiveQuestionTurns: settings.maximumConsecutiveQuestionTurns,
+    useGlobalReplyMessageCount: settings.useGlobalReplyMessageCount,
+    minimumReplyMessageCount: settings.minimumReplyMessageCount,
+    maximumReplyMessageCount: settings.maximumReplyMessageCount,
+  }
+}
+
+function toModelUpdateRequest(
+  settings: AiAccountModelConnectionSettingsResponse,
+): UpdateAiAccountModelConnectionSettingsRequest {
+  return {
+    useGlobalSettings: settings.useGlobalSettings,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    apiKey: '',
+    clearApiKey: false,
   }
 }
 

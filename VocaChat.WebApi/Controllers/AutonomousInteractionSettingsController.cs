@@ -92,6 +92,11 @@ public class AutonomousInteractionSettingsController : ControllerBase
             request.MinimumConsecutiveMessageDelayMilliseconds,
             request.MaximumConsecutiveMessageDelayMilliseconds,
             request.MaximumConsecutiveQuestionTurns,
+            request.MinimumReplyMessageCount,
+            request.MaximumReplyMessageCount,
+            request.GroupChatMaximumSpeakersPerTurn,
+            request.GroupChatWholeGroupMaximumSpeakersPerTurn,
+            request.GroupChatMaximumMessagesPerTurn,
             out AutonomousInteractionSettings? settings,
             out string errorMessage);
 
@@ -135,7 +140,15 @@ public class AutonomousInteractionSettingsController : ControllerBase
             MaximumConsecutiveMessageDelayMilliseconds =
                 settings.MaximumConsecutiveMessageDelayMilliseconds,
             MaximumConsecutiveQuestionTurns =
-                settings.MaximumConsecutiveQuestionTurns
+                settings.MaximumConsecutiveQuestionTurns,
+            MinimumReplyMessageCount = settings.MinimumReplyMessageCount,
+            MaximumReplyMessageCount = settings.MaximumReplyMessageCount,
+            GroupChatMaximumSpeakersPerTurn =
+                settings.GroupChatMaximumSpeakersPerTurn,
+            GroupChatWholeGroupMaximumSpeakersPerTurn =
+                settings.GroupChatWholeGroupMaximumSpeakersPerTurn,
+            GroupChatMaximumMessagesPerTurn =
+                settings.GroupChatMaximumMessagesPerTurn
         };
     }
 }

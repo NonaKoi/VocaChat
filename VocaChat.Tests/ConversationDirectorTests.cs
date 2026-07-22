@@ -159,6 +159,7 @@ public sealed class ConversationDirectorTests
         AiMessageGenerationRequest request = baseRequest with
         {
             OtherParticipants = new[] { other },
+            RelationshipTarget = other,
             RelevantMemories = new[]
             {
                 new AiConversationMemory(
@@ -290,6 +291,118 @@ public sealed class ConversationDirectorTests
         Assert.Contains("1 到 3 条", userPrompt);
     }
 
+    [Fact]
+    public async Task CreatePlanAsync_ResolvesThirdPartyReferenceAndWritesTimeGap()
+    {
+        AiMessageGenerationRequest baseRequest = CreateTargetedRequest();
+        DateTime targetSentAt = new(2026, 7, 22, 20, 0, 0);
+        AiDialogueMessage oldMessage = new(
+            "小语",
+            "咖啡馆老板熟了以后会露出冷幽默",
+            MessageSenderType.AiAccount,
+            baseRequest.Speaker.Id,
+            Guid.NewGuid(),
+            targetSentAt.AddDays(-2));
+        AiDialogueMessage target = new(
+            "我",
+            "那个人对谁都这样吗？",
+            MessageSenderType.User,
+            null,
+            Guid.NewGuid(),
+            targetSentAt);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            FocusContent = target.Content,
+            ReplyTarget = AiDialogueReplyTarget.ReplyTo(target),
+            RecentMessages = new[] { oldMessage, target }
+        };
+        RecordingHandler handler = new(CreateResponse(CreateDirectorJson(
+            "Answer",
+            target.MessageId,
+            "咖啡馆老板的冷幽默",
+            "回应老板是否对谁都这样",
+            referenceStatus: "Resolved",
+            referenceResolution: "那个人指此前谈到的咖啡馆老板",
+            factOwnership: new[] { "冷幽默是咖啡馆老板的特点，不属于当前发言者" })));
+        OpenAiCompatibleConversationDirector director = CreateDirector(handler);
+
+        ConversationDirectionPlan plan = await director.CreatePlanAsync(request);
+
+        Assert.Equal(
+            ConversationReferenceStatus.Resolved,
+            plan.ReferencePlan.Status);
+        Assert.Contains("咖啡馆老板", plan.ReferencePlan.ResolutionSummary);
+        Assert.Single(plan.ReferencePlan.FactOwnershipConstraints);
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string userPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("约 2 天，属于跨时间续聊", userPrompt);
+        Assert.Contains("必须结合带事实归属的历史消息解析指向", userPrompt);
+    }
+
+    [Fact]
+    public async Task CreatePlanAsync_WhenReferenceIsAmbiguous_CanAskForClarification()
+    {
+        AiMessageGenerationRequest request = CreateTargetedRequest();
+        RecordingHandler handler = new(CreateResponse(CreateDirectorJson(
+            "Ask",
+            request.ReplyTarget!.Message!.MessageId,
+            "无法确认的人物",
+            "自然确认对方指的是谁",
+            referenceStatus: "Ambiguous",
+            referenceResolution: "最近记录中有两个人都可能被称为那个人")));
+        OpenAiCompatibleConversationDirector director = CreateDirector(handler);
+
+        ConversationDirectionPlan plan = await director.CreatePlanAsync(request);
+
+        Assert.False(plan.UsedRuleFallback);
+        Assert.Equal(ConversationAction.Ask, plan.ActionPlan.Action);
+        Assert.Equal(
+            ConversationReferenceStatus.Ambiguous,
+            plan.ReferencePlan.Status);
+    }
+
+    [Fact]
+    public async Task CreatePlanAsync_WhenAutonomousGroupDirectionDrifts_UsesRuleFallback()
+    {
+        AiAccount speaker = new(
+            "1234567",
+            "小语",
+            string.Empty,
+            string.Empty,
+            string.Empty);
+        AiMessageGenerationRequest request = new()
+        {
+            Scenario = AiMessageGenerationScenario.AutonomousGroupChat,
+            Speaker = speaker,
+            Topic = "降温后把户外拍摄改到室内",
+            FocusContent = "降温后把户外拍摄改到室内",
+            ReplyTarget = AiDialogueReplyTarget.OpenTopic(),
+            ExpectedMessageCount = 1,
+            GroupConversationPlan = new GroupConversationSpeakerPlan
+            {
+                SpeakerAiAccountId = speaker.Id,
+                Audience = GroupConversationAudience.WholeGroup,
+                Role = GroupConversationRole.ShiftTopic,
+                ResponseGoal = "自然讨论拍摄地点",
+                NewContribution = "提出改到室内拍摄"
+            }
+        };
+        RecordingHandler handler = new(CreateResponse(CreateDirectorJson(
+            "ShiftTopic",
+            Guid.Empty,
+            "周末去咖啡馆",
+            "推荐一家咖啡馆")));
+        OpenAiCompatibleConversationDirector director = CreateDirector(handler);
+
+        ConversationDirectionPlan plan = await director.CreatePlanAsync(request);
+
+        Assert.True(plan.UsedRuleFallback);
+        Assert.Contains("户外拍摄", plan.TopicFocus);
+        Assert.Equal("提出改到室内拍摄", plan.NewContribution);
+    }
+
     private static OpenAiCompatibleConversationDirector CreateDirector(
         HttpMessageHandler handler)
     {
@@ -350,7 +463,10 @@ public sealed class ConversationDirectorTests
         string topicFocus,
         string responseGoal,
         IReadOnlyList<string>? avoidedTopics = null,
-        int messageCount = 1) =>
+        int messageCount = 1,
+        string referenceStatus = "None",
+        string referenceResolution = "",
+        IReadOnlyList<string>? factOwnership = null) =>
         JsonSerializer.Serialize(new
         {
             action,
@@ -366,7 +482,10 @@ public sealed class ConversationDirectorTests
             unresolvedGoals = new[] { "仍需给出具体时间" },
             newContribution = "补充一个明确时间",
             avoidedTopics = avoidedTopics ?? Array.Empty<string>(),
-            forbiddenClaims = new[] { "没有本人历史依据的昨晚行程" }
+            forbiddenClaims = new[] { "没有本人历史依据的昨晚行程" },
+            referenceStatus,
+            referenceResolution,
+            factOwnership = factOwnership ?? Array.Empty<string>()
         });
 
     private static HttpResponseMessage CreateResponse(string content)

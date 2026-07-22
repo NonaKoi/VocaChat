@@ -30,10 +30,10 @@ public sealed class AutonomousGroupChatRoundConfiguration
                 + "AND \"RandomRoll\" IS NULL) OR \"IsClosing\" = 0");
             tableBuilder.HasCheckConstraint(
                 "CK_AutonomousGroupChatRounds_SpeakerCount",
-                "\"PlannedSpeakerCount\" BETWEEN 0 AND 3");
+                $"\"PlannedSpeakerCount\" BETWEEN 0 AND {AutonomousGroupChatRound.MaximumPlannedSpeakerCount}");
             tableBuilder.HasCheckConstraint(
                 "CK_AutonomousGroupChatRounds_MessageCount",
-                "\"PlannedMessageCount\" BETWEEN 0 AND 9");
+                $"\"PlannedMessageCount\" BETWEEN 0 AND {AutonomousGroupChatRound.MaximumPlannedMessageCount}");
             tableBuilder.HasCheckConstraint(
                 "CK_AutonomousGroupChatRounds_NormalRoundHasMessages",
                 "\"IsClosing\" = 1 OR (\"PlannedSpeakerCount\" > 0 "

@@ -11,6 +11,8 @@ public sealed class PrivateChatInteractionService
     private readonly IAiMessageGenerator _messageGenerator;
     private readonly IConversationDirector _conversationDirector;
     private readonly AiReplyTimingScheduler _replyTimingScheduler;
+    private readonly AiReplyMessageCountSettingsResolver
+        _replyMessageCountSettingsResolver;
     private readonly ConversationQuestionPolicyService _questionPolicyService;
     private readonly AiIdentityContinuityService _identityContinuityService;
 
@@ -19,6 +21,7 @@ public sealed class PrivateChatInteractionService
         IAiMessageGenerator messageGenerator,
         IConversationDirector conversationDirector,
         AiReplyTimingScheduler replyTimingScheduler,
+        AiReplyMessageCountSettingsResolver replyMessageCountSettingsResolver,
         ConversationQuestionPolicyService questionPolicyService,
         AiIdentityContinuityService identityContinuityService)
     {
@@ -26,6 +29,9 @@ public sealed class PrivateChatInteractionService
         _messageGenerator = messageGenerator;
         _conversationDirector = conversationDirector;
         _replyTimingScheduler = replyTimingScheduler;
+        _replyMessageCountSettingsResolver = replyMessageCountSettingsResolver
+            ?? throw new ArgumentNullException(
+                nameof(replyMessageCountSettingsResolver));
         _questionPolicyService = questionPolicyService
             ?? throw new ArgumentNullException(nameof(questionPolicyService));
         _identityContinuityService = identityContinuityService
@@ -102,7 +108,8 @@ public sealed class PrivateChatInteractionService
                 QuestionPolicy = _questionPolicyService.CreatePolicy(
                     aiAccount.Id,
                     recentMessages),
-                AllowedMessageCountRange = new AiMessageCountRange(1, 3),
+                AllowedMessageCountRange =
+                    _replyMessageCountSettingsResolver.Resolve(aiAccount.Id),
                 ExpectedMessageCount = 1
             };
             generationRequest = _identityContinuityService

@@ -24,6 +24,9 @@ public sealed class AiAccountAutonomySettingsApiTests
         Assert.True(defaults.UseGlobalReplyDelay);
         Assert.True(defaults.UseGlobalConsecutiveMessageDelay);
         Assert.True(defaults.UseGlobalQuestionPolicy);
+        Assert.True(defaults.UseGlobalReplyMessageCount);
+        Assert.Equal(1, defaults.MinimumReplyMessageCount);
+        Assert.Equal(4, defaults.MaximumReplyMessageCount);
 
         using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
             $"/api/ai-accounts/{account.Id}/autonomy-settings",
@@ -45,7 +48,10 @@ public sealed class AiAccountAutonomySettingsApiTests
                 MinimumConsecutiveMessageDelayMilliseconds = 250,
                 MaximumConsecutiveMessageDelayMilliseconds = 950,
                 UseGlobalQuestionPolicy = false,
-                MaximumConsecutiveQuestionTurns = 3
+                MaximumConsecutiveQuestionTurns = 3,
+                UseGlobalReplyMessageCount = false,
+                MinimumReplyMessageCount = 1,
+                MaximumReplyMessageCount = 3
             });
         AiAccountAutonomySettingsResponse saved =
             (await updateResponse.Content.ReadFromJsonAsync<
@@ -63,6 +69,9 @@ public sealed class AiAccountAutonomySettingsApiTests
         Assert.Equal(950, saved.MaximumConsecutiveMessageDelayMilliseconds);
         Assert.False(saved.UseGlobalQuestionPolicy);
         Assert.Equal(3, saved.MaximumConsecutiveQuestionTurns);
+        Assert.False(saved.UseGlobalReplyMessageCount);
+        Assert.Equal(1, saved.MinimumReplyMessageCount);
+        Assert.Equal(3, saved.MaximumReplyMessageCount);
 
         AiAccountAutonomySettingsResponse reloaded =
             (await client.GetFromJsonAsync<AiAccountAutonomySettingsResponse>(
@@ -78,6 +87,15 @@ public sealed class AiAccountAutonomySettingsApiTests
         Assert.Equal(
             saved.MaximumConsecutiveQuestionTurns,
             reloaded.MaximumConsecutiveQuestionTurns);
+        Assert.Equal(
+            saved.UseGlobalReplyMessageCount,
+            reloaded.UseGlobalReplyMessageCount);
+        Assert.Equal(
+            saved.MinimumReplyMessageCount,
+            reloaded.MinimumReplyMessageCount);
+        Assert.Equal(
+            saved.MaximumReplyMessageCount,
+            reloaded.MaximumReplyMessageCount);
     }
 
     [Fact]

@@ -50,6 +50,50 @@ public class GroupMessageService
         out GroupMessage? message,
         out string errorMessage)
     {
+        return TrySaveUserMessageCore(
+            groupChat,
+            content,
+            messageId,
+            interactionBatchId: null,
+            out message,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 保存一次用户群聊交互的锚点消息，并写入由协调 Service 生成的批次标识。
+    /// </summary>
+    public bool TrySaveUserInteractionMessage(
+        GroupChat groupChat,
+        string content,
+        Guid? messageId,
+        Guid interactionBatchId,
+        out GroupMessage? message,
+        out string errorMessage)
+    {
+        if (interactionBatchId == Guid.Empty)
+        {
+            message = null;
+            errorMessage = "群聊交互批次标识无效。";
+            return false;
+        }
+
+        return TrySaveUserMessageCore(
+            groupChat,
+            content,
+            messageId,
+            interactionBatchId,
+            out message,
+            out errorMessage);
+    }
+
+    private bool TrySaveUserMessageCore(
+        GroupChat groupChat,
+        string content,
+        Guid? messageId,
+        Guid? interactionBatchId,
+        out GroupMessage? message,
+        out string errorMessage)
+    {
         message = null;
 
         if (messageId == Guid.Empty)
@@ -107,7 +151,8 @@ public class GroupMessageService
             trimmedContent,
             DateTime.Now,
             messageId: messageId,
-            sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id));
+            sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id),
+            interactionBatchId: interactionBatchId);
 
         dbContext.GroupMessages.Add(userMessage);
         dbContext.SaveChanges();
@@ -124,6 +169,61 @@ public class GroupMessageService
         GroupChat groupChat,
         AiAccount aiSpeaker,
         string content,
+        out GroupMessage? message,
+        out string errorMessage)
+    {
+        return TrySaveAiReplyCore(
+            groupChat,
+            aiSpeaker,
+            content,
+            interactionBatchId: null,
+            replyToMessageId: null,
+            out message,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 保存属于一次用户交互的 AI 回复，并记录实际直接回应的群消息。
+    /// </summary>
+    public bool TrySaveAiInteractionReply(
+        GroupChat groupChat,
+        AiAccount aiSpeaker,
+        string content,
+        Guid interactionBatchId,
+        Guid replyToMessageId,
+        out GroupMessage? message,
+        out string errorMessage)
+    {
+        if (interactionBatchId == Guid.Empty)
+        {
+            message = null;
+            errorMessage = "群聊交互批次标识无效。";
+            return false;
+        }
+
+        if (replyToMessageId == Guid.Empty)
+        {
+            message = null;
+            errorMessage = "群聊回复目标消息标识无效。";
+            return false;
+        }
+
+        return TrySaveAiReplyCore(
+            groupChat,
+            aiSpeaker,
+            content,
+            interactionBatchId,
+            replyToMessageId,
+            out message,
+            out errorMessage);
+    }
+
+    private bool TrySaveAiReplyCore(
+        GroupChat groupChat,
+        AiAccount aiSpeaker,
+        string content,
+        Guid? interactionBatchId,
+        Guid? replyToMessageId,
         out GroupMessage? message,
         out string errorMessage)
     {
@@ -162,6 +262,20 @@ public class GroupMessageService
             return false;
         }
 
+        if (replyToMessageId.HasValue)
+        {
+            bool targetExistsInGroup = dbContext.GroupMessages.Any(
+                storedMessage =>
+                    storedMessage.Id == replyToMessageId.Value
+                    && storedMessage.GroupChatId == groupChat.Id);
+
+            if (!targetExistsInGroup)
+            {
+                errorMessage = "回复目标消息不属于当前群聊或已经不存在。";
+                return false;
+            }
+        }
+
         GroupMessage aiMessage = new(
             groupChat.Id,
             MessageSenderType.AiAccount,
@@ -169,7 +283,9 @@ public class GroupMessageService
             aiSpeaker.Id,
             trimmedContent,
             DateTime.Now,
-            sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id));
+            sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id),
+            interactionBatchId: interactionBatchId,
+            replyToMessageId: replyToMessageId);
 
         dbContext.GroupMessages.Add(aiMessage);
         dbContext.SaveChanges();
@@ -193,6 +309,34 @@ public class GroupMessageService
             .ToList();
 
         return orderedMessages.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 返回一次用户群聊交互中已经实际保存的全部消息。
+    /// </summary>
+    public IReadOnlyList<GroupMessage> GetInteractionMessages(
+        GroupChat groupChat,
+        Guid interactionBatchId)
+    {
+        ArgumentNullException.ThrowIfNull(groupChat);
+
+        if (interactionBatchId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "群聊交互批次标识无效。",
+                nameof(interactionBatchId));
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        List<GroupMessage> messages = dbContext.GroupMessages
+            .AsNoTracking()
+            .Where(message =>
+                message.GroupChatId == groupChat.Id
+                && message.InteractionBatchId == interactionBatchId)
+            .OrderBy(message => message.SequenceNumber)
+            .ToList();
+
+        return messages.AsReadOnly();
     }
 
     private static long GetNextSequenceNumber(

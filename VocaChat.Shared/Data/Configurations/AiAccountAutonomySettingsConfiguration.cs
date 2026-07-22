@@ -42,6 +42,15 @@ public sealed class AiAccountAutonomySettingsConfiguration
                 $"\"MaximumConsecutiveQuestionTurns\" >= "
                 + AutonomousInteractionSettings
                     .MinimumMaximumConsecutiveQuestionTurns);
+            tableBuilder.HasCheckConstraint(
+                "CK_AiAccountAutonomySettings_ReplyMessageCountRange",
+                $"\"MinimumReplyMessageCount\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumAllowedReplyMessageCount} "
+                + $"AND {AutonomousInteractionSettings.MaximumAllowedReplyMessageCount} "
+                + "AND \"MaximumReplyMessageCount\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumAllowedReplyMessageCount} "
+                + $"AND {AutonomousInteractionSettings.MaximumAllowedReplyMessageCount} "
+                + "AND \"MinimumReplyMessageCount\" <= \"MaximumReplyMessageCount\"");
         });
 
         builder.HasKey(settings => settings.AiAccountId);
@@ -138,6 +147,21 @@ public sealed class AiAccountAutonomySettingsConfiguration
         builder.Property(settings => settings.MaximumConsecutiveQuestionTurns)
             .HasDefaultValue(AutonomousInteractionSettings
                 .DefaultMaximumConsecutiveQuestionTurns)
+            .IsRequired();
+
+        builder.Property(settings => settings.UseGlobalReplyMessageCount)
+            .HasDefaultValue(true)
+            .HasSentinel(true)
+            .IsRequired();
+
+        builder.Property(settings => settings.MinimumReplyMessageCount)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMinimumReplyMessageCount)
+            .IsRequired();
+
+        builder.Property(settings => settings.MaximumReplyMessageCount)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMaximumReplyMessageCount)
             .IsRequired();
 
         builder.HasOne<AiAccount>()

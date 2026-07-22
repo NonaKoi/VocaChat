@@ -43,10 +43,16 @@ public sealed class GroupMessagesApiTests
         Assert.Equal("User", interaction.UserMessage.SenderType);
         Assert.Null(interaction.UserMessage.SenderAiAccountId);
         Assert.Equal(content, interaction.UserMessage.Content);
+        Assert.NotNull(interaction.UserMessage.InteractionBatchId);
+        Assert.Null(interaction.UserMessage.ReplyToMessageId);
         GroupMessageResponse aiReply = Assert.Single(interaction.AiReplies);
         Assert.Equal("Complete", interaction.ReplyCompletion);
         Assert.Equal("AiAccount", aiReply.SenderType);
         Assert.Equal(member.Id, aiReply.SenderAiAccountId);
+        Assert.Equal(
+            interaction.UserMessage.InteractionBatchId,
+            aiReply.InteractionBatchId);
+        Assert.Equal(interaction.UserMessage.Id, aiReply.ReplyToMessageId);
 
         List<GroupMessageResponse>? history = await client
             .GetFromJsonAsync<List<GroupMessageResponse>>(
@@ -56,6 +62,10 @@ public sealed class GroupMessagesApiTests
         Assert.Equal(2, history.Count);
         Assert.Equal(interaction.UserMessage.Id, history[0].Id);
         Assert.Equal(aiReply.Id, history[1].Id);
+        Assert.Equal(
+            interaction.UserMessage.InteractionBatchId,
+            history[1].InteractionBatchId);
+        Assert.Equal(history[0].Id, history[1].ReplyToMessageId);
         Assert.True(history[0].SentAt <= history[1].SentAt);
     }
 
@@ -128,6 +138,12 @@ public sealed class GroupMessagesApiTests
         Assert.Equal(
             firstMember.Id,
             interaction.AiReplies[1].SenderAiAccountId);
+        Assert.All(interaction.AiReplies, reply => Assert.Equal(
+            interaction.UserMessage.InteractionBatchId,
+            reply.InteractionBatchId));
+        Assert.All(interaction.AiReplies, reply => Assert.Equal(
+            interaction.UserMessage.Id,
+            reply.ReplyToMessageId));
     }
 
     [Fact]
@@ -192,10 +208,16 @@ public sealed class GroupMessagesApiTests
         List<AiInteractionDiagnosticLogResponse>? logs = await client
             .GetFromJsonAsync<List<AiInteractionDiagnosticLogResponse>>(
                 "/api/settings/interaction-logs?limit=10");
-        AiInteractionDiagnosticLogResponse log = Assert.Single(logs!);
+        Assert.NotNull(logs);
+        AiInteractionDiagnosticLogResponse log = Assert.Single(
+            logs,
+            item => item.Code == "GroupConversationExecutionFailed");
         Assert.Equal("GroupPrimaryReply", log.Scenario);
         Assert.Equal(groupChat.Id, log.ConversationId);
         Assert.False(log.WasRecovered);
+        Assert.Contains(
+            logs,
+            item => item.Code == "GroupConversationPlanFallback");
     }
 
     private static async Task<AiAccountResponse> CreateAccountAsync(

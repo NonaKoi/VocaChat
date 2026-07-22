@@ -187,7 +187,7 @@ public sealed class AutonomousInteractionsController : ControllerBase
     }
 
     /// <summary>
-    /// 判断通过时创建或复用好友群聊，并让发起者和两位回应者完成一次受控交流。
+    /// 判断通过时创建或复用好友群聊，并按群级语义计划完成受控的多轮交流与收束。
     /// </summary>
     [HttpPost("group-chat/run")]
     [ProducesResponseType(

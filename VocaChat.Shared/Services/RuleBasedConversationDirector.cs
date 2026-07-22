@@ -20,7 +20,9 @@ public sealed class RuleBasedConversationDirector : IConversationDirector
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        ConversationActionPlan baselinePlan = _actionPlanner.CreatePlan(request);
+        ConversationActionPlan baselinePlan = GroupConversationRoleMapper.Apply(
+            _actionPlanner.CreatePlan(request),
+            request.GroupConversationPlan);
         ConversationActionPlan actionPlan = request.QuestionPolicy?.ApplyTo(
             baselinePlan) ?? baselinePlan;
         return Task.FromResult(CreateDirectionPlan(request, actionPlan));
@@ -42,12 +44,15 @@ public sealed class RuleBasedConversationDirector : IConversationDirector
             actionPlan,
             GetBeat(request, actionPlan.Action),
             GetTopicFocus(request),
-            GetResponseGoal(actionPlan.Action),
+            request.GroupConversationPlan?.ResponseGoal
+                ?? GetResponseGoal(actionPlan.Action),
             request.ReplyTarget?.Message?.MessageId ?? Guid.Empty,
             coveredPoints,
             unresolvedGoals,
-            GetNewContribution(actionPlan.Action),
-            Array.Empty<string>(),
+            request.GroupConversationPlan?.NewContribution
+                ?? GetNewContribution(actionPlan.Action),
+            request.GroupConversationPlan?.AvoidedRepetition
+                ?? Array.Empty<string>(),
             new[] { "没有资料或本人历史依据的第一人称经历" },
             usedRuleFallback: true,
             selectedMessageCount: SelectMessageCount(request, actionPlan));
@@ -79,11 +84,18 @@ public sealed class RuleBasedConversationDirector : IConversationDirector
         bool needsExpansion = actionPlan.Action == ConversationAction.Answer
             && (actionPlan.MessageLength == ConversationMessageLength.Moderate
                 || ContainsAny(targetContent, "具体", "详细", "讲讲", "解释"));
-        int preferredCount = explicitlyRequestsMultipleMessages
+        int preferredMinimum = explicitlyRequestsMultipleMessages
             || needsExpansion
-                ? 2
-                : 1;
-        return Math.Clamp(preferredCount, range.Minimum, range.Maximum);
+                ? Math.Min(range.Maximum, Math.Max(2, range.Minimum))
+                : range.Minimum;
+        int preferredMaximum = explicitlyRequestsMultipleMessages
+            || needsExpansion
+                ? range.Maximum
+                : Math.Min(range.Maximum, Math.Max(range.Minimum, 2));
+
+        return preferredMinimum == preferredMaximum
+            ? preferredMinimum
+            : Random.Shared.Next(preferredMinimum, preferredMaximum + 1);
     }
 
     internal static string GetTopicFocus(AiMessageGenerationRequest request)

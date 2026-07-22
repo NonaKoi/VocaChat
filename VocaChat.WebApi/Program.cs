@@ -32,15 +32,23 @@ public class Program
             Environment.GetEnvironmentVariable("VOCACHAT_AI_API_KEY")
             ?? messageGenerationOptions.ApiKey;
         builder.Services.AddSingleton(messageGenerationOptions);
+        builder.Services.AddSingleton<AiApiKeyProtector>();
+        builder.Services.AddScoped<AiModelConnectionSettingsService>();
         builder.Services.AddSingleton<AiConversationContextBuilder>();
-        builder.Services.AddHttpClient<OpenAiCompatibleChatClient>(client =>
+        builder.Services.AddHttpClient(
+            nameof(OpenAiCompatibleChatClient),
+            client =>
         {
-            string baseUrl = messageGenerationOptions.BaseUrl.EndsWith('/')
-                ? messageGenerationOptions.BaseUrl
-                : $"{messageGenerationOptions.BaseUrl}/";
-            client.BaseAddress = new Uri(baseUrl);
             client.Timeout = Timeout.InfiniteTimeSpan;
         });
+        builder.Services.AddScoped<OpenAiCompatibleChatClient>(services =>
+            new OpenAiCompatibleChatClient(
+                services
+                    .GetRequiredService<IHttpClientFactory>()
+                    .CreateClient(nameof(OpenAiCompatibleChatClient)),
+                services.GetRequiredService<AiMessageGenerationOptions>(),
+                services.GetRequiredService<
+                    AiModelConnectionSettingsService>()));
         builder.Services.AddScoped<
             IAiMessageGenerator,
             OpenAiCompatibleAiMessageGenerator>();
@@ -61,13 +69,17 @@ public class Program
         builder.Services.AddScoped<AutonomousInteractionSettingsService>();
         builder.Services.AddScoped<AiAccountAutonomySettingsService>();
         builder.Services.AddScoped<AiReplyTimingScheduler>();
+        builder.Services.AddScoped<AiReplyMessageCountSettingsResolver>();
         builder.Services.AddScoped<ConversationQuestionPolicyService>();
         builder.Services.AddScoped<AiInteractionDiagnosticLogService>();
+        builder.Services.AddScoped<GroupConversationDiagnosticService>();
         builder.Services.AddScoped<AiRelationshipService>();
         builder.Services.AddScoped<RelationshipEvolutionService>();
         builder.Services.AddScoped<AiMemoryService>();
         builder.Services.AddScoped<AiSelfMemoryService>();
         builder.Services.AddScoped<AiIdentityContinuityService>();
+        builder.Services.AddScoped<GroupConversationContextService>();
+        builder.Services.AddScoped<GroupConversationDensitySettingsResolver>();
         builder.Services.AddScoped<SessionPostProcessingService>();
         builder.Services.AddScoped<AutonomousPrivateChatJudge>();
         builder.Services.AddScoped<AutonomousPrivateChatPlanningService>();
@@ -89,6 +101,10 @@ public class Program
         builder.Services.AddScoped<GroupChatService>();
         builder.Services.AddScoped<GroupMessageService>();
         builder.Services.AddScoped<GroupChatReplyPlanner>();
+        builder.Services.AddScoped<GroupConversationPlanValidator>();
+        builder.Services.AddScoped<
+            IGroupConversationDirector,
+            OpenAiCompatibleGroupConversationDirector>();
         builder.Services.AddScoped<GroupChatInteractionService>();
         builder.Services.AddSingleton(_ =>
             new LocalMediaStorageService(

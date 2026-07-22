@@ -25,6 +25,19 @@ public sealed class ApiInfrastructureTests
     }
 
     [Fact]
+    public async Task PrivateMessageRoute_WithProductionAiRegistrations_CanActivateController()
+    {
+        using VocaChatWebApiFactory factory = new(
+            useProductionAiServices: true);
+        using HttpClient client = factory.CreateApiClient();
+
+        using HttpResponseMessage response = await client.GetAsync(
+            $"/api/private-chats/{Guid.NewGuid()}/messages");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task OpenApi_IsAvailableAndFactoryDisposalRemovesTemporaryDatabase()
     {
         string databasePath;

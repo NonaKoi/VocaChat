@@ -32,17 +32,18 @@ public class Program
                 ?? "vocachat-qwen3.5-4b",
             ApiKey = Environment.GetEnvironmentVariable("VOCACHAT_AI_API_KEY")
         };
+        AiModelConnectionSettingsService modelConnectionSettingsService = new(
+            dbContextFactory,
+            messageGenerationOptions,
+            new AiApiKeyProtector());
         using HttpClient modelClient = new()
         {
-            BaseAddress = new Uri(
-                messageGenerationOptions.BaseUrl.EndsWith('/')
-                    ? messageGenerationOptions.BaseUrl
-                    : $"{messageGenerationOptions.BaseUrl}/"),
             Timeout = Timeout.InfiniteTimeSpan
         };
         OpenAiCompatibleChatClient chatClient = new(
             modelClient,
-            messageGenerationOptions);
+            messageGenerationOptions,
+            modelConnectionSettingsService);
         IAiMessageGenerator messageGenerator =
             new OpenAiCompatibleAiMessageGenerator(
                 chatClient,
@@ -55,19 +56,44 @@ public class Program
                 new AiConversationContextBuilder(),
                 actionPlanner);
         AiReplyTimingScheduler replyTimingScheduler = new(dbContextFactory);
+        AiReplyMessageCountSettingsResolver replyMessageCountSettingsResolver =
+            new(dbContextFactory);
         ConversationQuestionPolicyService questionPolicyService = new(
+            dbContextFactory);
+        AiInteractionDiagnosticLogService diagnosticLogService = new(
             dbContextFactory);
         AiIdentityContinuityService identityContinuityService = new(
             new AiSelfMemoryService(dbContextFactory),
-            new AiInteractionDiagnosticLogService(dbContextFactory));
+            diagnosticLogService);
+        GroupConversationContextService conversationContextService = new(
+            dbContextFactory,
+            identityContinuityService);
+        GroupConversationPlanValidator groupPlanValidator = new();
+        GroupConversationDensitySettingsResolver densityResolver = new(
+            dbContextFactory);
+        GroupConversationDiagnosticService groupDiagnosticService = new(
+            diagnosticLogService);
+        IGroupConversationDirector groupConversationDirector =
+            new OpenAiCompatibleGroupConversationDirector(
+                chatClient,
+                messageGenerationOptions,
+                replyPlanner,
+                groupPlanValidator,
+                conversationContextService);
         GroupChatInteractionService interactionService = new(
             groupMessageService,
             messageGenerator,
             replyPlanner,
+            groupConversationDirector,
+            groupPlanValidator,
             conversationDirector,
             replyTimingScheduler,
+            replyMessageCountSettingsResolver,
             questionPolicyService,
-            identityContinuityService);
+            identityContinuityService,
+            conversationContextService,
+            densityResolver,
+            groupDiagnosticService);
 
         VocaChatConsoleApp consoleApp = new(
             aiAccountService,

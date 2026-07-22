@@ -31,6 +31,12 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         Assert.Equal(2, history.Count);
         Assert.Equal(MessageSenderType.User, history[0].SenderType);
         Assert.Equal(MessageSenderType.AiAccount, history[1].SenderType);
+        Assert.NotNull(result.UserMessage.InteractionBatchId);
+        Assert.Equal(
+            result.UserMessage.InteractionBatchId,
+            aiReply.InteractionBatchId);
+        Assert.Null(result.UserMessage.ReplyToMessageId);
+        Assert.Equal(result.UserMessage.Id, aiReply.ReplyToMessageId);
         Assert.Contains(
             context.GroupChat.Members,
             member => member.Id == aiReply.SenderAiAccountId);
@@ -76,18 +82,53 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     [Fact]
     public async Task ProcessUserMessage_WithTwoSpeakers_UsesExplicitSequentialTargets()
     {
-        TestContext context = CreateContext("Alpha", "Beta");
+        TestContext context = CreateContext("Alpha", "Beta", "Gamma");
         RecordingAiMessageGenerator generator = new();
+        GroupChatReplyPlanner replyPlanner = new(
+            _database.CreateDbContextFactory());
+        SequentialGroupConversationDirector groupDirector = new();
+        AiAccount firstMember = context.GroupChat.Members[0];
+        AiAccount secondMember = context.GroupChat.Members[1];
+        AiRelationshipService relationshipService = new(
+            _database.CreateDbContextFactory());
+        Assert.Equal(
+            AiRelationshipOperationStatus.Success,
+            relationshipService.TryUpdateRelationship(
+                secondMember.Id,
+                firstMember.Id,
+                familiarity: 90,
+                affinity: 80,
+                trust: 70,
+                out _));
+        Assert.Equal(
+            AiRelationshipOperationStatus.Success,
+            relationshipService.TryUpdateRelationship(
+                firstMember.Id,
+                secondMember.Id,
+                familiarity: 20,
+                affinity: -40,
+                trust: 20,
+                out _));
         GroupChatInteractionService interactionService = new(
             context.MessageService,
             generator,
-            new GroupChatReplyPlanner(_database.CreateDbContextFactory()),
+            replyPlanner,
+            groupDirector,
+            new GroupConversationPlanValidator(),
             new RuleBasedConversationDirector(
                 new ConversationActionPlanner(new ConstantRandom(0.5))),
             CreateNoDelayScheduler(),
+            new AiReplyMessageCountSettingsResolver(
+                _database.CreateDbContextFactory()),
             new ConversationQuestionPolicyService(
                 _database.CreateDbContextFactory()),
-            CreateIdentityContinuityService());
+            CreateIdentityContinuityService(),
+            CreateConversationContextService(),
+            new GroupConversationDensitySettingsResolver(
+                _database.CreateDbContextFactory()),
+            new GroupConversationDiagnosticService(
+                new AiInteractionDiagnosticLogService(
+                    _database.CreateDbContextFactory())));
 
         GroupChatInteractionResult result = await interactionService
             .ProcessUserMessageAsync(
@@ -99,14 +140,47 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         AiMessageGenerationRequest primaryRequest = generator.Requests[0];
         AiMessageGenerationRequest followUpRequest = generator.Requests[1];
         Assert.Equal(
+            GroupConversationRole.DirectAnswer,
+            primaryRequest.GroupConversationPlan!.Role);
+        Assert.Equal(
+            GroupConversationRole.Complement,
+            followUpRequest.GroupConversationPlan!.Role);
+        Assert.Equal(
+            ConversationAction.Answer,
+            primaryRequest.ActionPlan!.Action);
+        Assert.Equal(
+            ConversationAction.Share,
+            followUpRequest.ActionPlan!.Action);
+        GroupConversationPlanningRequest planningRequest = Assert.Single(
+            groupDirector.Requests);
+        Assert.Equal(3, planningRequest.MaximumSpeakerCount);
+        Assert.Equal(6, planningRequest.MaximumTotalMessageCount);
+        Assert.Equal(1, primaryRequest.AllowedMessageCountRange!.Minimum);
+        Assert.Equal(4, primaryRequest.AllowedMessageCountRange.Maximum);
+        Assert.Equal(1, followUpRequest.AllowedMessageCountRange!.Minimum);
+        Assert.Equal(
+            Math.Min(4, 6 - primaryRequest.ExpectedMessageCount),
+            followUpRequest.AllowedMessageCountRange.Maximum);
+        Assert.True(generator.Requests.Sum(request => request.ExpectedMessageCount) <= 6);
+        Assert.Equal(
+            generator.Requests.Sum(request => request.ExpectedMessageCount),
+            result.AiReplies.Count);
+        GroupMessage finalPrimaryReply = result.AiReplies[
+            primaryRequest.ExpectedMessageCount - 1];
+        Assert.Equal(
             result.UserMessage!.Id,
             primaryRequest.ReplyTarget!.Message!.MessageId);
         Assert.Equal(
-            result.AiReplies[0].Id,
+            finalPrimaryReply.Id,
             followUpRequest.ReplyTarget!.Message!.MessageId);
         Assert.Equal(
-            result.AiReplies[0].SenderAiAccountId,
+            finalPrimaryReply.SenderAiAccountId,
             followUpRequest.ReplyTarget.Message.SenderAiAccountId);
+        Assert.Null(primaryRequest.RelationshipTarget);
+        Assert.Null(primaryRequest.SpeakerToOtherRelationshipScore);
+        Assert.Equal(firstMember.Id, followUpRequest.RelationshipTarget!.Id);
+        Assert.Equal(84, followUpRequest.SpeakerToOtherRelationshipScore);
+        Assert.Equal(24, followUpRequest.OtherToSpeakerRelationshipScore);
         Assert.Equal(
             result.UserMessage.Id,
             followUpRequest.ConversationAnchor!.MessageId);
@@ -116,6 +190,19 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         Assert.NotEqual(
             result.UserMessage.Id,
             followUpRequest.ReplyTarget.Message.MessageId);
+        Assert.All(result.AiReplies, reply => Assert.Equal(
+            result.UserMessage.InteractionBatchId,
+            reply.InteractionBatchId));
+        Assert.All(
+            result.AiReplies.Take(primaryRequest.ExpectedMessageCount),
+            reply => Assert.Equal(
+                result.UserMessage.Id,
+                reply.ReplyToMessageId));
+        Assert.All(
+            result.AiReplies.Skip(primaryRequest.ExpectedMessageCount),
+            reply => Assert.Equal(
+                finalPrimaryReply.Id,
+                reply.ReplyToMessageId));
     }
 
     [Fact]
@@ -200,15 +287,23 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             'a',
             GroupMessage.ContentMaxLength - primaryOverhead - mentions.Length);
         GroupMessageService messageService = new(dbContextFactory);
+        GroupChatReplyPlanner replyPlanner = new(dbContextFactory);
         GroupChatInteractionService interactionService = new(
             messageService,
             fakeAiReplyService,
-            new GroupChatReplyPlanner(dbContextFactory),
+            replyPlanner,
+            new RuleBasedGroupConversationDirector(replyPlanner),
+            new GroupConversationPlanValidator(),
             new RuleBasedConversationDirector(
                 new ConversationActionPlanner()),
             CreateNoDelayScheduler(),
+            new AiReplyMessageCountSettingsResolver(dbContextFactory),
             new ConversationQuestionPolicyService(dbContextFactory),
-            CreateIdentityContinuityService());
+            CreateIdentityContinuityService(),
+            CreateConversationContextService(),
+            new GroupConversationDensitySettingsResolver(dbContextFactory),
+            new GroupConversationDiagnosticService(
+                new AiInteractionDiagnosticLogService(dbContextFactory)));
 
         GroupChatInteractionResult result = await interactionService
             .ProcessUserMessageAsync(storedGroupChat, content);
@@ -258,15 +353,23 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         Assert.True(groupCreated, groupError);
 
         GroupMessageService messageService = new(dbContextFactory);
+        GroupChatReplyPlanner replyPlanner = new(dbContextFactory);
         GroupChatInteractionService interactionService = new(
             messageService,
             new FakeAiReplyService(),
-            new GroupChatReplyPlanner(dbContextFactory),
+            replyPlanner,
+            new RuleBasedGroupConversationDirector(replyPlanner),
+            new GroupConversationPlanValidator(),
             new RuleBasedConversationDirector(
                 new ConversationActionPlanner()),
             CreateNoDelayScheduler(),
+            new AiReplyMessageCountSettingsResolver(dbContextFactory),
             new ConversationQuestionPolicyService(dbContextFactory),
-            CreateIdentityContinuityService());
+            CreateIdentityContinuityService(),
+            CreateConversationContextService(),
+            new GroupConversationDensitySettingsResolver(dbContextFactory),
+            new GroupConversationDiagnosticService(
+                new AiInteractionDiagnosticLogService(dbContextFactory)));
 
         return new TestContext(
             Assert.IsType<GroupChat>(groupChat),
@@ -293,6 +396,17 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         return new AiIdentityContinuityService(
             new AiSelfMemoryService(factory),
             new AiInteractionDiagnosticLogService(factory));
+    }
+
+    private GroupConversationContextService CreateConversationContextService()
+    {
+        VocaChat.Data.VocaChatDbContextFactory factory =
+            _database.CreateDbContextFactory();
+        return new GroupConversationContextService(
+            factory,
+            new AiIdentityContinuityService(
+                new AiSelfMemoryService(factory),
+                new AiInteractionDiagnosticLogService(factory)));
     }
 
     private sealed class TestContext
@@ -322,5 +436,53 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         }
 
         protected override double Sample() => _value;
+    }
+
+    private sealed class SequentialGroupConversationDirector
+        : IGroupConversationDirector
+    {
+        public List<GroupConversationPlanningRequest> Requests { get; } = new();
+
+        public Task<GroupConversationTurnPlan> CreatePlanAsync(
+            GroupConversationPlanningRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests.Add(request);
+            AiAccount first = request.GroupChat.Members[0];
+            AiAccount second = request.GroupChat.Members[1];
+            GroupMessage anchorMessage = request.AnchorMessage!;
+            GroupConversationTurnPlan plan = new()
+            {
+                AnchorMessageId = anchorMessage.Id,
+                TopicFocus = anchorMessage.Content,
+                TurnGoal = "先回应用户，再让另一位成员补充",
+                UnresolvedGoals = new[] { "回应当前用户消息" },
+                Speakers = new GroupConversationSpeakerPlan[]
+                {
+                    new()
+                    {
+                        SpeakerAiAccountId = first.Id,
+                        ReplyTargetMessageId = anchorMessage.Id,
+                        Audience = GroupConversationAudience.LocalUser,
+                        Role = GroupConversationRole.DirectAnswer,
+                        ResponseGoal = "直接回答用户",
+                        NewContribution = "给出第一项判断"
+                    },
+                    new()
+                    {
+                        SpeakerAiAccountId = second.Id,
+                        ReplyTargetMessageId = anchorMessage.Id,
+                        TargetAiAccountId = first.Id,
+                        Audience = GroupConversationAudience.SpecificAiAccount,
+                        Role = GroupConversationRole.Complement,
+                        ResponseGoal = "回应第一位成员并补充",
+                        NewContribution = "给出不同的第二项判断"
+                    }
+                },
+                SelectionStatus = AiSpeakerSelectionStatus.MentionMatched
+            };
+            return Task.FromResult(plan);
+        }
     }
 }

@@ -23,4 +23,9 @@ public sealed class UpdateAutonomousInteractionSettingsRequest
     public long MinimumConsecutiveMessageDelayMilliseconds { get; set; } = 400;
     public long MaximumConsecutiveMessageDelayMilliseconds { get; set; } = 1200;
     public int MaximumConsecutiveQuestionTurns { get; set; } = 2;
+    public int MinimumReplyMessageCount { get; set; } = 1;
+    public int MaximumReplyMessageCount { get; set; } = 4;
+    public int GroupChatMaximumSpeakersPerTurn { get; set; } = 2;
+    public int GroupChatWholeGroupMaximumSpeakersPerTurn { get; set; } = 3;
+    public int GroupChatMaximumMessagesPerTurn { get; set; } = 6;
 }

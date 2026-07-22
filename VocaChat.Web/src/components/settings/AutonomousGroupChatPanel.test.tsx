@@ -90,6 +90,8 @@ describe('AutonomousGroupChatPanel', () => {
         senderType: 'AiAccount',
         senderDisplayName: contact.friend.nickname,
         senderAiAccountId: contact.friend.id,
+        interactionBatchId: null,
+        replyToMessageId: null,
         senderAvatarUrl: null,
         content: `${contact.friend.nickname}的群聊消息`,
         sentAt: `2026-07-19T15:00:0${index}Z`,

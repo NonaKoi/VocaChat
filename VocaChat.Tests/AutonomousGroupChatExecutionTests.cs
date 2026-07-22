@@ -237,8 +237,208 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ExecuteAsync_UsesSemanticOrderAndPersistsActualReplyTarget()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup(
+            groupChatMaximumRounds: 1);
+        RecordingAiMessageGenerator generator = new();
+        ScriptedAutonomousGroupDirector groupDirector = new();
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(
+                generator,
+                new ZeroGroupRandomSource(),
+                groupDirector);
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 22, 8, 0, 0),
+                randomJitter: 10,
+                requestedTopic: "单元 D 语义目标测试");
+
+        Assert.Equal(AutonomousGroupChatExecutionStatus.Completed, result.Status);
+        Assert.Equal(
+            new[]
+            {
+                GroupConversationPlanningScenario.AutonomousOpening,
+                GroupConversationPlanningScenario.AutonomousClosing
+            },
+            groupDirector.Requests.Select(request => request.Scenario));
+        GroupConversationPlanningRequest openingRequest =
+            groupDirector.Requests[0];
+        Assert.Null(openingRequest.AnchorMessage);
+        Assert.Equal(
+            openingRequest.RequiredSpeakerAiAccountId,
+            generator.Requests[0].Speaker.Id);
+        Assert.All(groupDirector.ReturnedPlans.SelectMany(plan => plan.Speakers),
+            speakerPlan => Assert.NotEqual(
+                GroupConversationAudience.LocalUser,
+                speakerPlan.Audience));
+
+        AiMessageGenerationRequest respondingRequest = generator.Requests
+            .First(request => request.Speaker.Id !=
+                openingRequest.RequiredSpeakerAiAccountId);
+        Assert.NotNull(respondingRequest.ReplyTarget?.Message);
+        Assert.Equal(
+            openingRequest.RequiredSpeakerAiAccountId,
+            respondingRequest.ReplyTarget!.Message!.SenderAiAccountId);
+        Assert.Equal(
+            openingRequest.RequiredSpeakerAiAccountId,
+            respondingRequest.RelationshipTarget?.Id);
+        Assert.NotNull(respondingRequest.SpeakerToOtherRelationshipScore);
+        Assert.NotNull(respondingRequest.OtherToSpeakerRelationshipScore);
+        GroupMessage lastInitiatorMessage = result.Messages.Last(message =>
+            message.SenderAiAccountId ==
+                openingRequest.RequiredSpeakerAiAccountId);
+        Assert.All(
+            result.Messages.Where(message =>
+                message.SenderAiAccountId == respondingRequest.Speaker.Id),
+            message => Assert.Equal(
+                lastInitiatorMessage.Id,
+                message.ReplyToMessageId));
+        Assert.All(result.Messages, message =>
+            Assert.NotNull(message.InteractionBatchId));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithFourMessagesPerSpeaker_PersistsTwelveMessageRound()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup(
+            groupChatMaximumRounds: 1,
+            minimumReplyMessageCount: 4,
+            maximumReplyMessageCount: 4,
+            groupChatMaximumMessagesPerTurn: 12);
+        RecordingAiMessageGenerator generator = new();
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(
+                generator,
+                new ZeroGroupRandomSource());
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 22, 9, 0, 0),
+                randomJitter: 10,
+                requestedTopic: "单轮十二条消息约束测试");
+
+        Assert.Equal(AutonomousGroupChatExecutionStatus.Completed, result.Status);
+        AutonomousGroupChatRound normalRound = Assert.Single(
+            result.Rounds,
+            round => !round.IsClosing);
+        Assert.Equal(3, normalRound.PlannedSpeakerCount);
+        Assert.Equal(12, normalRound.PlannedMessageCount);
+        Assert.Equal(
+            12,
+            result.Messages.Count(message =>
+                message.AutonomousGroupChatRoundId == normalRound.Id));
+        Assert.All(generator.Requests.Take(3), request =>
+            Assert.Equal(4, request.ExpectedMessageCount));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UsesConfiguredWholeGroupSpeakerLimit()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup(
+            groupChatMaximumRounds: 1,
+            groupChatWholeGroupMaximumSpeakersPerTurn: 2,
+            groupChatMaximumMessagesPerTurn: 4);
+        ScriptedAutonomousGroupDirector groupDirector = new();
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(
+                new RecordingAiMessageGenerator(),
+                new ZeroGroupRandomSource(),
+                groupDirector);
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 22, 9, 30, 0),
+                randomJitter: 10,
+                requestedTopic: "群聊密度设置测试");
+
+        Assert.Equal(AutonomousGroupChatExecutionStatus.Completed, result.Status);
+        GroupConversationPlanningRequest openingRequest =
+            groupDirector.Requests.First(request => request.Scenario ==
+                GroupConversationPlanningScenario.AutonomousOpening);
+        Assert.Equal(2, openingRequest.MaximumSpeakerCount);
+        Assert.Equal(4, openingRequest.MaximumTotalMessageCount);
+        Assert.All(result.Rounds, round =>
+        {
+            Assert.True(round.PlannedSpeakerCount <= 2);
+            Assert.True(round.PlannedMessageCount <= 4);
+        });
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenProbabilityDeclines_DoesNotPlanContinuationRound()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup();
+        ScriptedAutonomousGroupDirector groupDirector = new();
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(
+                new RecordingAiMessageGenerator(),
+                new HighGroupRandomSource(),
+                groupDirector);
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 22, 10, 0, 0),
+                randomJitter: 10,
+                requestedTopic: "概率先于语义规划测试");
+
+        Assert.Equal(AutonomousGroupChatExecutionStatus.Completed, result.Status);
+        Assert.Equal(
+            AutonomousGroupChatSessionEndReason
+                .ContinuationProbabilityDeclined,
+            result.Session!.EndReason);
+        Assert.DoesNotContain(
+            groupDirector.Requests,
+            request => request.Scenario ==
+                GroupConversationPlanningScenario.AutonomousContinuation);
+        Assert.Equal(2, groupDirector.Requests.Count);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenSemanticPlanIsInvalid_UsesSafeRuleFallback()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup(
+            groupChatMaximumRounds: 1);
+        RecordingAiMessageGenerator generator = new();
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(
+                generator,
+                new ZeroGroupRandomSource(),
+                new InvalidAutonomousGroupDirector());
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 22, 11, 0, 0),
+                randomJitter: 10,
+                requestedTopic: "无效导演回退测试");
+
+        Assert.Equal(AutonomousGroupChatExecutionStatus.Completed, result.Status);
+        Assert.NotEmpty(generator.Requests);
+        Assert.Equal(
+            result.Session!.InitiatorAiAccountId,
+            generator.Requests[0].Speaker.Id);
+        Assert.All(generator.Requests, request =>
+        {
+            Assert.NotNull(request.GroupConversationPlan);
+            Assert.NotEqual(
+                GroupConversationAudience.LocalUser,
+                request.GroupConversationPlan!.Audience);
+        });
+    }
+
     private IReadOnlyList<AiAccount> CreateStrongGroup(
-        int groupChatMaximumRounds = 4)
+        int groupChatMaximumRounds = 4,
+        int minimumReplyMessageCount = 1,
+        int maximumReplyMessageCount = 4,
+        int groupChatWholeGroupMaximumSpeakersPerTurn = 3,
+        int groupChatMaximumMessagesPerTurn = 6)
     {
         AiAccountService accountService = new(
             _database.CreateDbContextFactory());
@@ -268,6 +468,20 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
             autonomousGroupChatMaximumMembers: 6,
             groupChatContinuationRatePercent: 80,
             groupChatMaximumRounds,
+            replyDelayMode: AiReplyDelayMode.Fixed,
+            fixedReplyDelayMilliseconds: 0,
+            minimumReplyDelayMilliseconds: 0,
+            maximumReplyDelayMilliseconds: 0,
+            consecutiveMessageDelayMode: AiReplyDelayMode.Fixed,
+            fixedConsecutiveMessageDelayMilliseconds: 0,
+            minimumConsecutiveMessageDelayMilliseconds: 0,
+            maximumConsecutiveMessageDelayMilliseconds: 0,
+            maximumConsecutiveQuestionTurns: 2,
+            minimumReplyMessageCount,
+            maximumReplyMessageCount,
+            groupChatMaximumSpeakersPerTurn: 2,
+            groupChatWholeGroupMaximumSpeakersPerTurn,
+            groupChatMaximumMessagesPerTurn,
             out _,
             out string settingsError), settingsError);
 
@@ -294,12 +508,20 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
 
     private AutonomousGroupChatExecutionService CreateExecutionService(
         IAiMessageGenerator generator,
-        AutonomousGroupChatRandomSource? randomSource = null)
+        AutonomousGroupChatRandomSource? randomSource = null,
+        IGroupConversationDirector? groupConversationDirector = null)
     {
         VocaChat.Data.VocaChatDbContextFactory factory =
             _database.CreateDbContextFactory();
         ConversationActionPlanner actionPlanner = new(new Random(7));
         AutonomousGroupChatSpeakerPlanner speakerPlanner = new(factory);
+        GroupChatReplyPlanner replyPlanner = new(factory);
+        AiIdentityContinuityService identityContinuityService = new(
+            new AiSelfMemoryService(factory),
+            new AiInteractionDiagnosticLogService(factory));
+        GroupConversationContextService conversationContextService = new(
+            factory,
+            identityContinuityService);
         return new AutonomousGroupChatExecutionService(
             new AutonomousGroupChatJudge(factory),
             new AutonomousGroupChatPlanningService(factory),
@@ -311,14 +533,21 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
             new AiAccountService(factory),
             new GroupChatService(factory),
             new GroupMessageService(factory),
+            replyPlanner,
+            groupConversationDirector
+                ?? new RuleBasedGroupConversationDirector(replyPlanner),
+            new GroupConversationPlanValidator(),
             new RuleBasedConversationDirector(actionPlanner),
             generator,
             new AiReplyTimingScheduler(
                 factory,
                 (_, _) => Task.CompletedTask),
             new ConversationQuestionPolicyService(factory),
-            new AiIdentityContinuityService(
-                new AiSelfMemoryService(factory),
+            identityContinuityService,
+            new AiReplyMessageCountSettingsResolver(factory),
+            conversationContextService,
+            new GroupConversationDensitySettingsResolver(factory),
+            new GroupConversationDiagnosticService(
                 new AiInteractionDiagnosticLogService(factory)));
     }
 
@@ -330,6 +559,11 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
     private sealed class ZeroGroupRandomSource : AutonomousGroupChatRandomSource
     {
         public override double NextUnit() => 0;
+    }
+
+    private sealed class HighGroupRandomSource : AutonomousGroupChatRandomSource
+    {
+        public override double NextUnit() => 0.99;
     }
 
     private sealed class FailAfterRequestsGenerator : IAiMessageGenerator
@@ -359,6 +593,108 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
                 .ToList()
                 .AsReadOnly();
             return Task.FromResult(messages);
+        }
+    }
+
+
+    private sealed class ScriptedAutonomousGroupDirector
+        : IGroupConversationDirector
+    {
+        public List<GroupConversationPlanningRequest> Requests { get; } = new();
+        public List<GroupConversationTurnPlan> ReturnedPlans { get; } = new();
+
+        public Task<GroupConversationTurnPlan> CreatePlanAsync(
+            GroupConversationPlanningRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests.Add(request);
+
+            GroupConversationTurnPlan plan;
+            if (request.Scenario ==
+                GroupConversationPlanningScenario.AutonomousClosing)
+            {
+                plan = new GroupConversationTurnPlan
+                {
+                    AnchorMessageId = request.AnchorMessage?.Id,
+                    TopicFocus = request.Topic,
+                    TurnGoal = "已经自然结束，不追加收束消息",
+                    Speakers = Array.Empty<GroupConversationSpeakerPlan>(),
+                    SelectionStatus = AiSpeakerSelectionStatus.DefaultSelection
+                };
+            }
+            else
+            {
+                Guid initiatorId = request.RequiredSpeakerAiAccountId!.Value;
+                Guid responderId = request.GroupChat.Members
+                    .First(member => member.Id != initiatorId)
+                    .Id;
+                plan = new GroupConversationTurnPlan
+                {
+                    AnchorMessageId = request.AnchorMessage?.Id,
+                    TopicFocus = request.Topic,
+                    TurnGoal = "发起者开场后由一位好友作出真实回应",
+                    Speakers = new[]
+                    {
+                        new GroupConversationSpeakerPlan
+                        {
+                            SpeakerAiAccountId = initiatorId,
+                            ReplyTargetMessageId = null,
+                            Audience = GroupConversationAudience.WholeGroup,
+                            Role = GroupConversationRole.ShiftTopic,
+                            ResponseGoal = "自然引入话题",
+                            NewContribution = "说出本次话题"
+                        },
+                        new GroupConversationSpeakerPlan
+                        {
+                            SpeakerAiAccountId = responderId,
+                            ReplyTargetMessageId = null,
+                            TargetAiAccountId = initiatorId,
+                            Audience =
+                                GroupConversationAudience.SpecificAiAccount,
+                            Role = GroupConversationRole.React,
+                            ResponseGoal = "回应发起者的实际内容",
+                            NewContribution = "给出与开场不同的新反应"
+                        }
+                    },
+                    SelectionStatus = AiSpeakerSelectionStatus.DefaultSelection
+                };
+            }
+
+            ReturnedPlans.Add(plan);
+            return Task.FromResult(plan);
+        }
+    }
+
+    private sealed class InvalidAutonomousGroupDirector
+        : IGroupConversationDirector
+    {
+        public Task<GroupConversationTurnPlan> CreatePlanAsync(
+            GroupConversationPlanningRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Guid speakerId = request.RequiredSpeakerAiAccountId
+                ?? request.GroupChat.Members[0].Id;
+            return Task.FromResult(new GroupConversationTurnPlan
+            {
+                AnchorMessageId = request.AnchorMessage?.Id,
+                TopicFocus = request.Topic,
+                TurnGoal = "返回一个越界计划以验证业务回退",
+                Speakers = new[]
+                {
+                    new GroupConversationSpeakerPlan
+                    {
+                        SpeakerAiAccountId = speakerId,
+                        ReplyTargetMessageId = request.AnchorMessage?.Id,
+                        Audience = GroupConversationAudience.LocalUser,
+                        Role = GroupConversationRole.DirectAnswer,
+                        ResponseGoal = "错误地回应本地用户",
+                        NewContribution = "无效计划"
+                    }
+                },
+                SelectionStatus = AiSpeakerSelectionStatus.DefaultSelection
+            });
         }
     }
 }

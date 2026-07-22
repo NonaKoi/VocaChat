@@ -11,13 +11,23 @@ public sealed class OpenAiCompatibleChatClient
 {
     private readonly HttpClient _httpClient;
     private readonly AiMessageGenerationOptions _options;
+    private readonly AiModelConnectionSettingsService? _connectionSettingsService;
 
     public OpenAiCompatibleChatClient(
         HttpClient httpClient,
         AiMessageGenerationOptions options)
+        : this(httpClient, options, connectionSettingsService: null)
+    {
+    }
+
+    public OpenAiCompatibleChatClient(
+        HttpClient httpClient,
+        AiMessageGenerationOptions options,
+        AiModelConnectionSettingsService? connectionSettingsService)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _connectionSettingsService = connectionSettingsService;
     }
 
     /// <summary>
@@ -29,9 +39,12 @@ public sealed class OpenAiCompatibleChatClient
         double temperature,
         double topP,
         int maximumCompletionTokens,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? aiAccountId = null)
     {
-        if (string.IsNullOrWhiteSpace(_options.Model))
+        AiModelConnection connection = ResolveConnection(aiAccountId);
+
+        if (string.IsNullOrWhiteSpace(connection.Model))
         {
             throw new AiMessageGenerationException("未配置 AI 模型名称。");
         }
@@ -49,11 +62,11 @@ public sealed class OpenAiCompatibleChatClient
         {
             using HttpRequestMessage request = new(
                 HttpMethod.Post,
-                "chat/completions")
+                BuildChatCompletionsUri(connection.BaseUrl))
             {
                 Content = JsonContent.Create(new
                 {
-                    model = _options.Model,
+                    model = connection.Model,
                     messages = new object[]
                     {
                         new { role = "system", content = systemPrompt },
@@ -68,10 +81,10 @@ public sealed class OpenAiCompatibleChatClient
                 })
             };
 
-            if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+            if (!string.IsNullOrWhiteSpace(connection.ApiKey))
             {
                 request.Headers.Authorization =
-                    new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+                    new AuthenticationHeaderValue("Bearer", connection.ApiKey);
             }
 
             using HttpResponseMessage response = await _httpClient.SendAsync(
@@ -126,5 +139,35 @@ public sealed class OpenAiCompatibleChatClient
                 "AI 文本生成服务返回的响应缺少必要字段。",
                 exception);
         }
+    }
+
+    private AiModelConnection ResolveConnection(Guid? aiAccountId)
+    {
+        if (_connectionSettingsService is null)
+        {
+            return new AiModelConnection(
+                _options.BaseUrl,
+                _options.Model,
+                _options.ApiKey);
+        }
+
+        return aiAccountId.HasValue
+            ? _connectionSettingsService.ResolveForAccount(aiAccountId.Value)
+            : _connectionSettingsService.ResolveGlobal();
+    }
+
+    private static Uri BuildChatCompletionsUri(string baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri)
+            || (baseUri.Scheme != Uri.UriSchemeHttp
+                && baseUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new AiMessageGenerationException("AI 接口地址无效。");
+        }
+
+        string normalizedBaseUrl = baseUrl.EndsWith('/')
+            ? baseUrl
+            : $"{baseUrl}/";
+        return new Uri(new Uri(normalizedBaseUrl), "chat/completions");
     }
 }

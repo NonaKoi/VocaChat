@@ -40,7 +40,9 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ConversationActionPlan initialPlan = _actionPlanner.CreatePlan(request);
+        ConversationActionPlan initialPlan = GroupConversationRoleMapper.Apply(
+            _actionPlanner.CreatePlan(request),
+            request.GroupConversationPlan);
         ConversationActionPlan baselinePlan = request.QuestionPolicy?.ApplyTo(
             initialPlan) ?? initialPlan;
 
@@ -77,7 +79,8 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                     maximumCompletionTokens: Math.Min(
                         _options.MaximumCompletionTokens,
                         512),
-                    cancellationToken);
+                    cancellationToken,
+                    aiAccountId: request.Speaker.Id);
 
                 try
                 {
@@ -132,8 +135,19 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             throw new AiMessageGenerationException("导演返回了不支持的交流动作。");
         }
 
+        ConversationReferencePlan referencePlan = ParseReferencePlan(root);
+
+        if (request.GroupConversationPlan is not null
+            && action != baselinePlan.Action)
+        {
+            throw new AiMessageGenerationException(
+                "单人导演不能改变群级导演分配的发言职责。");
+        }
+
         if (baselinePlan.Action == ConversationAction.Answer
-            && action != ConversationAction.Answer)
+            && action != ConversationAction.Answer
+            && !(referencePlan.Status == ConversationReferenceStatus.Ambiguous
+                && action == ConversationAction.Ask))
         {
             throw new AiMessageGenerationException("目标消息需要直接回答，导演不能改变该硬约束。");
         }
@@ -216,6 +230,20 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             GetRequiredString(root, "newContribution"),
             "新增内容要求",
             DirectorGoalMaximumLength);
+
+        if (request.Scenario ==
+                AiMessageGenerationScenario.AutonomousGroupChat
+            && request.GroupConversationPlan is not null
+            && !IsAlignedWithAutonomousGroupPlan(
+                request,
+                topicFocus,
+                responseGoal,
+                newContribution))
+        {
+            throw new AiMessageGenerationException(
+                "单人导演偏离了群级导演指定的话题或新增内容。");
+        }
+
         IReadOnlyList<string> coveredPoints = ParseStringList(
             root,
             "coveredPoints");
@@ -260,7 +288,103 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             false,
             selectedMessageCount,
             referencedSelfMemoryIds,
-            selfMemoryProposals);
+            selfMemoryProposals,
+            referencePlan);
+    }
+
+    private static ConversationReferencePlan ParseReferencePlan(
+        JsonElement root)
+    {
+        if (!root.TryGetProperty(
+                "referenceStatus",
+                out JsonElement statusElement))
+        {
+            return ConversationReferencePlan.None;
+        }
+
+        if (statusElement.ValueKind != JsonValueKind.String
+            || !Enum.TryParse(
+                statusElement.GetString(),
+                ignoreCase: true,
+                out ConversationReferenceStatus status)
+            || !Enum.IsDefined(status))
+        {
+            throw new AiMessageGenerationException(
+                "导演返回了不支持的指代解析状态。");
+        }
+
+        string resolutionSummary = root.TryGetProperty(
+                "referenceResolution",
+                out JsonElement resolutionElement)
+            && resolutionElement.ValueKind == JsonValueKind.String
+                ? resolutionElement.GetString()?.Trim() ?? string.Empty
+                : string.Empty;
+        IReadOnlyList<string> factOwnership = root.TryGetProperty(
+                "factOwnership",
+                out _)
+            ? ParseStringList(root, "factOwnership")
+            : Array.Empty<string>();
+
+        if (resolutionSummary.Length > DirectorGoalMaximumLength)
+        {
+            throw new AiMessageGenerationException("导演返回的指代解析说明过长。");
+        }
+
+        if (status == ConversationReferenceStatus.Resolved
+            && (string.IsNullOrWhiteSpace(resolutionSummary)
+                || factOwnership.Count == 0))
+        {
+            throw new AiMessageGenerationException(
+                "已解析的指代必须说明对象和相关事实归属。");
+        }
+
+        if (status == ConversationReferenceStatus.Ambiguous
+            && string.IsNullOrWhiteSpace(resolutionSummary))
+        {
+            throw new AiMessageGenerationException(
+                "无法确定的指代必须说明歧义所在。");
+        }
+
+        if (status == ConversationReferenceStatus.None)
+        {
+            return ConversationReferencePlan.None;
+        }
+
+        return new ConversationReferencePlan(
+            status,
+            resolutionSummary,
+            factOwnership);
+    }
+
+    private static bool IsAlignedWithAutonomousGroupPlan(
+        AiMessageGenerationRequest request,
+        string topicFocus,
+        string responseGoal,
+        string newContribution)
+    {
+        GroupConversationSpeakerPlan groupPlan =
+            request.GroupConversationPlan!;
+        IReadOnlyList<string> topicSources = new[]
+        {
+            request.Topic,
+            request.FocusContent,
+            groupPlan.ResponseGoal,
+            groupPlan.NewContribution
+        }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList()
+            .AsReadOnly();
+        bool topicAligned = topicSources.Any(source =>
+            AiFactGroundingMatcher.HasGroundingOverlap(
+                topicFocus,
+                source));
+        string contributionPlan = $"{responseGoal} {newContribution}";
+        bool contributionAligned = topicSources.Any(source =>
+            AiFactGroundingMatcher.HasGroundingOverlap(
+                contributionPlan,
+                source));
+
+        return topicAligned && contributionAligned;
     }
 
     private static IReadOnlyList<string> ParseStringList(
@@ -432,6 +556,25 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         builder.AppendLine($"说话方式：{DisplayOrDefault(request.Speaker.SpeakingStyle)}");
         builder.AppendLine(
             $"其他参与者：{string.Join("、", request.OtherParticipants.Select(account => account.Nickname))}");
+        builder.AppendLine(
+            request.RelationshipTarget is null
+                ? "本轮 AI 关系对象：无（回应本地用户或面向全群，不能任意套用成员关系）"
+                : $"本轮 AI 关系对象：{request.RelationshipTarget.Nickname}（只允许使用当前发言者与该对象之间的方向关系和记忆）");
+        if (request.GroupConversationPlan is not null)
+        {
+            GroupConversationSpeakerPlan groupPlan =
+                request.GroupConversationPlan;
+            builder.AppendLine("群级导演已确定以下硬约束，不得改变发言对象、职责或新增内容：");
+            builder.AppendLine($"- 主要受众：{groupPlan.Audience}");
+            builder.AppendLine($"- 群内职责：{groupPlan.Role}");
+            builder.AppendLine($"- 回应目标：{groupPlan.ResponseGoal}");
+            builder.AppendLine($"- 必须新增：{groupPlan.NewContribution}");
+            if (groupPlan.AvoidedRepetition.Count > 0)
+            {
+                builder.AppendLine(
+                    $"- 不得重复：{string.Join("、", groupPlan.AvoidedRepetition)}");
+            }
+        }
         builder.AppendLine($"当前话题：{DisplayOrDefault(request.Topic)}");
         builder.AppendLine($"规则基线动作：{baselinePlan.Action}");
         builder.AppendLine($"关系距离：{baselinePlan.RelationshipTone}");
@@ -441,11 +584,21 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                 ? $"疑问句策略：此前已经连续 {request.QuestionPolicy.ConsecutiveQuestionTurns} 轮以问题收尾，本轮必须使用 questionMode=None，且不能选择 Ask"
                 : "疑问句策略：可根据当前回应目的选择 None、Optional 或 Natural，不需要为了延续对话而强行提问");
         AiMessageCountRange messageCountRange = GetMessageCountRange(request);
+        int variationReference = messageCountRange.Minimum
+            == messageCountRange.Maximum
+                ? messageCountRange.Minimum
+                : Random.Shared.Next(
+                    messageCountRange.Minimum,
+                    messageCountRange.Maximum + 1);
         builder.AppendLine(
             messageCountRange.Minimum == messageCountRange.Maximum
                 ? $"本轮消息数量：固定 {messageCountRange.Minimum} 条"
                 : $"本轮允许消息数量：{messageCountRange.Minimum} 到 {messageCountRange.Maximum} 条，由你根据回应完整性和自然聊天节奏选择");
+        builder.AppendLine(
+            $"自然变化参考：{variationReference} 条。先按内容完整性决定；只有多个数量同样合适时才参考此值，不能为凑数拆句。");
         builder.AppendLine($"本轮目标消息 Id：{(targetMessageId == Guid.Empty ? "" : targetMessageId)}");
+        builder.AppendLine(
+            $"距离上一条历史消息：{AiConversationTimeGapFormatter.Format(context.GapSincePreviousMessage)}");
         builder.AppendLine("整轮互动的原始起点（后续发言仍须处理其中未完成的要求）：");
         AppendContextMessage(
             builder,
@@ -476,12 +629,15 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         AppendMemories(builder, context.Memories);
 
         builder.AppendLine("先从整段会话判断已经表达过什么、原始要求还有什么没完成，再选择一个会话节拍和动作。");
+        builder.AppendLine("历史消息中的 CurrentSpeaker 表示当前发言好友，ReplyTargetAiAccount 表示当前具体回应对象，OtherAiAccount 表示其他第三方好友。不能把 ReplyTargetAiAccount 或 OtherAiAccount 的经历、职业、物品、观点改写成 CurrentSpeaker 的第一人称事实。");
+        builder.AppendLine("如果目标消息包含“那个人”“他/她”“这件事”等指代，必须结合带事实归属的历史消息解析指向。能确定时返回 referenceStatus=Resolved，并在 factOwnership 中写清相关事实属于谁；不能可靠确定时返回 Ambiguous，并用一个自然短问句澄清，不能猜测。");
+        builder.AppendLine("跨时间续聊可以自然接回旧话题，但要意识到时间已经过去；不要假装上一条消息刚刚发生，也不要机械重复问候。");
         builder.AppendLine("newContribution 必须指出本轮相对最近消息新增的内容，不能只是换一种说法赞同上一句。");
         builder.AppendLine("forbiddenClaims 必须包含当前好友没有资料或本人历史依据、因此不能声称亲历的事实类型。");
         builder.AppendLine("referencedSelfMemoryIds 只能填写本轮确实需要使用的本人个人记忆 Id；没有使用时返回空数组。");
         builder.AppendLine("selfMemoryProposals 只记录本轮最终台词确实准备表达、且以后仍需保持一致的动态个人事实，最多两项。普通寒暄、即时情绪和对其他人的事实不得记录。");
         builder.AppendLine("新增稳定身份事实不属于本轮权限；只可建议 OngoingActivity、Plan、Experience 或 Preference。Add 的 targetMemoryId 为 null；Update 和 Archive 必须指向上方当前账号的有效导演记忆。");
-        builder.AppendLine("messageCount 必须在允许范围内；简单反应通常一条，需要解释或包含多个关联信息时可以自然拆成多条，不能为了凑数切碎同一句话。");
+        builder.AppendLine("messageCount 必须在允许范围内；简单反应通常一条，普通回答可用一到两条，包含多个关联信息时可用两到三条，确实需要分层说明时可用三到四条。不能为了凑数切碎同一句话，也不要习惯性总选两条。");
         builder.AppendLine("用户明确要求多说几句、分开说或不要只回一句时，只要允许范围容纳，messageCount 至少选择 2。");
         return builder.ToString();
     }
@@ -495,19 +651,23 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             "可选 beat 只有 Introduce、Develop、Contrast、Clarify、Resolve、Close，用来表示整段会话的推进位置。",
             "questionMode 只能是 None、Optional、Natural，由你根据本轮动作和自然交流需要决定。",
             "如果规则基线动作为 Answer 或 Close，必须保持该动作。",
+            "唯一例外：目标消息的关键指代确实无法从上下文可靠确定时，referenceStatus 必须为 Ambiguous，此时可将 Answer 改为 Ask 进行一次简短澄清。",
             "targetMessageId 必须原样返回；没有目标消息时返回空字符串。",
             "topicFocus 和 responseGoal 应具体、简短，不得包含最终聊天台词。",
             "coveredPoints 列出最近已经说清楚的观点；unresolvedGoals 列出原始要求中仍待完成的部分。",
             "newContribution 指定本轮必须新增的观点、决定、信息或情绪变化，不能只要求附和或复述。",
             "avoidedTopics 列出不要恢复的旧话题；forbiddenClaims 列出没有身份资料或本人历史依据、不可虚构的第一人称事实。",
+            "referenceStatus 只能是 None、Resolved、Ambiguous。没有需解析指代时使用 None；能确定指代时使用 Resolved；无法可靠确定时使用 Ambiguous。",
+            "referenceResolution 用一句话说明指代对象或歧义；factOwnership 明确列出本轮相关事实分别属于 CurrentSpeaker、ReplyTargetAiAccount、OtherAiAccount 或 LocalUser。回应对象和第三方事实绝不能转写为当前发言者的特点或经历。",
             "referencedSelfMemoryIds 只列出本轮实际用于规划的当前发言者个人记忆 Id。",
             "selfMemoryProposals 最多两项，每项包含 operation、targetMemoryId、type、summary、reason。只建议最终台词会自然表达、以后仍需保持一致的本人动态事实；不能记录他人的经历、普通寒暄或瞬时情绪。",
             "个人记忆 operation 只能是 Add、Update、Archive；类型只能使用 OngoingActivity、Plan、Experience、Preference。Add 的 targetMemoryId 返回 null，Update 和 Archive 必须引用提供的有效导演记忆。",
             "长期记忆只代表当前发言者过去对当前对象形成的认识。只有与本轮目标自然相关时才能用于规划，不能让记忆取代目标消息，也不能把对方经历归到当前发言者名下。",
             "messageCount 表示本轮应独立发送几条聊天消息，必须处于业务层允许范围内。消息数量服务于完整表达和自然节奏，不用于机械切句。",
+            "不要固定选择两条：先根据内容判断一条是否足以说完整，再在同样自然的多个数量之间保留变化。",
             "各数组没有内容时返回空数组；普通语义数组最多五项，个人记忆建议最多两项。",
             "严格输出 json 对象，不要输出 Markdown 或额外解释。",
-            "json 示例：{\"action\":\"Answer\",\"questionMode\":\"Optional\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"messageCount\":2,\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"],\"referencedSelfMemoryIds\":[],\"selfMemoryProposals\":[]}");
+            "json 示例：{\"action\":\"Answer\",\"questionMode\":\"Optional\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"messageCount\":2,\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"],\"referenceStatus\":\"None\",\"referenceResolution\":\"\",\"factOwnership\":[],\"referencedSelfMemoryIds\":[],\"selfMemoryProposals\":[]}");
 
     private static AiMessageCountRange GetMessageCountRange(
         AiMessageGenerationRequest request) =>
@@ -543,8 +703,12 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
 
         AiDialogueMessage message = contextMessage.Message;
         builder.AppendLine(
-            $"[{contextMessage.Ownership}] {message.SenderDisplayName}：{Truncate(message.Content, 400)}");
+            $"[{contextMessage.Ownership}] [{FormatSentAt(message.SentAt)}] "
+            + $"{message.SenderDisplayName}：{Truncate(message.Content, 400)}");
     }
+
+    private static string FormatSentAt(DateTime sentAt) =>
+        sentAt == default ? "时间未知" : sentAt.ToString("yyyy-MM-dd HH:mm");
 
     private static void AppendMemories(
         StringBuilder builder,

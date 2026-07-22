@@ -18,6 +18,7 @@ namespace VocaChat.Tests.ApiIntegration;
 internal sealed class VocaChatWebApiFactory
     : WebApplicationFactory<VocaChat.WebApi.Program>
 {
+    private readonly bool _useProductionAiServices;
     private readonly SqliteTestDatabase _database = new(
         applyMigrations: false);
     private readonly string _mediaDirectory = Path.Combine(
@@ -29,6 +30,11 @@ internal sealed class VocaChatWebApiFactory
     public string DatabasePath => _database.DatabasePath;
     public string MediaDirectory => _mediaDirectory;
 
+    public VocaChatWebApiFactory(bool useProductionAiServices = false)
+    {
+        _useProductionAiServices = useProductionAiServices;
+    }
+
     /// <summary>
     /// 在 Host 构建前替换正式数据库工厂，使启动 Migration 只作用于测试数据库。
     /// </summary>
@@ -39,17 +45,27 @@ internal sealed class VocaChatWebApiFactory
         {
             services.RemoveAll<VocaChatDbContextFactory>();
             services.RemoveAll<LocalMediaStorageService>();
-            services.RemoveAll<IAiMessageGenerator>();
-            services.RemoveAll<IConversationDirector>();
-            services.RemoveAll<ISessionInsightAnalyzer>();
-            services.RemoveAll<AiReplyTimingScheduler>();
             services.AddSingleton(_database.CreateDbContextFactory());
             services.AddSingleton(
                 new LocalMediaStorageService(_mediaDirectory));
+
+            if (_useProductionAiServices)
+            {
+                return;
+            }
+
+            services.RemoveAll<IAiMessageGenerator>();
+            services.RemoveAll<IConversationDirector>();
+            services.RemoveAll<IGroupConversationDirector>();
+            services.RemoveAll<ISessionInsightAnalyzer>();
+            services.RemoveAll<AiReplyTimingScheduler>();
             services.AddSingleton<IAiMessageGenerator, FakeAiReplyService>();
             services.AddScoped<IConversationDirector>(serviceProvider =>
                 new RuleBasedConversationDirector(
                     serviceProvider.GetRequiredService<ConversationActionPlanner>()));
+            services.AddScoped<IGroupConversationDirector>(serviceProvider =>
+                new RuleBasedGroupConversationDirector(
+                    serviceProvider.GetRequiredService<GroupChatReplyPlanner>()));
             services.AddSingleton<
                 ISessionInsightAnalyzer,
                 RuleBasedSessionInsightAnalyzer>();

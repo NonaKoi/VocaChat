@@ -22,4 +22,7 @@ public sealed class UpdateAiAccountAutonomySettingsRequest
     public long MaximumConsecutiveMessageDelayMilliseconds { get; set; } = 1200;
     public bool UseGlobalQuestionPolicy { get; set; } = true;
     public int MaximumConsecutiveQuestionTurns { get; set; } = 2;
+    public bool UseGlobalReplyMessageCount { get; set; } = true;
+    public int MinimumReplyMessageCount { get; set; } = 1;
+    public int MaximumReplyMessageCount { get; set; } = 4;
 }

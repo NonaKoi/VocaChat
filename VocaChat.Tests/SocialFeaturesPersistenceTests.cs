@@ -43,6 +43,7 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
                 new AiReplyTimingScheduler(
                     factory,
                     (_, _) => Task.CompletedTask),
+                new AiReplyMessageCountSettingsResolver(factory),
                 new ConversationQuestionPolicyService(factory),
                 new AiIdentityContinuityService(
                     new AiSelfMemoryService(factory),
@@ -51,18 +52,23 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
 
         Assert.Equal(PrivateChatInteractionStatus.Succeeded, result.Status);
         IReadOnlyList<PrivateMessage> history = new PrivateChatService(factory).GetOrderedChatHistory(chat!.Id);
-        Assert.Collection(history,
-            message => Assert.Equal(MessageSenderType.User, message.SenderType),
-            message => Assert.Equal(account.Id, message.SenderAiAccountId),
+        Assert.Equal(MessageSenderType.User, history[0].SenderType);
+        Assert.All(
+            history.Skip(1),
             message => Assert.Equal(account.Id, message.SenderAiAccountId));
-        Assert.Equal(2, result.AiReplies.Count);
+        Assert.InRange(result.AiReplies.Count, 2, 4);
+        Assert.Equal(1 + result.AiReplies.Count, history.Count);
         AiMessageGenerationRequest request = Assert.Single(generator.Requests);
+        Assert.Equal(1, request.AllowedMessageCountRange!.Minimum);
+        Assert.Equal(4, request.AllowedMessageCountRange.Maximum);
         Assert.Equal(result.UserMessage!.Id, request.ReplyTarget!.Message!.MessageId);
         Assert.Equal(ConversationAction.Answer, request.ActionPlan!.Action);
         Assert.NotNull(request.DirectionPlan);
         Assert.True(request.DirectionPlan.UsedRuleFallback);
-        Assert.Equal(2, request.DirectionPlan.SelectedMessageCount);
-        Assert.Equal(2, request.ExpectedMessageCount);
+        Assert.Equal(
+            result.AiReplies.Count,
+            request.DirectionPlan.SelectedMessageCount);
+        Assert.Equal(result.AiReplies.Count, request.ExpectedMessageCount);
     }
 
     [Fact]
@@ -89,6 +95,7 @@ public sealed class SocialFeaturesPersistenceTests : IDisposable
             new StaticMessageGenerator("我最近正在准备秋季插画展"),
             new StaticDirector(proposal),
             new AiReplyTimingScheduler(factory, (_, _) => Task.CompletedTask),
+            new AiReplyMessageCountSettingsResolver(factory),
             new ConversationQuestionPolicyService(factory),
             new AiIdentityContinuityService(
                 new AiSelfMemoryService(factory),

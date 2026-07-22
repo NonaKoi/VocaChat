@@ -13,7 +13,10 @@ public enum AiInteractionDiagnosticCode
     MessagePersistenceFailed,
     ReplyTimingFailed,
     SelfMemoryDecision,
-    SelfMemoryPersistenceFailed
+    SelfMemoryPersistenceFailed,
+    GroupConversationPlanCreated,
+    GroupConversationPlanFallback,
+    GroupConversationExecutionFailed
 }
 
 /// <summary>

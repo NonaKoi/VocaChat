@@ -37,9 +37,9 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             return Array.Empty<string>();
         }
 
-        if (request.ExpectedMessageCount is < 0 or > 3)
+        if (request.ExpectedMessageCount is < 0 or > 4)
         {
-            throw new AiMessageGenerationException("单次生成的消息数量必须在 0 到 3 之间。");
+            throw new AiMessageGenerationException("单次生成的消息数量必须在 0 到 4 之间。");
         }
 
         if (request.ActionPlan is null)
@@ -65,6 +65,16 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                         + Environment.NewLine
                         + $"请重新输出，messages 数组必须恰好包含 {request.ExpectedMessageCount} 条独立消息，"
                         + "每条都应完成它承担的表达内容。";
+
+                    if (request.Scenario ==
+                            AiMessageGenerationScenario.AutonomousGroupChat
+                        && request.ReplyTarget?.Kind ==
+                            AiDialogueReplyTargetKind.TopicOpening)
+                    {
+                        userPrompt += Environment.NewLine
+                            + $"本次重试仍必须从预设话题“{DisplayOrDefault(request.Topic)}”开场，"
+                            + "不得改聊账号兴趣、旧历史或另一个自选话题。";
+                    }
                 }
 
                 string? content = await _chatClient.CompleteJsonAsync(
@@ -73,7 +83,8 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                     _options.Temperature,
                     _options.TopP,
                     _options.MaximumCompletionTokens,
-                    cancellationToken);
+                    cancellationToken,
+                    aiAccountId: request.Speaker.Id);
 
                 try
                 {
@@ -212,6 +223,17 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 "不能只换几个词重复最近已经表达过的内容，必须增加新的信息或态度变化。");
         }
 
+        if (request.Scenario ==
+                AiMessageGenerationScenario.AutonomousGroupChat
+            && request.ReplyTarget?.Kind ==
+                AiDialogueReplyTargetKind.TopicOpening
+            && !messages.Any(message =>
+                IsAlignedWithAutonomousOpening(message, request)))
+        {
+            throw new AiMessageGenerationException(
+                "自主群聊开场没有围绕本次预设话题表达。");
+        }
+
         if (messages.Any(message => HasUnsupportedFirstPersonExperience(
                 message,
                 request)))
@@ -241,6 +263,14 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         {
             throw new AiMessageGenerationException(
                 "不能把其他参与者的具体经历改写成当前好友的第一人称经历。");
+        }
+
+        if (messages.Any(message => HasLikelyReferenceOwnershipDrift(
+                message,
+                request.DirectionPlan?.ReferencePlan)))
+        {
+            throw new AiMessageGenerationException(
+                "回复改变了已解析指代的事实归属，不能把第三方特点或经历写成当前好友自己的事实。");
         }
 
         if (messages.Any(message => message.Contains(
@@ -299,7 +329,12 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             $"- 兴趣背景：{interests}",
             $"- 个性标签：{personalityTags}",
             "身份事实边界：只有上面当前好友自己的资料、明确提供的本人个人记忆、本人在当前会话已经说过的内容，以及本轮已通过业务验证的个人记忆建议，才能作为第一人称事实依据。",
+            "导演提供的动作、群聊职责、回应目标和新增内容只是表达任务，不是新的事实来源。它们若包含资料、本人记忆或最近真实消息没有支持的具体细节，必须丢弃这些细节或改成更抽象的一般观点；事实边界始终优先于完成导演措辞。",
             "其他好友或本地用户说过的事情只代表他们的陈述。可以回应、追问或引用，但绝不能改写成你亲身做过、见过、拥有或经历过的事情。",
+            request.RelationshipTarget is null
+                ? "本轮没有具体 AI 关系对象。不得因为其他好友也在群内，就任意使用与其中某人的关系或方向记忆。"
+                : $"本轮具体 AI 关系对象是“{request.RelationshipTarget.Nickname}”。提供的关系分数和方向记忆只属于你与该对象之间，不能套用到其他群成员。",
+            "导演提供的指代解析与事实归属是硬约束。第三方的性格、习惯、观点和经历也不能改写成你自己的特点；如果导演标记指代不明确，只能自然澄清，不能猜测。",
             "标记为“本人对对方的长期记忆”的内容只代表你过去对该对话对象形成的认识。仅在与当前目标自然相关时使用，不要逐条复述、展示记忆类型，或把对方的经历改写成自己的经历。",
             "本轮如果提供了必须回应的目标消息，先衔接这条消息；更早记录只用于理解背景，不能抢走当前话题。",
             "像真实网络聊天一样表达。先完成当前交流动作所必需的核心内容，再决定是否简短、留白或自然拆成多条；不要为了显得口语化而故意只说半句。",
@@ -320,6 +355,22 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         builder.AppendLine(
             $"场景：{AiConversationScenarioPrompt.GetDescription(request.Scenario)}");
         builder.AppendLine($"当前话题背景：{DisplayOrDefault(request.Topic)}");
+        if (request.GroupConversationPlan is not null)
+        {
+            GroupConversationSpeakerPlan groupPlan =
+                request.GroupConversationPlan;
+            builder.AppendLine("群聊分工（硬约束）：");
+            builder.AppendLine($"- 主要受众：{groupPlan.Audience}");
+            builder.AppendLine($"- 本轮职责：{groupPlan.Role}");
+            builder.AppendLine($"- 回应目标：{groupPlan.ResponseGoal}");
+            builder.AppendLine($"- 必须新增：{groupPlan.NewContribution}");
+            builder.AppendLine("- 事实优先级：群聊分工不是新的事实来源；其中没有本人资料、本人记忆或最近真实消息支持的具体细节必须省略或抽象化，只保留职责和观点方向。");
+            if (groupPlan.AvoidedRepetition.Count > 0)
+            {
+                builder.AppendLine(
+                    $"- 避免重复：{string.Join("、", groupPlan.AvoidedRepetition)}");
+            }
+        }
         builder.AppendLine($"本次交流动作：{GetActionInstruction(actionPlan.Action)}");
         if (request.DirectionPlan is not null)
         {
@@ -349,6 +400,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 builder.AppendLine(
                     $"本轮不得声称的事实：{string.Join("、", request.DirectionPlan.ForbiddenClaims)}");
             }
+            AppendReferencePlan(builder, request.DirectionPlan.ReferencePlan);
             if (request.DirectionPlan.SelfMemoryProposals.Count > 0)
             {
                 builder.AppendLine("本轮已经通过业务验证、必须自然表达后才会保存的个人事实：");
@@ -389,6 +441,11 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 $"对话对象：{string.Join("、", request.OtherParticipants.Select(account => account.Nickname))}");
         }
 
+        builder.AppendLine(
+            request.RelationshipTarget is null
+                ? "具体 AI 回应对象：无"
+                : $"具体 AI 回应对象：{request.RelationshipTarget.Nickname}");
+
         if (request.PrimarySpeaker is not null)
         {
             builder.AppendLine($"此前主要发言者：{request.PrimarySpeaker.Nickname}");
@@ -397,6 +454,12 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         AiConversationContext conversationContext = _contextBuilder.Build(
             request,
             _options.RecentMessageLimit);
+        builder.AppendLine(
+            $"距离上一条历史消息：{AiConversationTimeGapFormatter.Format(conversationContext.GapSincePreviousMessage)}");
+        if (conversationContext.GapSincePreviousMessage >= TimeSpan.FromHours(6))
+        {
+            builder.AppendLine("这是间隔一段时间后的续聊：自然接回当前话题，但不要假装上一条消息刚刚发生，也不必机械重新自我介绍或正式问候。");
+        }
         AppendReplyTarget(builder, request, conversationContext);
         AppendConversationAnchor(builder, request);
         AppendSelfMemories(builder, conversationContext.SelfMemories);
@@ -414,6 +477,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             AiDialogueMessage message = contextMessage.Message;
             builder.AppendLine(
                 $"{GetOwnershipLabel(contextMessage.Ownership, message.SenderDisplayName)} "
+                + $"[{FormatSentAt(message.SentAt)}] "
                 + $"{message.SenderDisplayName}：{Truncate(message.Content, ContextMessageCharacterLimit)}");
         }
 
@@ -449,7 +513,45 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         builder.AppendLine("如果想分享自己的经历，但上下文和本人资料中没有可靠依据，就改为表达即时感受、一般看法或追问，不得借用别人刚说的具体经历。");
         builder.AppendLine("如果本轮具有已验证的个人记忆建议，只有在消息中确实表达该事实后业务层才会保存；不要添加建议之外的新近况、新计划或新经历。");
         builder.AppendLine("与最近消息语义相同的附和、结论或经历，即使换了几个词也不算新内容；必须完成导演指定的新增内容。");
+        if (request.Scenario ==
+                AiMessageGenerationScenario.AutonomousGroupChat
+            && request.ReplyTarget?.Kind ==
+                AiDialogueReplyTargetKind.TopicOpening)
+        {
+            builder.AppendLine("自主群聊开场硬约束：本批消息必须直接开启下面的预设话题，不能根据账号兴趣、旧历史或个人资料自行换成另一个话题。");
+            builder.AppendLine(
+                $"必须开启的预设话题：{DisplayOrDefault(request.Topic)}");
+            if (request.GroupConversationPlan is not null)
+            {
+                builder.AppendLine(
+                    $"群级导演指定的开场贡献：{request.GroupConversationPlan.NewContribution}");
+            }
+        }
         return builder.ToString();
+    }
+
+    private static void AppendReferencePlan(
+        StringBuilder builder,
+        ConversationReferencePlan referencePlan)
+    {
+        switch (referencePlan.Status)
+        {
+            case ConversationReferenceStatus.Resolved:
+                builder.AppendLine(
+                    $"已解析的指代：{referencePlan.ResolutionSummary}");
+                builder.AppendLine("必须保持以下事实归属，不能换成当前好友自己的特点或经历：");
+                foreach (string constraint in referencePlan
+                             .FactOwnershipConstraints)
+                {
+                    builder.AppendLine($"- {constraint}");
+                }
+                break;
+            case ConversationReferenceStatus.Ambiguous:
+                builder.AppendLine(
+                    $"指代仍不明确：{referencePlan.ResolutionSummary}");
+                builder.AppendLine("不要猜测对象；本轮只用一句自然、简短的问句确认对方指的是谁或哪件事。");
+                break;
+        }
     }
 
     private static void AppendMemories(
@@ -567,8 +669,12 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         AiDialogueMessage message = target.Message;
         builder.AppendLine(
             $"{GetOwnershipLabel(target.Ownership, message.SenderDisplayName)} "
+            + $"[{FormatSentAt(message.SentAt)}] "
             + $"{message.SenderDisplayName}：{Truncate(message.Content, ContextMessageCharacterLimit)}");
     }
+
+    private static string FormatSentAt(DateTime sentAt) =>
+        sentAt == default ? "时间未知" : sentAt.ToString("yyyy-MM-dd HH:mm");
 
     private void ValidateOptions()
     {
@@ -594,6 +700,8 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         {
             AiConversationMessageOwnership.CurrentSpeaker
                 => "[本人过去说过，可延续为自己的历史]",
+            AiConversationMessageOwnership.ReplyTargetAiAccount
+                => $"[本轮具体回应对象“{senderDisplayName}”说过，只能视为对方的内容]",
             AiConversationMessageOwnership.OtherAiAccount
                 => $"[其他好友“{senderDisplayName}”说过，只能视为听到的内容]",
             AiConversationMessageOwnership.LocalUser
@@ -769,6 +877,22 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
         return result;
     }
 
+    private static bool IsAlignedWithAutonomousOpening(
+        string message,
+        AiMessageGenerationRequest request)
+    {
+        IEnumerable<string> sources = new[]
+        {
+            request.Topic,
+            request.FocusContent,
+            request.GroupConversationPlan?.ResponseGoal ?? string.Empty,
+            request.GroupConversationPlan?.NewContribution ?? string.Empty
+        }.Where(value => !string.IsNullOrWhiteSpace(value));
+
+        return sources.Any(source =>
+            AiFactGroundingMatcher.HasGroundingOverlap(message, source));
+    }
+
     private static bool HasUnsupportedFirstPersonExperience(
         string generatedMessage,
         AiMessageGenerationRequest request)
@@ -778,11 +902,10 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             "你上次", "上次你", "你之前", "之前你", "你以前", "以前你",
             "他上次", "她上次", "他们上次", "她们上次", "听你说"
         };
-        string[] temporalMarkers =
+        string[] pastTemporalMarkers =
         {
             "上次", "之前", "以前", "昨晚", "昨天", "前天", "当时",
-            "那次", "去年", "小时候", "最近", "这阵子", "目前",
-            "正在", "刚完成", "刚接到", "准备", "计划", "明天"
+            "那次", "去年", "小时候"
         };
         string[] experienceVerbs =
         {
@@ -807,7 +930,7 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                     marker,
                     StringComparison.OrdinalIgnoreCase));
         bool hasOmittedSubjectPastExperience = !explicitlyAboutOther
-            && temporalMarkers.Any(marker => generatedMessage.Contains(
+            && pastTemporalMarkers.Any(marker => generatedMessage.Contains(
                 marker,
                 StringComparison.OrdinalIgnoreCase))
             && experienceVerbs.Any(verb => generatedMessage.Contains(
@@ -834,6 +957,16 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
             .Select(proposal => proposal.Summary)
             ?? Array.Empty<string>());
         ownGrounding.AddRange(GetValidSharedMemorySummaries(request));
+
+        // 自主群聊的话题由系统在会话开始前确定，是所有参与者都可以据此讨论的
+        // 当前情境；将它作为依据，避免把“明天改到室内拍摄”之类的共同计划
+        // 误判为某个账号凭空虚构的个人经历。用户消息不能享受这一例外，防止
+        // AI 把用户刚说过的事实改写成自己的经历。
+        if (request.Scenario == AiMessageGenerationScenario.AutonomousGroupChat
+            && !string.IsNullOrWhiteSpace(request.Topic))
+        {
+            ownGrounding.Add(request.Topic);
+        }
 
         return !ownGrounding.Any(content =>
             HasGroundingOverlap(generatedMessage, content));
@@ -893,6 +1026,72 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                 normalizedGeneratedMessage.Contains(
                     fragment,
                     StringComparison.Ordinal)));
+    }
+
+    private static bool HasLikelyReferenceOwnershipDrift(
+        string generatedMessage,
+        ConversationReferencePlan? referencePlan)
+    {
+        if (referencePlan is null
+            || referencePlan.Status != ConversationReferenceStatus.Resolved
+            || referencePlan.FactOwnershipConstraints.Count == 0)
+        {
+            return false;
+        }
+
+        string[] selfAttributionMarkers =
+        {
+            "我基本", "我通常", "我一般", "我平时", "我只对",
+            "我会对", "我总是", "我有时候", "我偶尔", "我的习惯",
+            "我的性格", "我其实就是"
+        };
+        if (!selfAttributionMarkers.Any(marker => generatedMessage.Contains(
+                marker,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        string[] explicitThirdPartyMarkers =
+        {
+            "他", "她", "他们", "她们", "那个人", "对方", "老板",
+            "店主", "同事", "朋友", "老师"
+        };
+        if (explicitThirdPartyMarkers.Any(marker => generatedMessage.Contains(
+                marker,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        string normalizedMessage = NormalizeForComparison(generatedMessage);
+        return referencePlan.FactOwnershipConstraints.Any(constraint =>
+            GetReferenceFactFragments(constraint).Any(fragment =>
+                normalizedMessage.Contains(fragment, StringComparison.Ordinal)));
+    }
+
+    private static IEnumerable<string> GetReferenceFactFragments(string value)
+    {
+        string normalized = NormalizeForComparison(value);
+        string[] ignoredFragments =
+        {
+            "属于", "不是", "当前", "发言", "的人", "事实", "相关",
+            "对方", "第三", "好友", "账号", "这个", "那个"
+        };
+
+        for (int length = Math.Min(6, normalized.Length); length >= 3; length--)
+        {
+            for (int index = 0; index <= normalized.Length - length; index++)
+            {
+                string fragment = normalized.Substring(index, length);
+                if (!ignoredFragments.Any(ignored => fragment.Contains(
+                        ignored,
+                        StringComparison.Ordinal)))
+                {
+                    yield return fragment;
+                }
+            }
+        }
     }
 
     private static IEnumerable<string> GetValidSharedMemorySummaries(

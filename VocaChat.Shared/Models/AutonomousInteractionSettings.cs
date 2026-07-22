@@ -34,6 +34,15 @@ public class AutonomousInteractionSettings
     internal const long DefaultMaximumConsecutiveMessageDelayMilliseconds = 1200;
     internal const int DefaultMaximumConsecutiveQuestionTurns = 2;
     internal const int MinimumMaximumConsecutiveQuestionTurns = 1;
+    internal const int DefaultMinimumReplyMessageCount = 1;
+    internal const int DefaultMaximumReplyMessageCount = 4;
+    internal const int MinimumAllowedReplyMessageCount = 1;
+    internal const int MaximumAllowedReplyMessageCount = 4;
+    internal const int DefaultGroupChatMaximumSpeakersPerTurn = 2;
+    internal const int DefaultGroupChatWholeGroupMaximumSpeakersPerTurn = 3;
+    internal const int DefaultGroupChatMaximumMessagesPerTurn = 6;
+    internal const int MinimumGroupChatDensityLimit = 1;
+    internal const int MaximumGroupChatDensityLimit = 12;
 
     public int Id { get; private set; }
     public bool IsEnabled { get; private set; }
@@ -54,6 +63,11 @@ public class AutonomousInteractionSettings
     public long MinimumConsecutiveMessageDelayMilliseconds { get; private set; }
     public long MaximumConsecutiveMessageDelayMilliseconds { get; private set; }
     public int MaximumConsecutiveQuestionTurns { get; private set; }
+    public int MinimumReplyMessageCount { get; private set; }
+    public int MaximumReplyMessageCount { get; private set; }
+    public int GroupChatMaximumSpeakersPerTurn { get; private set; }
+    public int GroupChatWholeGroupMaximumSpeakersPerTurn { get; private set; }
+    public int GroupChatMaximumMessagesPerTurn { get; private set; }
 
     /// <summary>
     /// 创建尚未保存的默认设置，或供 EF Core 从数据库还原设置。
@@ -86,6 +100,14 @@ public class AutonomousInteractionSettings
             DefaultMaximumConsecutiveMessageDelayMilliseconds;
         MaximumConsecutiveQuestionTurns =
             DefaultMaximumConsecutiveQuestionTurns;
+        MinimumReplyMessageCount = DefaultMinimumReplyMessageCount;
+        MaximumReplyMessageCount = DefaultMaximumReplyMessageCount;
+        GroupChatMaximumSpeakersPerTurn =
+            DefaultGroupChatMaximumSpeakersPerTurn;
+        GroupChatWholeGroupMaximumSpeakersPerTurn =
+            DefaultGroupChatWholeGroupMaximumSpeakersPerTurn;
+        GroupChatMaximumMessagesPerTurn =
+            DefaultGroupChatMaximumMessagesPerTurn;
     }
 
     /// <summary>
@@ -109,7 +131,12 @@ public class AutonomousInteractionSettings
         long fixedConsecutiveMessageDelayMilliseconds,
         long minimumConsecutiveMessageDelayMilliseconds,
         long maximumConsecutiveMessageDelayMilliseconds,
-        int maximumConsecutiveQuestionTurns)
+        int maximumConsecutiveQuestionTurns,
+        int minimumReplyMessageCount,
+        int maximumReplyMessageCount,
+        int groupChatMaximumSpeakersPerTurn,
+        int groupChatWholeGroupMaximumSpeakersPerTurn,
+        int groupChatMaximumMessagesPerTurn)
     {
         IsEnabled = isEnabled;
         Frequency = frequency;
@@ -134,5 +161,11 @@ public class AutonomousInteractionSettings
         MaximumConsecutiveMessageDelayMilliseconds =
             maximumConsecutiveMessageDelayMilliseconds;
         MaximumConsecutiveQuestionTurns = maximumConsecutiveQuestionTurns;
+        MinimumReplyMessageCount = minimumReplyMessageCount;
+        MaximumReplyMessageCount = maximumReplyMessageCount;
+        GroupChatMaximumSpeakersPerTurn = groupChatMaximumSpeakersPerTurn;
+        GroupChatWholeGroupMaximumSpeakersPerTurn =
+            groupChatWholeGroupMaximumSpeakersPerTurn;
+        GroupChatMaximumMessagesPerTurn = groupChatMaximumMessagesPerTurn;
     }
 }

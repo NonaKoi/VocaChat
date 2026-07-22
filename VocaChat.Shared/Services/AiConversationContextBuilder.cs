@@ -8,6 +8,7 @@ namespace VocaChat.Services;
 public enum AiConversationMessageOwnership
 {
     CurrentSpeaker,
+    ReplyTargetAiAccount,
     OtherAiAccount,
     LocalUser
 }
@@ -28,17 +29,20 @@ public sealed class AiConversationContext
     public IReadOnlyList<AiConversationContextMessage> Messages { get; }
     public IReadOnlyList<AiConversationMemory> Memories { get; }
     public IReadOnlyList<AiConversationSelfMemory> SelfMemories { get; }
+    public TimeSpan? GapSincePreviousMessage { get; }
 
     internal AiConversationContext(
         AiConversationContextMessage? replyTarget,
         IReadOnlyList<AiConversationContextMessage> messages,
         IReadOnlyList<AiConversationMemory> memories,
-        IReadOnlyList<AiConversationSelfMemory> selfMemories)
+        IReadOnlyList<AiConversationSelfMemory> selfMemories,
+        TimeSpan? gapSincePreviousMessage)
     {
         ReplyTarget = replyTarget;
         Messages = messages;
         Memories = memories;
         SelfMemories = selfMemories;
+        GapSincePreviousMessage = gapSincePreviousMessage;
     }
 }
 
@@ -62,19 +66,30 @@ public sealed class AiConversationContextBuilder
         }
 
         AiDialogueMessage? replyTargetMessage = request.ReplyTarget?.Message;
+        Guid? relationshipTargetId = request.RelationshipTarget?.Id
+            ?? replyTargetMessage?.SenderAiAccountId;
         AiConversationContextMessage? replyTarget = replyTargetMessage is null
             ? null
             : new AiConversationContextMessage(
                 replyTargetMessage,
-                ResolveOwnership(replyTargetMessage, request.Speaker.Id));
+                ResolveOwnership(
+                    replyTargetMessage,
+                    request.Speaker.Id,
+                    relationshipTargetId));
 
         List<AiConversationContextMessage> messages = request.RecentMessages
             .Where(message => !IsSameMessage(message, replyTargetMessage))
             .TakeLast(recentMessageLimit)
             .Select(message => new AiConversationContextMessage(
                 message,
-                ResolveOwnership(message, request.Speaker.Id)))
+                ResolveOwnership(
+                    message,
+                    request.Speaker.Id,
+                    relationshipTargetId)))
             .ToList();
+        TimeSpan? gapSincePreviousMessage = CalculateGapSincePreviousMessage(
+            replyTargetMessage,
+            request.RecentMessages);
 
         HashSet<Guid> participantIds = request.OtherParticipants
             .Select(participant => participant.Id)
@@ -82,6 +97,8 @@ public sealed class AiConversationContextBuilder
         List<AiConversationMemory> memories = request.RelevantMemories
             .Where(memory =>
                 memory.OwnerAiAccountId == request.Speaker.Id
+                && relationshipTargetId is not null
+                && memory.SubjectAiAccountId == relationshipTargetId
                 && participantIds.Contains(memory.SubjectAiAccountId)
                 && !string.IsNullOrWhiteSpace(memory.Summary))
             .Take(MaximumMemoryCount)
@@ -98,7 +115,34 @@ public sealed class AiConversationContextBuilder
             replyTarget,
             messages.AsReadOnly(),
             memories.AsReadOnly(),
-            selfMemories.AsReadOnly());
+            selfMemories.AsReadOnly(),
+            gapSincePreviousMessage);
+    }
+
+    private static TimeSpan? CalculateGapSincePreviousMessage(
+        AiDialogueMessage? replyTarget,
+        IReadOnlyList<AiDialogueMessage> recentMessages)
+    {
+        if (replyTarget is null || replyTarget.SentAt == default)
+        {
+            return null;
+        }
+
+        DateTime? previousSentAt = recentMessages
+            .Where(message =>
+                !IsSameMessage(message, replyTarget)
+                && message.SentAt != default
+                && message.SentAt < replyTarget.SentAt)
+            .Select(message => (DateTime?)message.SentAt)
+            .Max();
+
+        if (previousSentAt is null)
+        {
+            return null;
+        }
+
+        TimeSpan gap = replyTarget.SentAt - previousSentAt.Value;
+        return gap > TimeSpan.Zero ? gap : null;
     }
 
     private static bool IsSameMessage(
@@ -120,15 +164,53 @@ public sealed class AiConversationContextBuilder
 
     private static AiConversationMessageOwnership ResolveOwnership(
         AiDialogueMessage message,
-        Guid currentSpeakerId)
+        Guid currentSpeakerId,
+        Guid? relationshipTargetId)
     {
         if (message.SenderType == MessageSenderType.User)
         {
             return AiConversationMessageOwnership.LocalUser;
         }
 
-        return message.SenderAiAccountId == currentSpeakerId
-            ? AiConversationMessageOwnership.CurrentSpeaker
+        if (message.SenderAiAccountId == currentSpeakerId)
+        {
+            return AiConversationMessageOwnership.CurrentSpeaker;
+        }
+
+        return relationshipTargetId is not null
+               && message.SenderAiAccountId == relationshipTargetId
+            ? AiConversationMessageOwnership.ReplyTargetAiAccount
             : AiConversationMessageOwnership.OtherAiAccount;
+    }
+}
+
+/// <summary>
+/// 将消息时间差转换为模型容易理解、但不过度精确的对话时间语义。
+/// </summary>
+internal static class AiConversationTimeGapFormatter
+{
+    public static string Format(TimeSpan? gap)
+    {
+        if (gap is null)
+        {
+            return "未知（不要自行假定刚刚连续聊过）";
+        }
+
+        if (gap.Value < TimeSpan.FromMinutes(5))
+        {
+            return "不足 5 分钟，属于连续交流";
+        }
+
+        if (gap.Value < TimeSpan.FromHours(1))
+        {
+            return $"约 {Math.Max(5, (int)Math.Round(gap.Value.TotalMinutes / 5) * 5)} 分钟";
+        }
+
+        if (gap.Value < TimeSpan.FromHours(24))
+        {
+            return $"约 {Math.Max(1, (int)Math.Round(gap.Value.TotalHours))} 小时";
+        }
+
+        return $"约 {Math.Max(1, (int)Math.Round(gap.Value.TotalDays))} 天，属于跨时间续聊";
     }
 }

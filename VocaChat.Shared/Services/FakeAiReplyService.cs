@@ -83,11 +83,11 @@ public class FakeAiReplyService : IAiMessageGenerator
         string userContent,
         int messageCount)
     {
-        if (messageCount is < 1 or > 3)
+        if (messageCount is < 1 or > 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(messageCount),
-                "用户私信回复数量必须在 1 到 3 之间。");
+                "用户私信回复数量必须在 1 到 4 之间。");
         }
 
         string[] candidates =
@@ -205,11 +205,11 @@ public class FakeAiReplyService : IAiMessageGenerator
         int roundNumber,
         bool isInitiator)
     {
-        if (messageCount is < 0 or > 3)
+        if (messageCount is < 0 or > 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(messageCount),
-                "普通轮单方消息数量必须在 0 到 3 之间。");
+                "普通轮单方消息数量必须在 0 到 4 之间。");
         }
 
         if (messageCount == 0)
@@ -290,11 +290,11 @@ public class FakeAiReplyService : IAiMessageGenerator
         int messageCount,
         bool isInitiator)
     {
-        if (messageCount is < 1 or > 3)
+        if (messageCount is < 1 or > 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(messageCount),
-                "自主好友群聊单次消息数量必须在 1 到 3 之间。");
+                "自主好友群聊单次消息数量必须在 1 到 4 之间。");
         }
 
         string normalizedTopic = string.IsNullOrWhiteSpace(topic)

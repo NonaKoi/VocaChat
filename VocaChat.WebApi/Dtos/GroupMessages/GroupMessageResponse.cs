@@ -13,6 +13,8 @@ public sealed class GroupMessageResponse
     public string SenderDisplayName { get; init; } = string.Empty;
     public Guid? SenderAiAccountId { get; init; }
     public long SequenceNumber { get; init; }
+    public Guid? InteractionBatchId { get; init; }
+    public Guid? ReplyToMessageId { get; init; }
     public string? SenderAvatarUrl { get; init; }
     public string Content { get; init; } = string.Empty;
     public DateTime SentAt { get; init; }

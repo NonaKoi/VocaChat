@@ -135,6 +135,8 @@ export interface GroupMessageResponse {
   senderDisplayName: string
   senderAiAccountId: string | null
   sequenceNumber: number
+  interactionBatchId: string | null
+  replyToMessageId: string | null
   senderAvatarUrl: string | null
   content: string
   sentAt: string
@@ -288,6 +290,11 @@ export interface AutonomousInteractionSettingsResponse {
   minimumConsecutiveMessageDelayMilliseconds: number
   maximumConsecutiveMessageDelayMilliseconds: number
   maximumConsecutiveQuestionTurns: number
+  minimumReplyMessageCount: number
+  maximumReplyMessageCount: number
+  groupChatMaximumSpeakersPerTurn: number
+  groupChatWholeGroupMaximumSpeakersPerTurn: number
+  groupChatMaximumMessagesPerTurn: number
 }
 
 export interface UpdateAutonomousInteractionSettingsRequest {
@@ -309,6 +316,11 @@ export interface UpdateAutonomousInteractionSettingsRequest {
   minimumConsecutiveMessageDelayMilliseconds: number
   maximumConsecutiveMessageDelayMilliseconds: number
   maximumConsecutiveQuestionTurns: number
+  minimumReplyMessageCount: number
+  maximumReplyMessageCount: number
+  groupChatMaximumSpeakersPerTurn: number
+  groupChatWholeGroupMaximumSpeakersPerTurn: number
+  groupChatMaximumMessagesPerTurn: number
 }
 
 export interface AiAccountAutonomySettingsResponse {
@@ -330,6 +342,9 @@ export interface AiAccountAutonomySettingsResponse {
   maximumConsecutiveMessageDelayMilliseconds: number
   useGlobalQuestionPolicy: boolean
   maximumConsecutiveQuestionTurns: number
+  useGlobalReplyMessageCount: boolean
+  minimumReplyMessageCount: number
+  maximumReplyMessageCount: number
 }
 
 export interface UpdateAiAccountAutonomySettingsRequest {
@@ -350,13 +365,56 @@ export interface UpdateAiAccountAutonomySettingsRequest {
   maximumConsecutiveMessageDelayMilliseconds: number
   useGlobalQuestionPolicy: boolean
   maximumConsecutiveQuestionTurns: number
+  useGlobalReplyMessageCount: boolean
+  minimumReplyMessageCount: number
+  maximumReplyMessageCount: number
+}
+
+export interface AiModelConnectionSettingsResponse {
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+}
+
+export interface UpdateAiModelConnectionSettingsRequest {
+  baseUrl: string
+  model: string
+  apiKey: string
+  clearApiKey: boolean
+}
+
+export interface AiAccountModelConnectionSettingsResponse {
+  aiAccountId: string
+  useGlobalSettings: boolean
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+  effectiveBaseUrl: string
+  effectiveModel: string
+  effectiveHasApiKey: boolean
+}
+
+export interface UpdateAiAccountModelConnectionSettingsRequest {
+  useGlobalSettings: boolean
+  baseUrl: string
+  model: string
+  apiKey: string
+  clearApiKey: boolean
 }
 
 export interface AiInteractionDiagnosticLogResponse {
   id: string
   occurredAt: string
   severity: 'Information' | 'Warning' | 'Error'
-  code: 'MessageGenerationFailed' | 'MessagePersistenceFailed' | 'ReplyTimingFailed'
+  code:
+    | 'MessageGenerationFailed'
+    | 'MessagePersistenceFailed'
+    | 'ReplyTimingFailed'
+    | 'SelfMemoryDecision'
+    | 'SelfMemoryPersistenceFailed'
+    | 'GroupConversationPlanCreated'
+    | 'GroupConversationPlanFallback'
+    | 'GroupConversationExecutionFailed'
   scenario: string
   aiAccountId: string | null
   conversationId: string | null

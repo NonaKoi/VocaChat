@@ -20,18 +20,15 @@ public sealed class GroupMessagesController : ControllerBase
     private readonly GroupChatService _groupChatService;
     private readonly GroupMessageService _groupMessageService;
     private readonly GroupChatInteractionService _interactionService;
-    private readonly AiInteractionDiagnosticLogService _diagnosticLogService;
 
     public GroupMessagesController(
         GroupChatService groupChatService,
         GroupMessageService groupMessageService,
-        GroupChatInteractionService interactionService,
-        AiInteractionDiagnosticLogService diagnosticLogService)
+        GroupChatInteractionService interactionService)
     {
         _groupChatService = groupChatService;
         _groupMessageService = groupMessageService;
         _interactionService = interactionService;
-        _diagnosticLogService = diagnosticLogService;
     }
 
     /// <summary>
@@ -98,14 +95,6 @@ public sealed class GroupMessagesController : ControllerBase
 
         if (result.Status == GroupChatInteractionStatus.AiReplyFailed)
         {
-            _diagnosticLogService.TryRecord(
-                AiInteractionDiagnosticSeverity.Error,
-                AiInteractionDiagnosticCode.MessageGenerationFailed,
-                AiMessageGenerationScenario.GroupPrimaryReply,
-                result.AiReplies.LastOrDefault()?.SenderAiAccountId,
-                groupChat.Id,
-                "群聊回复生成失败，用户消息已经保存。",
-                result.ErrorMessage);
             return StatusCode(
                 StatusCodes.Status500InternalServerError,
                 new SendGroupMessageFailureResponse
@@ -122,18 +111,6 @@ public sealed class GroupMessagesController : ControllerBase
                             groupChat.Members))
                         .ToList()
                 });
-        }
-
-        if (result.Status == GroupChatInteractionStatus.PartiallySucceeded)
-        {
-            _diagnosticLogService.TryRecord(
-                AiInteractionDiagnosticSeverity.Warning,
-                AiInteractionDiagnosticCode.MessageGenerationFailed,
-                AiMessageGenerationScenario.GroupFollowUpReply,
-                result.AiReplies.LastOrDefault()?.SenderAiAccountId,
-                groupChat.Id,
-                "群聊只完成了部分回复。",
-                result.ErrorMessage);
         }
 
         if (result.UserMessage is null || result.AiReplies.Count == 0)

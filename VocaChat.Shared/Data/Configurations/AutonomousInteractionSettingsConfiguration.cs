@@ -71,6 +71,30 @@ public sealed class AutonomousInteractionSettingsConfiguration
                 $"\"MaximumConsecutiveQuestionTurns\" >= "
                 + AutonomousInteractionSettings
                     .MinimumMaximumConsecutiveQuestionTurns);
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_ReplyMessageCountRange",
+                $"\"MinimumReplyMessageCount\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumAllowedReplyMessageCount} "
+                + $"AND {AutonomousInteractionSettings.MaximumAllowedReplyMessageCount} "
+                + "AND \"MaximumReplyMessageCount\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumAllowedReplyMessageCount} "
+                + $"AND {AutonomousInteractionSettings.MaximumAllowedReplyMessageCount} "
+                + "AND \"MinimumReplyMessageCount\" <= \"MaximumReplyMessageCount\"");
+            tableBuilder.HasCheckConstraint(
+                "CK_AutonomousInteractionSettings_GroupChatDensity",
+                $"\"GroupChatMaximumSpeakersPerTurn\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatDensityLimit} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatDensityLimit} "
+                + "AND \"GroupChatWholeGroupMaximumSpeakersPerTurn\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatDensityLimit} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatDensityLimit} "
+                + "AND \"GroupChatMaximumMessagesPerTurn\" BETWEEN "
+                + $"{AutonomousInteractionSettings.MinimumGroupChatDensityLimit} "
+                + $"AND {AutonomousInteractionSettings.MaximumGroupChatDensityLimit} "
+                + "AND \"GroupChatMaximumSpeakersPerTurn\" "
+                + "<= \"GroupChatMaximumMessagesPerTurn\" "
+                + "AND \"GroupChatWholeGroupMaximumSpeakersPerTurn\" "
+                + "<= \"GroupChatMaximumMessagesPerTurn\"");
         });
 
         builder.HasKey(settings => settings.Id);
@@ -178,6 +202,32 @@ public sealed class AutonomousInteractionSettingsConfiguration
         builder.Property(settings => settings.MaximumConsecutiveQuestionTurns)
             .HasDefaultValue(AutonomousInteractionSettings
                 .DefaultMaximumConsecutiveQuestionTurns)
+            .IsRequired();
+
+        builder.Property(settings => settings.MinimumReplyMessageCount)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMinimumReplyMessageCount)
+            .IsRequired();
+
+        builder.Property(settings => settings.MaximumReplyMessageCount)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultMaximumReplyMessageCount)
+            .IsRequired();
+
+        builder.Property(settings => settings.GroupChatMaximumSpeakersPerTurn)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultGroupChatMaximumSpeakersPerTurn)
+            .IsRequired();
+
+        builder.Property(settings =>
+                settings.GroupChatWholeGroupMaximumSpeakersPerTurn)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultGroupChatWholeGroupMaximumSpeakersPerTurn)
+            .IsRequired();
+
+        builder.Property(settings => settings.GroupChatMaximumMessagesPerTurn)
+            .HasDefaultValue(AutonomousInteractionSettings
+                .DefaultGroupChatMaximumMessagesPerTurn)
             .IsRequired();
     }
 }

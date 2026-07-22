@@ -25,4 +25,7 @@ public sealed class AiAccountAutonomySettingsResponse
     public long MaximumConsecutiveMessageDelayMilliseconds { get; init; }
     public bool UseGlobalQuestionPolicy { get; init; }
     public int MaximumConsecutiveQuestionTurns { get; init; }
+    public bool UseGlobalReplyMessageCount { get; init; }
+    public int MinimumReplyMessageCount { get; init; }
+    public int MaximumReplyMessageCount { get; init; }
 }

@@ -3,9 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getAiAccountAutonomySettings,
+  getAiAccountModelConnectionSettings,
+  getAiModelConnectionSettings,
   getAiInteractionDiagnosticLogs,
   getAutonomousInteractionSettings,
   updateAiAccountAutonomySettings,
+  updateAiAccountModelConnectionSettings,
+  updateAiModelConnectionSettings,
   updateAutonomousInteractionSettings,
 } from '@/api/settings'
 import {
@@ -23,8 +27,12 @@ vi.mock('@/api/settings', () => ({
   getAutonomousInteractionSettings: vi.fn(),
   updateAutonomousInteractionSettings: vi.fn(),
   getAiAccountAutonomySettings: vi.fn(),
+  getAiAccountModelConnectionSettings: vi.fn(),
+  getAiModelConnectionSettings: vi.fn(),
   getAiInteractionDiagnosticLogs: vi.fn(),
   updateAiAccountAutonomySettings: vi.fn(),
+  updateAiAccountModelConnectionSettings: vi.fn(),
+  updateAiModelConnectionSettings: vi.fn(),
 }))
 
 vi.mock('@/api/relationships', () => ({
@@ -42,8 +50,12 @@ vi.mock('@/api/autonomousInteractions', () => ({
 const getSettingsMock = vi.mocked(getAutonomousInteractionSettings)
 const updateSettingsMock = vi.mocked(updateAutonomousInteractionSettings)
 const getFriendSettingsMock = vi.mocked(getAiAccountAutonomySettings)
+const getFriendModelSettingsMock = vi.mocked(getAiAccountModelConnectionSettings)
+const getModelSettingsMock = vi.mocked(getAiModelConnectionSettings)
 const getInteractionLogsMock = vi.mocked(getAiInteractionDiagnosticLogs)
 const updateFriendSettingsMock = vi.mocked(updateAiAccountAutonomySettings)
+const updateFriendModelSettingsMock = vi.mocked(updateAiAccountModelConnectionSettings)
+const updateModelSettingsMock = vi.mocked(updateAiModelConnectionSettings)
 const getRelationshipMock = vi.mocked(getAiRelationship)
 const updateRelationshipMock = vi.mocked(updateAiRelationship)
 const evaluatePrivateChatMock = vi.mocked(evaluateAutonomousPrivateChat)
@@ -112,6 +124,7 @@ const contacts: ContactResponse[] = [
 
 describe('AutonomousInteractionSettingsPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     window.history.replaceState(null, '', '/')
     getSettingsMock.mockResolvedValue({
       isEnabled: false,
@@ -132,8 +145,23 @@ describe('AutonomousInteractionSettingsPage', () => {
       minimumConsecutiveMessageDelayMilliseconds: 400,
       maximumConsecutiveMessageDelayMilliseconds: 1200,
       maximumConsecutiveQuestionTurns: 2,
+      minimumReplyMessageCount: 1,
+      maximumReplyMessageCount: 4,
+      groupChatMaximumSpeakersPerTurn: 2,
+      groupChatWholeGroupMaximumSpeakersPerTurn: 3,
+      groupChatMaximumMessagesPerTurn: 6,
     })
     updateSettingsMock.mockImplementation(async (request) => request)
+    getModelSettingsMock.mockResolvedValue({
+      baseUrl: 'http://127.0.0.1:11434/v1/',
+      model: 'vocachat-local',
+      hasApiKey: false,
+    })
+    updateModelSettingsMock.mockImplementation(async (request) => ({
+      baseUrl: request.baseUrl,
+      model: request.model,
+      hasApiKey: Boolean(request.apiKey) && !request.clearApiKey,
+    }))
     getFriendSettingsMock.mockResolvedValue({
       aiAccountId: friendId,
       isEnabled: true,
@@ -153,10 +181,33 @@ describe('AutonomousInteractionSettingsPage', () => {
       maximumConsecutiveMessageDelayMilliseconds: 1200,
       useGlobalQuestionPolicy: true,
       maximumConsecutiveQuestionTurns: 2,
+      useGlobalReplyMessageCount: true,
+      minimumReplyMessageCount: 1,
+      maximumReplyMessageCount: 4,
     })
     updateFriendSettingsMock.mockImplementation(async (accountId, request) => ({
       aiAccountId: accountId,
       ...request,
+    }))
+    getFriendModelSettingsMock.mockImplementation(async (accountId) => ({
+      aiAccountId: accountId,
+      useGlobalSettings: true,
+      baseUrl: 'http://127.0.0.1:11434/v1/',
+      model: 'vocachat-local',
+      hasApiKey: false,
+      effectiveBaseUrl: 'http://127.0.0.1:11434/v1/',
+      effectiveModel: 'vocachat-local',
+      effectiveHasApiKey: false,
+    }))
+    updateFriendModelSettingsMock.mockImplementation(async (accountId, request) => ({
+      aiAccountId: accountId,
+      useGlobalSettings: request.useGlobalSettings,
+      baseUrl: request.baseUrl,
+      model: request.model,
+      hasApiKey: Boolean(request.apiKey) && !request.clearApiKey,
+      effectiveBaseUrl: request.baseUrl,
+      effectiveModel: request.model,
+      effectiveHasApiKey: Boolean(request.apiKey) && !request.clearApiKey,
     }))
     getInteractionLogsMock.mockResolvedValue([])
     getRelationshipMock.mockImplementation(async (fromAiAccountId, toAiAccountId) => ({
@@ -322,9 +373,42 @@ describe('AutonomousInteractionSettingsPage', () => {
         minimumConsecutiveMessageDelayMilliseconds: 400,
         maximumConsecutiveMessageDelayMilliseconds: 1200,
         maximumConsecutiveQuestionTurns: 2,
+        minimumReplyMessageCount: 1,
+        maximumReplyMessageCount: 4,
+        groupChatMaximumSpeakersPerTurn: 2,
+        groupChatWholeGroupMaximumSpeakersPerTurn: 3,
+        groupChatMaximumMessagesPerTurn: 6,
       })
     })
     expect(screen.getByText('设置已保存到本地数据库。')).toBeInTheDocument()
+  })
+
+  it('保存全局 AI 接口时提交新密钥但不要求页面读取旧密钥', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    const baseUrlInput = await screen.findByLabelText('API 地址')
+    const modelInput = screen.getByLabelText('模型名称')
+    const apiKeyInput = screen.getByLabelText('API Key')
+
+    expect(apiKeyInput).toHaveValue('')
+    await user.clear(baseUrlInput)
+    await user.type(baseUrlInput, 'https://api.example.com/v1/')
+    await user.clear(modelInput)
+    await user.type(modelInput, 'friend-chat-model')
+    await user.type(apiKeyInput, 'replacement-secret')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateModelSettingsMock).toHaveBeenCalledWith({
+        baseUrl: 'https://api.example.com/v1/',
+        model: 'friend-chat-model',
+        apiKey: 'replacement-secret',
+        clearApiKey: false,
+      })
+    })
+    expect(updateSettingsMock).not.toHaveBeenCalled()
+    expect(apiKeyInput).toHaveValue('')
   })
 
   it('保存下一轮概率保留比例和单次硬上限', async () => {
@@ -360,6 +444,11 @@ describe('AutonomousInteractionSettingsPage', () => {
         minimumConsecutiveMessageDelayMilliseconds: 400,
         maximumConsecutiveMessageDelayMilliseconds: 1200,
         maximumConsecutiveQuestionTurns: 2,
+        minimumReplyMessageCount: 1,
+        maximumReplyMessageCount: 4,
+        groupChatMaximumSpeakersPerTurn: 2,
+        groupChatWholeGroupMaximumSpeakersPerTurn: 3,
+        groupChatMaximumMessagesPerTurn: 6,
       })
     })
   })
@@ -402,8 +491,51 @@ describe('AutonomousInteractionSettingsPage', () => {
         minimumConsecutiveMessageDelayMilliseconds: 400,
         maximumConsecutiveMessageDelayMilliseconds: 1200,
         maximumConsecutiveQuestionTurns: 2,
+        minimumReplyMessageCount: 1,
+        maximumReplyMessageCount: 4,
+        groupChatMaximumSpeakersPerTurn: 2,
+        groupChatWholeGroupMaximumSpeakersPerTurn: 3,
+        groupChatMaximumMessagesPerTurn: 6,
       })
     })
+  })
+
+  it('保存群聊单轮发言人数和消息总量', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    const normalSpeakersInput = await screen.findByLabelText('普通群消息最多回复好友')
+    const wholeGroupSpeakersInput = screen.getByLabelText('面向全群最多发言好友')
+    const totalMessagesInput = screen.getByLabelText('单轮 AI 消息总量')
+
+    await user.clear(normalSpeakersInput)
+    await user.type(normalSpeakersInput, '3')
+    await user.clear(wholeGroupSpeakersInput)
+    await user.type(wholeGroupSpeakersInput, '4')
+    await user.clear(totalMessagesInput)
+    await user.type(totalMessagesInput, '7')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+        groupChatMaximumSpeakersPerTurn: 3,
+        groupChatWholeGroupMaximumSpeakersPerTurn: 4,
+        groupChatMaximumMessagesPerTurn: 7,
+      }))
+    })
+  })
+
+  it('群聊消息总量小于发言人数时显示错误并阻止保存', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    const totalMessagesInput = await screen.findByLabelText('单轮 AI 消息总量')
+    await user.clear(totalMessagesInput)
+    await user.type(totalMessagesInput, '2')
+
+    expect(screen.getByText('单轮 AI 消息总量不能小于上面的任一发言人数。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存更改' })).toBeDisabled()
+    expect(updateSettingsMock).not.toHaveBeenCalled()
   })
 
   it('随机回复区间由用户决定且最长等待输入没有产品上限', async () => {
@@ -421,6 +553,26 @@ describe('AutonomousInteractionSettingsPage', () => {
         replyDelayMode: 'RandomRange',
         minimumReplyDelayMilliseconds: 800,
         maximumReplyDelayMilliseconds: 98765400,
+      }))
+    })
+  })
+
+  it('保存通用单次回复消息条数范围', async () => {
+    const user = userEvent.setup()
+    render(<AutonomousInteractionSettingsPage />)
+
+    const minimumInput = await screen.findByLabelText('最少条数')
+    const maximumInput = screen.getByLabelText('最多条数')
+    await user.clear(minimumInput)
+    await user.type(minimumInput, '2')
+    await user.clear(maximumInput)
+    await user.type(maximumInput, '3')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+        minimumReplyMessageCount: 2,
+        maximumReplyMessageCount: 3,
       }))
     })
   })
@@ -462,8 +614,82 @@ describe('AutonomousInteractionSettingsPage', () => {
         maximumConsecutiveMessageDelayMilliseconds: 1200,
         useGlobalQuestionPolicy: true,
         maximumConsecutiveQuestionTurns: 2,
+        useGlobalReplyMessageCount: true,
+        minimumReplyMessageCount: 1,
+        maximumReplyMessageCount: 4,
       })
     })
+  })
+
+  it('关闭继承后保存好友专有回复消息条数范围', async () => {
+    const user = userEvent.setup()
+    render(
+      <AutonomousInteractionSettingsPage
+        contacts={contacts}
+        contactStatus="success"
+      />,
+    )
+
+    await user.click(screen.getByRole('tab', { name: '好友设置' }))
+    const inheritSwitch = await screen.findByRole('switch', {
+      name: '沿用通用回复条数',
+    })
+    await user.click(inheritSwitch)
+    const minimumInput = screen.getByLabelText('最少条数')
+    const maximumInput = screen.getByLabelText('最多条数')
+    await user.clear(minimumInput)
+    await user.type(minimumInput, '2')
+    await user.clear(maximumInput)
+    await user.type(maximumInput, '4')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateFriendSettingsMock).toHaveBeenCalledWith(
+        friendId,
+        expect.objectContaining({
+          useGlobalReplyMessageCount: false,
+          minimumReplyMessageCount: 2,
+          maximumReplyMessageCount: 4,
+        }),
+      )
+    })
+  })
+
+  it('关闭继承后为单个好友保存完整的专有 AI 接口', async () => {
+    const user = userEvent.setup()
+    render(
+      <AutonomousInteractionSettingsPage
+        contacts={contacts}
+        contactStatus="success"
+      />,
+    )
+
+    await user.click(screen.getByRole('tab', { name: '好友设置' }))
+    const inheritSwitch = await screen.findByRole('switch', {
+      name: '沿用通用 AI 接口',
+    })
+    await user.click(inheritSwitch)
+
+    const baseUrlInput = screen.getByLabelText('API 地址')
+    const modelInput = screen.getByLabelText('模型名称')
+    const apiKeyInput = screen.getByLabelText('API Key')
+    await user.clear(baseUrlInput)
+    await user.type(baseUrlInput, 'https://friend.example.com/v1/')
+    await user.clear(modelInput)
+    await user.type(modelInput, 'dedicated-model')
+    await user.type(apiKeyInput, 'dedicated-secret')
+    await user.click(screen.getByRole('button', { name: '保存更改' }))
+
+    await waitFor(() => {
+      expect(updateFriendModelSettingsMock).toHaveBeenCalledWith(friendId, {
+        useGlobalSettings: false,
+        baseUrl: 'https://friend.example.com/v1/',
+        model: 'dedicated-model',
+        apiKey: 'dedicated-secret',
+        clearApiKey: false,
+      })
+    })
+    expect(updateFriendSettingsMock).not.toHaveBeenCalled()
   })
 
   it('加载失败时显示可重试错误状态', async () => {
@@ -477,7 +703,7 @@ describe('AutonomousInteractionSettingsPage', () => {
     expect(await screen.findByRole('switch', { name: '允许好友自主互动' })).toBeInTheDocument()
   })
 
-  it('互动日志集中显示生成问题，不把内部错误放进聊天区', async () => {
+  it('互动日志区分群聊安排和生成问题，不把内部错误放进聊天区', async () => {
     getInteractionLogsMock.mockResolvedValueOnce([
       {
         id: '80000000-0000-0000-0000-000000000001',
@@ -491,6 +717,18 @@ describe('AutonomousInteractionSettingsPage', () => {
         detail: '模型输出没有满足本轮表达计划。',
         wasRecovered: false,
       },
+      {
+        id: '80000000-0000-0000-0000-000000000002',
+        occurredAt: '2026-07-20T03:31:00Z',
+        severity: 'Information',
+        code: 'GroupConversationPlanCreated',
+        scenario: 'GroupPrimaryReply',
+        aiAccountId: null,
+        conversationId: '40000000-0000-0000-0000-000000000002',
+        summary: '群聊已安排 2 位好友发言。',
+        detail: '候选：林澈、周野；人数上限：2；消息上限：6',
+        wasRecovered: false,
+      },
     ])
     const user = userEvent.setup()
     render(<AutonomousInteractionSettingsPage />)
@@ -499,6 +737,8 @@ describe('AutonomousInteractionSettingsPage', () => {
 
     expect(await screen.findByText('私信回复生成失败，用户消息已经保存。')).toBeInTheDocument()
     expect(screen.getByText('模型输出没有满足本轮表达计划。')).toBeInTheDocument()
+    expect(screen.getByText('群聊安排')).toBeInTheDocument()
+    expect(screen.getByText('群聊已安排 2 位好友发言。')).toBeInTheDocument()
     expect(getInteractionLogsMock).toHaveBeenCalledWith()
   })
 

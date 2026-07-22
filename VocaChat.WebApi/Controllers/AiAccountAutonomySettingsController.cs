@@ -110,6 +110,9 @@ public class AiAccountAutonomySettingsController : ControllerBase
             request.MaximumConsecutiveMessageDelayMilliseconds,
             request.UseGlobalQuestionPolicy,
             request.MaximumConsecutiveQuestionTurns,
+            request.UseGlobalReplyMessageCount,
+            request.MinimumReplyMessageCount,
+            request.MaximumReplyMessageCount,
             out AiAccountAutonomySettings? settings,
             out string errorMessage);
 
@@ -151,7 +154,11 @@ public class AiAccountAutonomySettingsController : ControllerBase
                 settings.MaximumConsecutiveMessageDelayMilliseconds,
             UseGlobalQuestionPolicy = settings.UseGlobalQuestionPolicy,
             MaximumConsecutiveQuestionTurns =
-                settings.MaximumConsecutiveQuestionTurns
+                settings.MaximumConsecutiveQuestionTurns,
+            UseGlobalReplyMessageCount =
+                settings.UseGlobalReplyMessageCount,
+            MinimumReplyMessageCount = settings.MinimumReplyMessageCount,
+            MaximumReplyMessageCount = settings.MaximumReplyMessageCount
         };
     }
 }

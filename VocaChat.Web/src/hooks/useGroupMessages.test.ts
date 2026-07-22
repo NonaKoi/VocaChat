@@ -118,6 +118,8 @@ function createMessage(
     senderType,
     senderDisplayName: senderType === 'User' ? '我' : id,
     senderAiAccountId: senderType === 'User' ? null : `${id}-account`,
+    interactionBatchId: 'interaction-1',
+    replyToMessageId: senderType === 'User' ? null : 'user-1',
     senderAvatarUrl: null,
     content: `${id} content`,
     sentAt: `2026-07-18T00:00:0${second}Z`,

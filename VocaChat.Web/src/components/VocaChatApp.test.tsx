@@ -80,6 +80,11 @@ vi.mock('@/hooks/useAutonomousInteractionSettings', () => {
     minimumConsecutiveMessageDelayMilliseconds: 400,
     maximumConsecutiveMessageDelayMilliseconds: 1200,
     maximumConsecutiveQuestionTurns: 2,
+    minimumReplyMessageCount: 1,
+    maximumReplyMessageCount: 4,
+    groupChatMaximumSpeakersPerTurn: 2,
+    groupChatWholeGroupMaximumSpeakersPerTurn: 3,
+    groupChatMaximumMessagesPerTurn: 6,
   }
   return {
     useAutonomousInteractionSettings: () => ({
@@ -90,6 +95,58 @@ vi.mock('@/hooks/useAutonomousInteractionSettings', () => {
       save: vi.fn(),
     }),
   }
+})
+
+vi.mock('@/hooks/useAiModelConnectionSettings', () => {
+  const data = {
+      baseUrl: 'http://127.0.0.1:11434/v1/',
+      model: 'vocachat-local',
+      hasApiKey: false,
+  }
+
+  return { useAiModelConnectionSettings: () => ({
+    data,
+    status: 'success',
+    isSaving: false,
+    reload: vi.fn(),
+    save: vi.fn(),
+  }) }
+})
+
+vi.mock('@/hooks/useAiAccountModelConnectionSettings', () => {
+  const settingsByAccountId = new Map<string, {
+    aiAccountId: string
+    useGlobalSettings: boolean
+    baseUrl: string
+    model: string
+    hasApiKey: boolean
+    effectiveBaseUrl: string
+    effectiveModel: string
+    effectiveHasApiKey: boolean
+  }>()
+
+  return { useAiAccountModelConnectionSettings: (aiAccountId?: string) => {
+    if (aiAccountId && !settingsByAccountId.has(aiAccountId)) {
+      settingsByAccountId.set(aiAccountId, {
+      aiAccountId,
+      useGlobalSettings: true,
+      baseUrl: 'http://127.0.0.1:11434/v1/',
+      model: 'vocachat-local',
+      hasApiKey: false,
+      effectiveBaseUrl: 'http://127.0.0.1:11434/v1/',
+      effectiveModel: 'vocachat-local',
+      effectiveHasApiKey: false,
+      })
+    }
+
+    return {
+      data: aiAccountId ? settingsByAccountId.get(aiAccountId) : undefined,
+      status: aiAccountId ? 'success' : 'idle',
+      isSaving: false,
+      reload: vi.fn(),
+      save: vi.fn(),
+    }
+  } }
 })
 
 describe('VocaChatApp', () => {

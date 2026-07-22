@@ -32,6 +32,85 @@ public sealed class GroupChatReplyPlanner
     }
 
     /// <summary>
+    /// 为群级导演提供按点名、话题相关度和近期发言情况排序的候选池。
+    /// 候选账号始终来自当前群成员，不允许导演自行补充发言者。
+    /// </summary>
+    public IReadOnlyList<AiAccount> CreateCandidatePool(
+        GroupChat groupChat,
+        string userContent,
+        int maximumCandidateCount)
+    {
+        ArgumentNullException.ThrowIfNull(groupChat);
+
+        if (maximumCandidateCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumCandidateCount),
+                "候选成员数量必须大于零。");
+        }
+
+        if (groupChat.Members.Count == 0)
+        {
+            return Array.Empty<AiAccount>();
+        }
+
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        List<Guid> memberIds = groupChat.Members
+            .Select(member => member.Id)
+            .ToList();
+        List<Guid> recentSpeakerIds = dbContext.GroupMessages
+            .AsNoTracking()
+            .Where(message =>
+                message.GroupChatId == groupChat.Id
+                && message.SenderType == MessageSenderType.AiAccount
+                && message.SenderAiAccountId != null)
+            .OrderByDescending(message => message.SentAt)
+            .ThenByDescending(message => message.Id)
+            .Take(RecentAiMessageCount)
+            .Select(message => message.SenderAiAccountId!.Value)
+            .ToList();
+        Dictionary<Guid, List<string>> tagsByAccountId = dbContext
+            .AiAccountTags
+            .AsNoTracking()
+            .Where(tag => memberIds.Contains(tag.AiAccountId))
+            .GroupBy(tag => tag.AiAccountId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(tag => tag.Value).ToList());
+        Dictionary<Guid, AiAccount> storedMembers = dbContext.AiAccounts
+            .AsNoTracking()
+            .Include(account => account.Tags)
+            .Where(account => memberIds.Contains(account.Id))
+            .ToDictionary(account => account.Id);
+
+        List<AiAccount> candidates = groupChat.Members
+            .Select(member => new
+            {
+                Member = storedMembers.GetValueOrDefault(member.Id) ?? member,
+                MentionIndex = userContent.IndexOf(
+                    $"@{member.Nickname}",
+                    StringComparison.OrdinalIgnoreCase),
+                Score = CalculatePrimaryScore(
+                    member,
+                    userContent,
+                    recentSpeakerIds,
+                    tagsByAccountId.GetValueOrDefault(member.Id))
+            })
+            .OrderBy(candidate => candidate.MentionIndex < 0 ? 1 : 0)
+            .ThenBy(candidate => candidate.MentionIndex < 0
+                ? int.MaxValue
+                : candidate.MentionIndex)
+            .ThenByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Member.CreatedAt)
+            .ThenBy(candidate => candidate.Member.Id)
+            .Take(Math.Min(maximumCandidateCount, groupChat.Members.Count))
+            .Select(candidate => candidate.Member)
+            .ToList();
+
+        return candidates.AsReadOnly();
+    }
+
+    /// <summary>
     /// 使用指定的跟进判定值制定计划，供规则测试稳定覆盖边界。
     /// </summary>
     internal GroupChatReplyPlan CreatePlan(

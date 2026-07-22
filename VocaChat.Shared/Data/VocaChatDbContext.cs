@@ -13,6 +13,11 @@ public sealed class VocaChatDbContext : DbContext
         Set<AutonomousInteractionSettings>();
     public DbSet<AiAccountAutonomySettings> AiAccountAutonomySettings =>
         Set<AiAccountAutonomySettings>();
+    public DbSet<AiModelConnectionSettings> AiModelConnectionSettings =>
+        Set<AiModelConnectionSettings>();
+    public DbSet<AiAccountModelConnectionSettings>
+        AiAccountModelConnectionSettings =>
+            Set<AiAccountModelConnectionSettings>();
     public DbSet<AiRelationship> AiRelationships => Set<AiRelationship>();
     public DbSet<AiRelationshipChange> AiRelationshipChanges =>
         Set<AiRelationshipChange>();
@@ -56,6 +61,10 @@ public sealed class VocaChatDbContext : DbContext
             new AutonomousInteractionSettingsConfiguration());
         modelBuilder.ApplyConfiguration(
             new AiAccountAutonomySettingsConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiModelConnectionSettingsConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiAccountModelConnectionSettingsConfiguration());
         modelBuilder.ApplyConfiguration(new AiRelationshipConfiguration());
         modelBuilder.ApplyConfiguration(
             new AiRelationshipChangeConfiguration());

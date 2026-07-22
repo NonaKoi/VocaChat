@@ -25,6 +25,9 @@ public class AiAccountAutonomySettings
     public long MaximumConsecutiveMessageDelayMilliseconds { get; private set; }
     public bool UseGlobalQuestionPolicy { get; private set; }
     public int MaximumConsecutiveQuestionTurns { get; private set; }
+    public bool UseGlobalReplyMessageCount { get; private set; }
+    public int MinimumReplyMessageCount { get; private set; }
+    public int MaximumReplyMessageCount { get; private set; }
 
     /// <summary>
     /// 供 EF Core 从数据库还原设置使用。
@@ -64,6 +67,11 @@ public class AiAccountAutonomySettings
         UseGlobalQuestionPolicy = true;
         MaximumConsecutiveQuestionTurns = AutonomousInteractionSettings
             .DefaultMaximumConsecutiveQuestionTurns;
+        UseGlobalReplyMessageCount = true;
+        MinimumReplyMessageCount = AutonomousInteractionSettings
+            .DefaultMinimumReplyMessageCount;
+        MaximumReplyMessageCount = AutonomousInteractionSettings
+            .DefaultMaximumReplyMessageCount;
     }
 
     /// <summary>
@@ -86,7 +94,10 @@ public class AiAccountAutonomySettings
         long minimumConsecutiveMessageDelayMilliseconds,
         long maximumConsecutiveMessageDelayMilliseconds,
         bool useGlobalQuestionPolicy,
-        int maximumConsecutiveQuestionTurns)
+        int maximumConsecutiveQuestionTurns,
+        bool useGlobalReplyMessageCount,
+        int minimumReplyMessageCount,
+        int maximumReplyMessageCount)
     {
         IsEnabled = isEnabled;
         InitiativeLevel = initiativeLevel;
@@ -108,5 +119,8 @@ public class AiAccountAutonomySettings
             maximumConsecutiveMessageDelayMilliseconds;
         UseGlobalQuestionPolicy = useGlobalQuestionPolicy;
         MaximumConsecutiveQuestionTurns = maximumConsecutiveQuestionTurns;
+        UseGlobalReplyMessageCount = useGlobalReplyMessageCount;
+        MinimumReplyMessageCount = minimumReplyMessageCount;
+        MaximumReplyMessageCount = maximumReplyMessageCount;
     }
 }

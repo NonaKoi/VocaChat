@@ -113,6 +113,80 @@ public sealed class AiConversationContextBuilderTests
     }
 
     [Fact]
+    public void Build_DistinguishesReplyTargetAiFromOtherGroupMembers()
+    {
+        AiAccount speaker = CreateAccount("当前好友");
+        AiAccount target = CreateAccount("回应对象");
+        AiAccount thirdParty = CreateAccount("第三方好友");
+        AiDialogueMessage targetMessage = new(
+            target.Nickname,
+            "我昨天去看了海边",
+            MessageSenderType.AiAccount,
+            target.Id,
+            Guid.NewGuid());
+        AiDialogueMessage thirdPartyMessage = new(
+            thirdParty.Nickname,
+            "我最近在学陶艺",
+            MessageSenderType.AiAccount,
+            thirdParty.Id,
+            Guid.NewGuid());
+        AiMessageGenerationRequest request = CreateRequest(
+            speaker,
+            targetMessage,
+            thirdPartyMessage) with
+        {
+            OtherParticipants = new[] { target, thirdParty },
+            RelationshipTarget = target,
+            ReplyTarget = AiDialogueReplyTarget.ReplyTo(targetMessage)
+        };
+
+        AiConversationContext context = new AiConversationContextBuilder()
+            .Build(request, recentMessageLimit: 12);
+
+        Assert.Equal(
+            AiConversationMessageOwnership.ReplyTargetAiAccount,
+            context.ReplyTarget!.Ownership);
+        AiConversationContextMessage thirdPartyContext = Assert.Single(
+            context.Messages);
+        Assert.Equal(
+            AiConversationMessageOwnership.OtherAiAccount,
+            thirdPartyContext.Ownership);
+    }
+
+    [Fact]
+    public void Build_CalculatesGapFromPreviousMessageToReplyTarget()
+    {
+        AiAccount speaker = CreateAccount("当前好友");
+        DateTime targetSentAt = new(2026, 7, 22, 20, 0, 0);
+        AiDialogueMessage oldMessage = new(
+            speaker.Nickname,
+            "前两天聊到咖啡馆老板",
+            MessageSenderType.AiAccount,
+            speaker.Id,
+            Guid.NewGuid(),
+            targetSentAt.AddDays(-2));
+        AiDialogueMessage targetMessage = new(
+            "我",
+            "那个人后来怎么样？",
+            MessageSenderType.User,
+            null,
+            Guid.NewGuid(),
+            targetSentAt);
+        AiMessageGenerationRequest request = CreateRequest(
+            speaker,
+            oldMessage,
+            targetMessage) with
+        {
+            ReplyTarget = AiDialogueReplyTarget.ReplyTo(targetMessage)
+        };
+
+        AiConversationContext context = new AiConversationContextBuilder()
+            .Build(request, recentMessageLimit: 12);
+
+        Assert.Equal(TimeSpan.FromDays(2), context.GapSincePreviousMessage);
+    }
+
+    [Fact]
     public void Build_KeepsOnlyCurrentSpeakerMemoriesAboutCurrentParticipants()
     {
         AiAccount speaker = CreateAccount("当前好友");
@@ -147,6 +221,7 @@ public sealed class AiConversationContextBuilderTests
         AiMessageGenerationRequest request = CreateRequest(speaker) with
         {
             OtherParticipants = new[] { other },
+            RelationshipTarget = other,
             RelevantMemories = candidates
         };
 

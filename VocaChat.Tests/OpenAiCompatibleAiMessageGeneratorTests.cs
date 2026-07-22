@@ -46,6 +46,20 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
     }
 
     [Fact]
+    public async Task GenerateMessagesAsync_WithFourMessages_PreservesAllBubbles()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"one\",\"two\",\"three\",\"four\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+
+        IReadOnlyList<string> messages = await generator.GenerateMessagesAsync(
+            CreateRequest(expectedMessageCount: 4));
+
+        Assert.Equal(new[] { "one", "two", "three", "four" }, messages);
+    }
+
+    [Fact]
     public async Task GenerateMessagesAsync_WithWrongMessageCount_RejectsOutput()
     {
         RecordingHandler handler = new(CreateResponse(
@@ -408,6 +422,7 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
         AiMessageGenerationRequest request = baseRequest with
         {
             OtherParticipants = new[] { other },
+            RelationshipTarget = other,
             RelevantMemories = new[]
             {
                 new AiConversationMemory(
@@ -459,6 +474,7 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
         AiMessageGenerationRequest request = baseRequest with
         {
             OtherParticipants = new[] { other },
+            RelationshipTarget = other,
             RelevantMemories = new[]
             {
                 new AiConversationMemory(
@@ -589,6 +605,47 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
     }
 
     [Fact]
+    public async Task GenerateMessagesAsync_LabelsAiReplyTargetWithoutOwnershipFailure()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"这个方向可以\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiAccount other = new(
+            "7654321",
+            "小岚",
+            string.Empty,
+            string.Empty,
+            string.Empty);
+        AiDialogueMessage targetMessage = new(
+            other.Nickname,
+            "改成室内拍摄会稳一点",
+            MessageSenderType.AiAccount,
+            other.Id,
+            Guid.NewGuid());
+        AiMessageGenerationRequest request = CreateRequest(1) with
+        {
+            OtherParticipants = new[] { other },
+            RelationshipTarget = other,
+            FocusContent = targetMessage.Content,
+            ReplyTarget = AiDialogueReplyTarget.ReplyTo(targetMessage),
+            RecentMessages = new[] { targetMessage }
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(new[] { "这个方向可以" }, messages);
+        using JsonDocument requestBody = JsonDocument.Parse(
+            handler.RequestBody!);
+        string userPrompt = requestBody.RootElement
+            .GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("本轮具体回应对象“小岚”说过", userPrompt);
+    }
+
+    [Fact]
     public async Task GenerateMessagesAsync_WhenSpeakerBorrowsAnotherExperience_Retries()
     {
         RecordingHandler handler = new(
@@ -638,6 +695,75 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
 
         Assert.Equal(new[] { "听着还挺安静的" }, messages);
         Assert.Equal(2, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_WhenThirdPartyTraitMovesToSpeaker_Retries()
+    {
+        RecordingHandler handler = new(
+            CreateResponse(
+                HttpStatusCode.OK,
+                "{\"messages\":[\"冷幽默这东西，我基本只对熟人露出来\"]}"),
+            CreateResponse(
+                HttpStatusCode.OK,
+                "{\"messages\":[\"那个咖啡馆老板可能是熟了才会露出来吧\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(
+            handler,
+            outputValidationRetryCount: 1);
+        AiMessageGenerationRequest baseRequest = CreateRequest(1);
+        DateTime targetSentAt = new(2026, 7, 22, 20, 0, 0);
+        AiDialogueMessage oldMessage = new(
+            baseRequest.Speaker.Nickname,
+            "那个咖啡馆老板偶尔会冒出一些冷幽默",
+            MessageSenderType.AiAccount,
+            baseRequest.Speaker.Id,
+            Guid.NewGuid(),
+            targetSentAt.AddDays(-2));
+        AiDialogueMessage target = new(
+            "我",
+            "他是熟了才会这样，还是对谁都这样？",
+            MessageSenderType.User,
+            null,
+            Guid.NewGuid(),
+            targetSentAt);
+        ConversationReferencePlan referencePlan = new(
+            ConversationReferenceStatus.Resolved,
+            "他指此前谈到的咖啡馆老板",
+            new[] { "冷幽默是咖啡馆老板的特点，不属于当前发言者" });
+        ConversationDirectionPlan directionPlan = new(
+            baseRequest.ActionPlan!,
+            ConversationBeat.Clarify,
+            "咖啡馆老板的冷幽默",
+            "回应老板对熟人和陌生人的表现差别",
+            target.MessageId,
+            Array.Empty<string>(),
+            new[] { "回答老板是否对谁都这样" },
+            "说明这是对第三方特点的推测",
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            usedRuleFallback: false,
+            selectedMessageCount: 1,
+            referencePlan: referencePlan);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            FocusContent = target.Content,
+            ReplyTarget = AiDialogueReplyTarget.ReplyTo(target),
+            RecentMessages = new[] { oldMessage, target },
+            DirectionPlan = directionPlan
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(
+            new[] { "那个咖啡馆老板可能是熟了才会露出来吧" },
+            messages);
+        Assert.Equal(2, handler.CallCount);
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string retryPrompt = body.RootElement.GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("改变了已解析指代的事实归属", retryPrompt);
     }
 
     [Fact]
@@ -691,6 +817,143 @@ public sealed class OpenAiCompatibleAiMessageGeneratorTests
 
         Assert.Equal(new[] { "雨天人少的话确实挺安静" }, messages);
         Assert.Equal(2, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_AutonomousGroupTopicSupportsSharedFuturePlan()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"我计划明天改到室内拍摄\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest request = CreateRequest(1) with
+        {
+            Scenario = AiMessageGenerationScenario.AutonomousGroupChat,
+            Topic = "明天降温，把户外拍摄改到室内",
+            FocusContent = "明天降温，把户外拍摄改到室内"
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(new[] { "我计划明天改到室内拍摄" }, messages);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_WithGroupPlan_KeepsFactBoundaryAbovePlanDetails()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"我会从材质角度补充。\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest request = CreateRequest(1) with
+        {
+            Scenario = AiMessageGenerationScenario.GroupPrimaryReply,
+            GroupConversationPlan = new GroupConversationSpeakerPlan
+            {
+                SpeakerAiAccountId = Guid.NewGuid(),
+                Audience = GroupConversationAudience.LocalUser,
+                Role = GroupConversationRole.Complement,
+                ResponseGoal = "补充不同观察角度",
+                NewContribution = "用没有资料依据的具体藏品举例"
+            }
+        };
+
+        await generator.GenerateMessagesAsync(request);
+
+        using JsonDocument requestBody = JsonDocument.Parse(
+            handler.RequestBody!);
+        string systemPrompt = requestBody.RootElement
+            .GetProperty("messages")[0]
+            .GetProperty("content")
+            .GetString()!;
+        string userPrompt = requestBody.RootElement
+            .GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("不是新的事实来源", systemPrompt);
+        Assert.Contains("事实边界始终优先", systemPrompt);
+        Assert.Contains("群聊分工不是新的事实来源", userPrompt);
+        Assert.Contains("必须省略或抽象化", userPrompt);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_CurrentTopicObservationIsNotPersonalHistory()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"最近降温，改成室内拍摄更合适\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(CreateRequest(1));
+
+        Assert.Equal(new[] { "最近降温，改成室内拍摄更合适" }, messages);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_WhenAutonomousOpeningDrifts_RetriesOnTopic()
+    {
+        RecordingHandler handler = new(
+            CreateResponse(
+                HttpStatusCode.OK,
+                "{\"messages\":[\"周末去咖啡馆看看吧\"]}"),
+            CreateResponse(
+                HttpStatusCode.OK,
+                "{\"messages\":[\"降温的话，改成室内拍摄更稳\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(
+            handler,
+            outputValidationRetryCount: 1);
+        AiMessageGenerationRequest request = CreateRequest(1) with
+        {
+            Scenario = AiMessageGenerationScenario.AutonomousGroupChat,
+            Topic = "降温后把户外拍摄改到室内",
+            FocusContent = "降温后把户外拍摄改到室内",
+            ReplyTarget = AiDialogueReplyTarget.OpenTopic(),
+            GroupConversationPlan = new GroupConversationSpeakerPlan
+            {
+                SpeakerAiAccountId = Guid.NewGuid(),
+                Audience = GroupConversationAudience.WholeGroup,
+                Role = GroupConversationRole.ShiftTopic,
+                ResponseGoal = "自然讨论拍摄地点",
+                NewContribution = "提出改到室内拍摄"
+            }
+        };
+
+        IReadOnlyList<string> messages = await generator
+            .GenerateMessagesAsync(request);
+
+        Assert.Equal(new[] { "降温的话，改成室内拍摄更稳" }, messages);
+        Assert.Equal(2, handler.CallCount);
+        using JsonDocument requestBody = JsonDocument.Parse(
+            handler.RequestBody!);
+        string retryPrompt = requestBody.RootElement
+            .GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("自主群聊开场硬约束", retryPrompt);
+        Assert.Contains("降温后把户外拍摄改到室内", retryPrompt);
+        Assert.Contains("不得改聊账号兴趣", retryPrompt);
+    }
+
+    [Fact]
+    public async Task GenerateMessagesAsync_UserTopicDoesNotBecomeSpeakerExperience()
+    {
+        RecordingHandler handler = new(CreateResponse(
+            HttpStatusCode.OK,
+            "{\"messages\":[\"我计划明天改到室内拍摄\"]}"));
+        OpenAiCompatibleAiMessageGenerator generator = CreateGenerator(handler);
+        AiMessageGenerationRequest request = CreateRequest(1) with
+        {
+            Scenario = AiMessageGenerationScenario.UserPrivateChat,
+            Topic = "明天降温，把户外拍摄改到室内",
+            FocusContent = "明天降温，把户外拍摄改到室内"
+        };
+
+        await Assert.ThrowsAsync<AiMessageGenerationException>(() =>
+            generator.GenerateMessagesAsync(request));
     }
 
     [Fact]

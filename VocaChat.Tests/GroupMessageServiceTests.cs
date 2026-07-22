@@ -118,6 +118,73 @@ public class GroupMessageServiceTests : IDisposable
     }
 
     [Fact]
+    public void SaveInteractionMessages_AfterServiceRestart_PreservesBatchAndReplyTarget()
+    {
+        TestContext context = CreateContext();
+        Guid interactionBatchId = Guid.NewGuid();
+        Assert.True(context.MessageService.TrySaveUserInteractionMessage(
+            context.GroupChat,
+            "interaction anchor",
+            messageId: null,
+            interactionBatchId,
+            out GroupMessage? userMessage,
+            out string userError), userError);
+        GroupMessage storedUserMessage = Assert.IsType<GroupMessage>(userMessage);
+        Assert.True(context.MessageService.TrySaveAiInteractionReply(
+            context.GroupChat,
+            context.JoinedAccount,
+            "interaction reply",
+            interactionBatchId,
+            storedUserMessage.Id,
+            out GroupMessage? aiMessage,
+            out string aiError), aiError);
+
+        IReadOnlyList<GroupMessage> messages = CreateMessageService()
+            .GetInteractionMessages(context.GroupChat, interactionBatchId);
+
+        Assert.Equal(2, messages.Count);
+        Assert.All(messages, message =>
+            Assert.Equal(interactionBatchId, message.InteractionBatchId));
+        Assert.Null(messages[0].ReplyToMessageId);
+        Assert.Equal(messages[0].Id, messages[1].ReplyToMessageId);
+        Assert.Equal(aiMessage!.Id, messages[1].Id);
+    }
+
+    [Fact]
+    public void TrySaveAiInteractionReply_WithTargetFromAnotherGroup_Fails()
+    {
+        TestContext context = CreateContext();
+        GroupChat secondGroupChat = CreateGroupChat(
+            context.GroupChatService,
+            "Second Team",
+            context.JoinedAccount.Id);
+        Guid interactionBatchId = Guid.NewGuid();
+        Assert.True(context.MessageService.TrySaveUserInteractionMessage(
+            context.GroupChat,
+            "first group anchor",
+            messageId: null,
+            interactionBatchId,
+            out GroupMessage? userMessage,
+            out string userError), userError);
+
+        bool succeeded = context.MessageService.TrySaveAiInteractionReply(
+            secondGroupChat,
+            context.JoinedAccount,
+            "cross group reply",
+            interactionBatchId,
+            Assert.IsType<GroupMessage>(userMessage).Id,
+            out GroupMessage? aiMessage,
+            out string errorMessage);
+
+        Assert.False(succeeded);
+        Assert.Null(aiMessage);
+        Assert.Equal(
+            "回复目标消息不属于当前群聊或已经不存在。",
+            errorMessage);
+        Assert.Empty(context.MessageService.GetOrderedChatHistory(secondGroupChat));
+    }
+
+    [Fact]
     public void TrySaveAiReply_WithUnjoinedAccount_FailsWithoutSavingMessage()
     {
         TestContext context = CreateContext();

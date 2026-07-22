@@ -54,7 +54,8 @@ internal static class AiConversationScenarioPrompt
             {
                 $"当前频道是只有 AI 好友参与的群聊，实际参与者为{BuildAiParticipantList(request)}。",
                 "本地用户不在当前群聊中，不得把用户说成正在发言或旁听。",
-                "只回应当前群聊中的真实消息，不得虚构未列出的成员、发言或共同经历。"
+                "只回应当前群聊中的真实消息，不得虚构未列出的成员、发言或共同经历。",
+                "预设话题是本次群聊共同讨论的情境，可以据此表达当下形成的看法、偏好或提议；除非账号资料或本人记忆明确支持，不得把它扩写成自己此前已经做过、正在做或早已安排好的个人经历。"
             },
             _ => throw new ArgumentOutOfRangeException(nameof(request.Scenario))
         };

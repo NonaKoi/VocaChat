@@ -574,6 +574,7 @@ public sealed class AutonomousPrivateChatExecutionService
                 : AiMessageGenerationScenario.AutonomousPrivateChat,
             Speaker = speaker,
             OtherParticipants = new[] { otherParticipant },
+            RelationshipTarget = otherParticipant,
             Topic = topic,
             FocusContent = replyTarget.Message?.Content ?? topic,
             ReplyTarget = replyTarget,

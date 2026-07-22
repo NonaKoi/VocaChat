@@ -38,6 +38,12 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
             tableBuilder.HasCheckConstraint(
                 "CK_GroupMessages_SequenceNumber_Positive",
                 "\"SequenceNumber\" > 0");
+            tableBuilder.HasCheckConstraint(
+                "CK_GroupMessages_ReplyTarget_NotSelf",
+                "\"ReplyToMessageId\" IS NULL OR \"ReplyToMessageId\" <> \"Id\"");
+            tableBuilder.HasCheckConstraint(
+                "CK_GroupMessages_ReplyTarget_RequiresBatch",
+                "\"ReplyToMessageId\" IS NULL OR \"InteractionBatchId\" IS NOT NULL");
         });
 
         builder.HasKey(message => message.Id);
@@ -85,6 +91,11 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
             .HasForeignKey(message => message.AutonomousGroupChatRoundId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<GroupMessage>()
+            .WithMany()
+            .HasForeignKey(message => message.ReplyToMessageId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(message => new
         {
             message.GroupChatId,
@@ -97,5 +108,11 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
         });
         builder.HasIndex(message => message.AutonomousGroupChatSessionId);
         builder.HasIndex(message => message.AutonomousGroupChatRoundId);
+        builder.HasIndex(message => new
+        {
+            message.GroupChatId,
+            message.InteractionBatchId
+        });
+        builder.HasIndex(message => message.ReplyToMessageId);
     }
 }

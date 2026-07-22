@@ -33,6 +33,11 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(400, defaults.MinimumConsecutiveMessageDelayMilliseconds);
         Assert.Equal(1200, defaults.MaximumConsecutiveMessageDelayMilliseconds);
         Assert.Equal(2, defaults.MaximumConsecutiveQuestionTurns);
+        Assert.Equal(1, defaults.MinimumReplyMessageCount);
+        Assert.Equal(4, defaults.MaximumReplyMessageCount);
+        Assert.Equal(2, defaults.GroupChatMaximumSpeakersPerTurn);
+        Assert.Equal(3, defaults.GroupChatWholeGroupMaximumSpeakersPerTurn);
+        Assert.Equal(6, defaults.GroupChatMaximumMessagesPerTurn);
 
         using HttpResponseMessage updateResponse = await client.PutAsJsonAsync(
             "/api/settings/autonomous-interactions",
@@ -55,7 +60,12 @@ public sealed class AutonomousInteractionSettingsApiTests
                 FixedConsecutiveMessageDelayMilliseconds = 3456,
                 MinimumConsecutiveMessageDelayMilliseconds = 0,
                 MaximumConsecutiveMessageDelayMilliseconds = 0,
-                MaximumConsecutiveQuestionTurns = 4
+                MaximumConsecutiveQuestionTurns = 4,
+                MinimumReplyMessageCount = 2,
+                MaximumReplyMessageCount = 4,
+                GroupChatMaximumSpeakersPerTurn = 3,
+                GroupChatWholeGroupMaximumSpeakersPerTurn = 5,
+                GroupChatMaximumMessagesPerTurn = 8
             });
         AutonomousInteractionSettingsResponse saved =
             (await updateResponse.Content.ReadFromJsonAsync<
@@ -76,6 +86,11 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal("Fixed", saved.ConsecutiveMessageDelayMode);
         Assert.Equal(3456, saved.FixedConsecutiveMessageDelayMilliseconds);
         Assert.Equal(4, saved.MaximumConsecutiveQuestionTurns);
+        Assert.Equal(2, saved.MinimumReplyMessageCount);
+        Assert.Equal(4, saved.MaximumReplyMessageCount);
+        Assert.Equal(3, saved.GroupChatMaximumSpeakersPerTurn);
+        Assert.Equal(5, saved.GroupChatWholeGroupMaximumSpeakersPerTurn);
+        Assert.Equal(8, saved.GroupChatMaximumMessagesPerTurn);
 
         AutonomousInteractionSettingsResponse reloaded =
             (await client.GetFromJsonAsync<AutonomousInteractionSettingsResponse>(
@@ -110,6 +125,46 @@ public sealed class AutonomousInteractionSettingsApiTests
         Assert.Equal(
             saved.MaximumConsecutiveQuestionTurns,
             reloaded.MaximumConsecutiveQuestionTurns);
+        Assert.Equal(
+            saved.MinimumReplyMessageCount,
+            reloaded.MinimumReplyMessageCount);
+        Assert.Equal(
+            saved.MaximumReplyMessageCount,
+            reloaded.MaximumReplyMessageCount);
+        Assert.Equal(
+            saved.GroupChatMaximumSpeakersPerTurn,
+            reloaded.GroupChatMaximumSpeakersPerTurn);
+        Assert.Equal(
+            saved.GroupChatWholeGroupMaximumSpeakersPerTurn,
+            reloaded.GroupChatWholeGroupMaximumSpeakersPerTurn);
+        Assert.Equal(
+            saved.GroupChatMaximumMessagesPerTurn,
+            reloaded.GroupChatMaximumMessagesPerTurn);
+    }
+
+    [Fact]
+    public async Task Update_WithSpeakerLimitAboveMessageLimit_ReturnsBadRequest()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+
+        using HttpResponseMessage response = await client.PutAsJsonAsync(
+            "/api/settings/autonomous-interactions",
+            new UpdateAutonomousInteractionSettingsRequest
+            {
+                IsEnabled = true,
+                Frequency = "Normal",
+                AllowPrivateChats = true,
+                AllowGroupChats = true,
+                PrivateChatContinuationRatePercent = 80,
+                PrivateChatMaximumRounds = 6,
+                AutonomousGroupChatMaximumMembers = 6,
+                GroupChatMaximumSpeakersPerTurn = 4,
+                GroupChatWholeGroupMaximumSpeakersPerTurn = 3,
+                GroupChatMaximumMessagesPerTurn = 3
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CircleGauge, MessageCircleMore, Save, TimerReset, Users, UsersRound } from 'lucide-react'
+import { CircleGauge, MessageCircleMore, Save, Server, TimerReset, Users, UsersRound } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type {
   AutonomousInteractionSettingsResponse,
+  AiModelConnectionSettingsResponse,
+  UpdateAiModelConnectionSettingsRequest,
   UpdateAutonomousInteractionSettingsRequest,
 } from '@/api/types'
+import { AiModelConnectionFields } from '@/components/settings/AiModelConnectionFields'
+import { isAiModelConnectionValid } from '@/components/settings/aiModelConnectionForm'
 import { ErrorState } from '@/components/feedback/ErrorState'
 import { SettingsLevelSelector } from '@/components/settings/SettingsLevelSelector'
 import { ReplyTimingFields } from '@/components/settings/ReplyTimingFields'
+import {
+  ReplyMessageCountFields,
+} from '@/components/settings/ReplyMessageCountFields'
+import { isReplyMessageCountRangeValid } from '@/components/settings/replyMessageCount'
 import {
   formatReplyTiming,
   isReplyTimingValid,
@@ -17,6 +25,7 @@ import { SettingsToggle } from '@/components/settings/SettingsToggle'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAutonomousInteractionSettings } from '@/hooks/useAutonomousInteractionSettings'
+import { useAiModelConnectionSettings } from '@/hooks/useAiModelConnectionSettings'
 import { cn } from '@/lib/utils'
 
 interface GlobalAutonomySettingsPanelProps {
@@ -27,12 +36,20 @@ export function GlobalAutonomySettingsPanel({
   onDirtyChange,
 }: GlobalAutonomySettingsPanelProps) {
   const settings = useAutonomousInteractionSettings()
+  const modelSettings = useAiModelConnectionSettings()
   const [draft, setDraft] = useState<UpdateAutonomousInteractionSettingsRequest>()
+  const [modelDraft, setModelDraft] = useState<UpdateAiModelConnectionSettingsRequest>()
   const [didSave, setDidSave] = useState(false)
 
   useEffect(() => {
     if (settings.data) setDraft(settings.data)
   }, [settings.data])
+
+  useEffect(() => {
+    if (modelSettings.data) {
+      setModelDraft(toModelUpdateRequest(modelSettings.data))
+    }
+  }, [modelSettings.data])
 
   const hasChanges = useMemo(
     () => Boolean(
@@ -42,6 +59,15 @@ export function GlobalAutonomySettingsPanel({
     ),
     [draft, settings.data],
   )
+  const modelHasChanges = useMemo(
+    () => Boolean(
+      modelDraft
+      && modelSettings.data
+      && !areModelSettingsEqual(modelDraft, modelSettings.data),
+    ),
+    [modelDraft, modelSettings.data],
+  )
+  const anyChanges = hasChanges || modelHasChanges
   const settingsAreValid = Boolean(
     draft
     && Number.isInteger(draft.privateChatContinuationRatePercent)
@@ -58,6 +84,17 @@ export function GlobalAutonomySettingsPanel({
     && Number.isInteger(draft.groupChatMaximumRounds)
     && draft.groupChatMaximumRounds >= 1
     && draft.groupChatMaximumRounds <= 12
+    && Number.isInteger(draft.groupChatMaximumSpeakersPerTurn)
+    && draft.groupChatMaximumSpeakersPerTurn >= 1
+    && draft.groupChatMaximumSpeakersPerTurn <= 12
+    && Number.isInteger(draft.groupChatWholeGroupMaximumSpeakersPerTurn)
+    && draft.groupChatWholeGroupMaximumSpeakersPerTurn >= 1
+    && draft.groupChatWholeGroupMaximumSpeakersPerTurn <= 12
+    && Number.isInteger(draft.groupChatMaximumMessagesPerTurn)
+    && draft.groupChatMaximumMessagesPerTurn >= 1
+    && draft.groupChatMaximumMessagesPerTurn <= 12
+    && draft.groupChatMaximumSpeakersPerTurn <= draft.groupChatMaximumMessagesPerTurn
+    && draft.groupChatWholeGroupMaximumSpeakersPerTurn <= draft.groupChatMaximumMessagesPerTurn
     && isReplyTimingValid(draft)
     && isReplyTimingValid({
       fixedReplyDelayMilliseconds: draft.fixedConsecutiveMessageDelayMilliseconds,
@@ -65,12 +102,18 @@ export function GlobalAutonomySettingsPanel({
       maximumReplyDelayMilliseconds: draft.maximumConsecutiveMessageDelayMilliseconds,
     })
     && Number.isInteger(draft.maximumConsecutiveQuestionTurns)
-    && draft.maximumConsecutiveQuestionTurns >= 1,
+    && draft.maximumConsecutiveQuestionTurns >= 1
+    && isReplyMessageCountRangeValid(
+      draft.minimumReplyMessageCount,
+      draft.maximumReplyMessageCount,
+    )
+    && modelDraft
+    && isAiModelConnectionValid(modelDraft),
   )
 
   useEffect(() => {
-    onDirtyChange(hasChanges)
-  }, [hasChanges, onDirtyChange])
+    onDirtyChange(anyChanges)
+  }, [anyChanges, onDirtyChange])
 
   function updateDraft(
     values: Partial<UpdateAutonomousInteractionSettingsRequest>,
@@ -79,26 +122,50 @@ export function GlobalAutonomySettingsPanel({
     setDraft((current) => current ? { ...current, ...values } : current)
   }
 
-  async function saveChanges() {
-    if (!draft) return
-    const saved = await settings.save(draft)
-    if (saved) {
-      setDraft(saved)
-      setDidSave(true)
-    }
+  function updateModelDraft(
+    values: Partial<UpdateAiModelConnectionSettingsRequest>,
+  ) {
+    setDidSave(false)
+    setModelDraft((current) => current ? { ...current, ...values } : current)
   }
 
-  if (settings.status === 'loading') return <SettingsLoadingState />
+  async function saveChanges() {
+    if (!draft || !modelDraft) return
 
-  if (settings.status === 'error') {
+    if (modelHasChanges) {
+      const savedModelSettings = await modelSettings.save(modelDraft)
+      if (!savedModelSettings) return
+      setModelDraft(toModelUpdateRequest(savedModelSettings))
+    }
+
+    if (hasChanges) {
+      const savedSettings = await settings.save(draft)
+      if (!savedSettings) return
+      setDraft(savedSettings)
+    }
+
+    setDidSave(true)
+  }
+
+  if (settings.status === 'loading' || modelSettings.status === 'loading') {
+    return <SettingsLoadingState />
+  }
+
+  if (settings.status === 'error' || modelSettings.status === 'error') {
     return (
       <div className="max-w-xl">
-        <ErrorState message={settings.errorMessage} onRetry={settings.reload} />
+        <ErrorState
+          message={settings.errorMessage ?? modelSettings.errorMessage}
+          onRetry={() => void Promise.all([
+            settings.reload(),
+            modelSettings.reload(),
+          ])}
+        />
       </div>
     )
   }
 
-  if (!draft) return null
+  if (!draft || !modelDraft) return null
 
   return (
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_250px]">
@@ -119,6 +186,13 @@ export function GlobalAutonomySettingsPanel({
         </div>
 
         <div className="divide-y divide-border">
+          <AiModelConnectionFields
+            idPrefix="global-ai-model"
+            draft={modelDraft}
+            hasApiKey={modelSettings.data?.hasApiKey ?? false}
+            onChange={updateModelDraft}
+          />
+
           <SettingsToggle
             id="autonomous-interactions-enabled"
             label="允许好友自主互动"
@@ -161,6 +235,57 @@ export function GlobalAutonomySettingsPanel({
             onFixedDelayChange={(fixedConsecutiveMessageDelayMilliseconds) => updateDraft({ fixedConsecutiveMessageDelayMilliseconds })}
             onMinimumDelayChange={(minimumConsecutiveMessageDelayMilliseconds) => updateDraft({ minimumConsecutiveMessageDelayMilliseconds })}
             onMaximumDelayChange={(maximumConsecutiveMessageDelayMilliseconds) => updateDraft({ maximumConsecutiveMessageDelayMilliseconds })}
+          />
+
+          <ReplyMessageCountFields
+            idPrefix="global-reply-message-count"
+            minimum={draft.minimumReplyMessageCount}
+            maximum={draft.maximumReplyMessageCount}
+            onMinimumChange={(minimumReplyMessageCount) => updateDraft({ minimumReplyMessageCount })}
+            onMaximumChange={(maximumReplyMessageCount) => updateDraft({ maximumReplyMessageCount })}
+          />
+
+          <SettingsNumberField
+            id="group-chat-maximum-speakers-per-turn"
+            label="普通群消息最多回复好友"
+            description="用户发送普通群消息时，单轮最多安排多少位好友参与回复。"
+            value={draft.groupChatMaximumSpeakersPerTurn}
+            min={1}
+            max={12}
+            suffix="人"
+            disabled={false}
+            onValueChange={(groupChatMaximumSpeakersPerTurn) => updateDraft({ groupChatMaximumSpeakersPerTurn })}
+          />
+
+          <SettingsNumberField
+            id="group-chat-whole-group-maximum-speakers-per-turn"
+            label="面向全群最多发言好友"
+            description="消息面向大家、点名多位好友或好友自主群聊时，单轮最多安排多少位好友发言。"
+            value={draft.groupChatWholeGroupMaximumSpeakersPerTurn}
+            min={1}
+            max={12}
+            suffix="人"
+            disabled={false}
+            onValueChange={(groupChatWholeGroupMaximumSpeakersPerTurn) => updateDraft({ groupChatWholeGroupMaximumSpeakersPerTurn })}
+          />
+
+          <SettingsNumberField
+            id="group-chat-maximum-messages-per-turn"
+            label="单轮 AI 消息总量"
+            description="同一轮所有好友合计最多发送的消息数；该值不能小于上面的任一发言人数。"
+            value={draft.groupChatMaximumMessagesPerTurn}
+            min={1}
+            max={12}
+            suffix="条"
+            disabled={false}
+            errorMessage={draft.groupChatMaximumMessagesPerTurn
+                < Math.max(
+                  draft.groupChatMaximumSpeakersPerTurn,
+                  draft.groupChatWholeGroupMaximumSpeakersPerTurn,
+                )
+              ? '单轮 AI 消息总量不能小于上面的任一发言人数。'
+              : undefined}
+            onValueChange={(groupChatMaximumMessagesPerTurn) => updateDraft({ groupChatMaximumMessagesPerTurn })}
           />
 
           <SettingsNumberField
@@ -253,11 +378,11 @@ export function GlobalAutonomySettingsPanel({
         </div>
 
         <SettingsSaveBar
-          hasChanges={hasChanges}
+          hasChanges={anyChanges}
           canSave={settingsAreValid}
           didSave={didSave}
-          isSaving={settings.isSaving}
-          errorMessage={settings.saveErrorMessage}
+          isSaving={settings.isSaving || modelSettings.isSaving}
+          errorMessage={settings.saveErrorMessage ?? modelSettings.saveErrorMessage}
           onSave={() => void saveChanges()}
         />
       </section>
@@ -270,6 +395,11 @@ export function GlobalAutonomySettingsPanel({
           <h3 className="text-base font-semibold text-foreground">当前状态</h3>
         </div>
         <dl className="divide-y divide-border px-5">
+          <StatusRow
+            icon={Server}
+            label="AI 模型"
+            value={modelDraft.model || '未配置'}
+          />
           <StatusRow
             icon={CircleGauge}
             label="自主互动"
@@ -315,6 +445,11 @@ export function GlobalAutonomySettingsPanel({
             icon={Users}
             label="单次好友群聊"
             value={`3–${draft.autonomousGroupChatMaximumMembers} 人 · ${draft.groupChatContinuationRatePercent}% · 最多 ${draft.groupChatMaximumRounds} 轮`}
+          />
+          <StatusRow
+            icon={MessageCircleMore}
+            label="群聊单轮密度"
+            value={`普通 ${draft.groupChatMaximumSpeakersPerTurn} 人 · 全群 ${draft.groupChatWholeGroupMaximumSpeakersPerTurn} 人 · ${draft.groupChatMaximumMessagesPerTurn} 条`}
           />
         </dl>
         <p className="m-4 rounded-lg bg-primary-soft p-3 text-xs leading-5 text-primary">
@@ -368,6 +503,7 @@ export function SettingsNumberField({
   max,
   suffix,
   disabled,
+  errorMessage,
   onValueChange,
 }: {
   id: string
@@ -378,11 +514,13 @@ export function SettingsNumberField({
   max?: number
   suffix: string
   disabled: boolean
+  errorMessage?: string
   onValueChange: (value: number) => void
 }) {
-  const isInvalid = !Number.isInteger(value)
+  const hasInvalidNumber = !Number.isInteger(value)
     || value < min
     || (max !== undefined && value > max)
+  const isInvalid = hasInvalidNumber || Boolean(errorMessage)
   const descriptionId = `${id}-description`
   const errorId = `${id}-error`
 
@@ -397,9 +535,9 @@ export function SettingsNumberField({
         </p>
         {isInvalid && (
           <p id={errorId} className="mt-1 text-xs text-destructive" role="alert">
-            {max === undefined
+            {errorMessage ?? (max === undefined
               ? `请输入不小于 ${min} 的整数。`
-              : `请输入 ${min} 到 ${max} 之间的整数。`}
+              : `请输入 ${min} 到 ${max} 之间的整数。`)}
           </p>
         )}
       </div>
@@ -495,6 +633,32 @@ function areSettingsEqual(
     && first.minimumConsecutiveMessageDelayMilliseconds === second.minimumConsecutiveMessageDelayMilliseconds
     && first.maximumConsecutiveMessageDelayMilliseconds === second.maximumConsecutiveMessageDelayMilliseconds
     && first.maximumConsecutiveQuestionTurns === second.maximumConsecutiveQuestionTurns
+    && first.minimumReplyMessageCount === second.minimumReplyMessageCount
+    && first.maximumReplyMessageCount === second.maximumReplyMessageCount
+    && first.groupChatMaximumSpeakersPerTurn === second.groupChatMaximumSpeakersPerTurn
+    && first.groupChatWholeGroupMaximumSpeakersPerTurn === second.groupChatWholeGroupMaximumSpeakersPerTurn
+    && first.groupChatMaximumMessagesPerTurn === second.groupChatMaximumMessagesPerTurn
+}
+
+function areModelSettingsEqual(
+  first: UpdateAiModelConnectionSettingsRequest,
+  second: AiModelConnectionSettingsResponse,
+) {
+  return first.baseUrl === second.baseUrl
+    && first.model === second.model
+    && first.apiKey.length === 0
+    && !first.clearApiKey
+}
+
+function toModelUpdateRequest(
+  settings: AiModelConnectionSettingsResponse,
+): UpdateAiModelConnectionSettingsRequest {
+  return {
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    apiKey: '',
+    clearApiKey: false,
+  }
 }
 
 function getScopeLabel(settings: UpdateAutonomousInteractionSettingsRequest) {

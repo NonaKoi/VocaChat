@@ -73,6 +73,9 @@ public class AiAccountAutonomySettingsService
             AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
             useGlobalQuestionPolicy: true,
             AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            useGlobalReplyMessageCount: true,
+            AutonomousInteractionSettings.DefaultMinimumReplyMessageCount,
+            AutonomousInteractionSettings.DefaultMaximumReplyMessageCount,
             out settings,
             out _);
     }
@@ -114,6 +117,9 @@ public class AiAccountAutonomySettingsService
             AutonomousInteractionSettings.DefaultMaximumConsecutiveMessageDelayMilliseconds,
             useGlobalQuestionPolicy: true,
             AutonomousInteractionSettings.DefaultMaximumConsecutiveQuestionTurns,
+            useGlobalReplyMessageCount: true,
+            AutonomousInteractionSettings.DefaultMinimumReplyMessageCount,
+            AutonomousInteractionSettings.DefaultMaximumReplyMessageCount,
             out settings,
             out errorMessage);
     }
@@ -137,6 +143,9 @@ public class AiAccountAutonomySettingsService
         long maximumConsecutiveMessageDelayMilliseconds,
         bool useGlobalQuestionPolicy,
         int maximumConsecutiveQuestionTurns,
+        bool useGlobalReplyMessageCount,
+        int minimumReplyMessageCount,
+        int maximumReplyMessageCount,
         out AiAccountAutonomySettings? settings,
         out string errorMessage)
     {
@@ -175,6 +184,15 @@ public class AiAccountAutonomySettingsService
             return false;
         }
 
+        if (!AutonomousInteractionSettingsService
+                .TryValidateReplyMessageCountRange(
+                    minimumReplyMessageCount,
+                    maximumReplyMessageCount,
+                    out errorMessage))
+        {
+            return false;
+        }
+
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
 
         if (!dbContext.AiAccounts.Any(account => account.Id == aiAccountId))
@@ -205,7 +223,10 @@ public class AiAccountAutonomySettingsService
             minimumConsecutiveMessageDelayMilliseconds,
             maximumConsecutiveMessageDelayMilliseconds,
             useGlobalQuestionPolicy,
-            maximumConsecutiveQuestionTurns);
+            maximumConsecutiveQuestionTurns,
+            useGlobalReplyMessageCount,
+            minimumReplyMessageCount,
+            maximumReplyMessageCount);
 
         if (dbContext.Entry(storedSettings).State == EntityState.Detached)
         {

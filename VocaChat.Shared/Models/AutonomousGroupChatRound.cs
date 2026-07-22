@@ -5,6 +5,9 @@ namespace VocaChat.Models;
 /// </summary>
 public class AutonomousGroupChatRound
 {
+    internal const int MaximumPlannedSpeakerCount = 3;
+    internal const int MaximumPlannedMessageCount = 12;
+
     public Guid Id { get; private set; }
     public Guid SessionId { get; private set; }
     public int RoundNumber { get; private set; }
@@ -50,5 +53,24 @@ public class AutonomousGroupChatRound
         }
 
         CompletedAt = completedAt;
+    }
+
+    internal void UpdatePlannedMessageCount(int plannedMessageCount)
+    {
+        if (CompletedAt is not null)
+        {
+            throw new InvalidOperationException(
+                "已经完成的自主好友群聊轮次不能再调整计划消息数。");
+        }
+
+        if (plannedMessageCount < PlannedSpeakerCount
+            || plannedMessageCount > MaximumPlannedMessageCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(plannedMessageCount),
+                $"计划消息数必须在发言者人数与 {MaximumPlannedMessageCount} 之间。");
+        }
+
+        PlannedMessageCount = plannedMessageCount;
     }
 }
