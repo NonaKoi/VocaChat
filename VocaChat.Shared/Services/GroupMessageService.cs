@@ -177,6 +177,7 @@ public class GroupMessageService
             aiSpeaker,
             content,
             interactionBatchId: null,
+            aiResponseBatchId: null,
             replyToMessageId: null,
             out message,
             out errorMessage);
@@ -194,10 +195,41 @@ public class GroupMessageService
         out GroupMessage? message,
         out string errorMessage)
     {
+        return TrySaveAiInteractionReply(
+            groupChat,
+            aiSpeaker,
+            content,
+            interactionBatchId,
+            Guid.NewGuid(),
+            replyToMessageId,
+            out message,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 保存属于一次用户交互和一次模型回复批次的 AI 消息。
+    /// </summary>
+    public bool TrySaveAiInteractionReply(
+        GroupChat groupChat,
+        AiAccount aiSpeaker,
+        string content,
+        Guid interactionBatchId,
+        Guid aiResponseBatchId,
+        Guid replyToMessageId,
+        out GroupMessage? message,
+        out string errorMessage)
+    {
         if (interactionBatchId == Guid.Empty)
         {
             message = null;
             errorMessage = "群聊交互批次标识无效。";
+            return false;
+        }
+
+        if (aiResponseBatchId == Guid.Empty)
+        {
+            message = null;
+            errorMessage = "AI 回复批次标识无效。";
             return false;
         }
 
@@ -213,6 +245,7 @@ public class GroupMessageService
             aiSpeaker,
             content,
             interactionBatchId,
+            aiResponseBatchId,
             replyToMessageId,
             out message,
             out errorMessage);
@@ -223,6 +256,7 @@ public class GroupMessageService
         AiAccount aiSpeaker,
         string content,
         Guid? interactionBatchId,
+        Guid? aiResponseBatchId,
         Guid? replyToMessageId,
         out GroupMessage? message,
         out string errorMessage)
@@ -285,6 +319,7 @@ public class GroupMessageService
             DateTime.Now,
             sequenceNumber: GetNextSequenceNumber(dbContext, groupChat.Id),
             interactionBatchId: interactionBatchId,
+            aiResponseBatchId: aiResponseBatchId,
             replyToMessageId: replyToMessageId);
 
         dbContext.GroupMessages.Add(aiMessage);

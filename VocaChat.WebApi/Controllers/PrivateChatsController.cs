@@ -14,15 +14,18 @@ public sealed class PrivateChatsController : ControllerBase
     private readonly PrivateChatService _privateChatService;
     private readonly PrivateChatInteractionService _interactionService;
     private readonly AiInteractionDiagnosticLogService _diagnosticLogService;
+    private readonly AiModelInvocationUsageService _usageService;
 
     public PrivateChatsController(
         PrivateChatService privateChatService,
         PrivateChatInteractionService interactionService,
-        AiInteractionDiagnosticLogService diagnosticLogService)
+        AiInteractionDiagnosticLogService diagnosticLogService,
+        AiModelInvocationUsageService usageService)
     {
         _privateChatService = privateChatService;
         _interactionService = interactionService;
         _diagnosticLogService = diagnosticLogService;
+        _usageService = usageService;
     }
 
     [HttpGet("{id}")]
@@ -51,11 +54,16 @@ public sealed class PrivateChatsController : ControllerBase
 
         IReadOnlyList<AiAccount> participants =
             _privateChatService.GetAiParticipants(privateChat);
-        return Ok(_privateChatService.GetOrderedChatHistory(id)
+        IReadOnlyList<PrivateMessage> messages =
+            _privateChatService.GetOrderedChatHistory(id);
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usageByMessage =
+            _usageService.GetForPrivateMessages(messages);
+        return Ok(messages
             .Select(message =>
                 PrivateChatResponseMapper.ToMessageResponse(
                     message,
-                    participants))
+                    participants,
+                    FindUsage(usageByMessage, message.Id)))
             .ToList());
     }
 
@@ -84,6 +92,8 @@ public sealed class PrivateChatsController : ControllerBase
                 cancellationToken);
         IReadOnlyList<AiAccount> participants =
             _privateChatService.GetAiParticipants(privateChat);
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usageByMessage =
+            _usageService.GetForPrivateMessages(result.AiReplies);
 
         if (result.Status == PrivateChatInteractionStatus.UserMessageRejected)
         {
@@ -112,7 +122,10 @@ public sealed class PrivateChatsController : ControllerBase
                         .ToMessageResponse(result.UserMessage!, participants),
                     SavedAiReplies = result.AiReplies
                         .Select(reply => PrivateChatResponseMapper
-                            .ToMessageResponse(reply, participants))
+                            .ToMessageResponse(
+                                reply,
+                                participants,
+                                FindUsage(usageByMessage, reply.Id)))
                         .ToList()
                 });
         }
@@ -137,7 +150,8 @@ public sealed class PrivateChatsController : ControllerBase
             AiReplies = result.AiReplies
                 .Select(reply => PrivateChatResponseMapper.ToMessageResponse(
                     reply,
-                    participants))
+                    participants,
+                    FindUsage(usageByMessage, reply.Id)))
                 .ToList(),
             ReplyCompletion = result.Status
                 == PrivateChatInteractionStatus.PartiallySucceeded
@@ -149,4 +163,11 @@ public sealed class PrivateChatsController : ControllerBase
                     : null
         });
     }
+
+    private static AiMessageTokenUsageSummary? FindUsage(
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usages,
+        Guid messageId) =>
+        usages.TryGetValue(messageId, out AiMessageTokenUsageSummary? usage)
+            ? usage
+            : null;
 }

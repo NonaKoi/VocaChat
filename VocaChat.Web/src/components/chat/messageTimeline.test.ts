@@ -48,6 +48,7 @@ function createMessage(
     senderAiAccountId,
     interactionBatchId: 'interaction-1',
     replyToMessageId: senderType === 'User' ? null : 'user-1',
+    tokenUsage: null,
     senderAvatarUrl: null,
     content: `消息 ${id}`,
     sentAt,

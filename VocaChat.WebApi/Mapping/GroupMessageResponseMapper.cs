@@ -1,4 +1,5 @@
 using VocaChat.Models;
+using VocaChat.Services;
 using VocaChat.WebApi.Dtos.GroupMessages;
 
 namespace VocaChat.WebApi.Mapping;
@@ -10,7 +11,8 @@ internal static class GroupMessageResponseMapper
 {
     public static GroupMessageResponse ToResponse(
         GroupMessage message,
-        IReadOnlyList<AiAccount> members)
+        IReadOnlyList<AiAccount> members,
+        AiMessageTokenUsageSummary? tokenUsage = null)
     {
         AiAccount? sender = message.SenderAiAccountId is null
             ? null
@@ -33,6 +35,8 @@ internal static class GroupMessageResponseMapper
             SequenceNumber = message.SequenceNumber,
             InteractionBatchId = message.InteractionBatchId,
             ReplyToMessageId = message.ReplyToMessageId,
+            TokenUsage = AiMessageTokenUsageResponseMapper.ToResponse(
+                tokenUsage),
             SenderAvatarUrl = sender is null
                 ? null
                 : AiAccountMediaUrls.GetAvatarUrl(sender),

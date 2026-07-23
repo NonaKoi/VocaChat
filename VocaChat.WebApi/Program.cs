@@ -34,6 +34,7 @@ public class Program
         builder.Services.AddSingleton(messageGenerationOptions);
         builder.Services.AddSingleton<AiApiKeyProtector>();
         builder.Services.AddScoped<AiModelConnectionSettingsService>();
+        builder.Services.AddScoped<AiModelInvocationUsageService>();
         builder.Services.AddSingleton<AiConversationContextBuilder>();
         builder.Services.AddHttpClient(
             nameof(OpenAiCompatibleChatClient),
@@ -48,7 +49,9 @@ public class Program
                     .CreateClient(nameof(OpenAiCompatibleChatClient)),
                 services.GetRequiredService<AiMessageGenerationOptions>(),
                 services.GetRequiredService<
-                    AiModelConnectionSettingsService>()));
+                    AiModelConnectionSettingsService>(),
+                services.GetRequiredService<
+                    AiModelInvocationUsageService>()));
         builder.Services.AddScoped<
             IAiMessageGenerator,
             OpenAiCompatibleAiMessageGenerator>();

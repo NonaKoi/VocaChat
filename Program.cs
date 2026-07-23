@@ -40,10 +40,13 @@ public class Program
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
+        AiModelInvocationUsageService modelUsageService = new(
+            dbContextFactory);
         OpenAiCompatibleChatClient chatClient = new(
             modelClient,
             messageGenerationOptions,
-            modelConnectionSettingsService);
+            modelConnectionSettingsService,
+            modelUsageService);
         IAiMessageGenerator messageGenerator =
             new OpenAiCompatibleAiMessageGenerator(
                 chatClient,

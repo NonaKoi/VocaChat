@@ -78,6 +78,11 @@ public sealed class PrivateMessageConfiguration
         });
         builder.HasIndex(message => new
         {
+            message.PrivateChatId,
+            message.AiResponseBatchId
+        });
+        builder.HasIndex(message => new
+        {
             message.AutonomousPrivateChatSessionId,
             message.SentAt,
             message.Id

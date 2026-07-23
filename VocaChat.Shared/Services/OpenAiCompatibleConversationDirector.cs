@@ -80,7 +80,12 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                         _options.MaximumCompletionTokens,
                         512),
                     cancellationToken,
-                    aiAccountId: request.Speaker.Id);
+                    aiAccountId: request.Speaker.Id,
+                    invocationContext: request.UsageCorrelation
+                        ?.CreateInvocationContext(
+                            AiModelInvocationStage.ConversationDirector,
+                            attempt + 1,
+                            request.Speaker.Id));
 
                 try
                 {

@@ -123,6 +123,7 @@ public sealed record AiDialogueReplyTarget(
 public sealed record AiMessageGenerationRequest
 {
     public required AiMessageGenerationScenario Scenario { get; init; }
+    public AiModelUsageCorrelation? UsageCorrelation { get; init; }
     public required AiAccount Speaker { get; init; }
     public IReadOnlyList<AiAccount> OtherParticipants { get; init; } =
         Array.Empty<AiAccount>();

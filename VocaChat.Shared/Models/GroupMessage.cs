@@ -18,6 +18,7 @@ public class GroupMessage
     public Guid? AutonomousGroupChatSessionId { get; private set; }
     public Guid? AutonomousGroupChatRoundId { get; private set; }
     public Guid? InteractionBatchId { get; private set; }
+    public Guid? AiResponseBatchId { get; private set; }
     public Guid? ReplyToMessageId { get; private set; }
     public long SequenceNumber { get; private set; }
     public string Content { get; private set; }
@@ -66,6 +67,7 @@ public class GroupMessage
         Guid? messageId = null,
         long sequenceNumber = 0,
         Guid? interactionBatchId = null,
+        Guid? aiResponseBatchId = null,
         Guid? replyToMessageId = null)
     {
         Id = messageId ?? Guid.NewGuid();
@@ -76,6 +78,7 @@ public class GroupMessage
         AutonomousGroupChatSessionId = autonomousGroupChatSessionId;
         AutonomousGroupChatRoundId = autonomousGroupChatRoundId;
         InteractionBatchId = interactionBatchId;
+        AiResponseBatchId = aiResponseBatchId;
         ReplyToMessageId = replyToMessageId;
         SequenceNumber = sequenceNumber;
         Content = content;

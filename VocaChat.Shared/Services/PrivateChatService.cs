@@ -246,10 +246,55 @@ public sealed class PrivateChatService
         out PrivateMessage? message,
         out string errorMessage)
     {
-        bool saved = TrySaveAiReplies(
+        return TrySaveAiReplyCore(
+            privateChat,
+            aiAccount,
+            content,
+            aiResponseBatchId: null,
+            out message,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 保存一条属于指定模型回复批次的 AI 消息。
+    /// </summary>
+    public bool TrySaveAiResponseMessage(
+        PrivateChat privateChat,
+        AiAccount aiAccount,
+        string content,
+        Guid aiResponseBatchId,
+        out PrivateMessage? message,
+        out string errorMessage)
+    {
+        if (aiResponseBatchId == Guid.Empty)
+        {
+            message = null;
+            errorMessage = "AI 回复批次标识无效。";
+            return false;
+        }
+
+        return TrySaveAiReplyCore(
+            privateChat,
+            aiAccount,
+            content,
+            aiResponseBatchId,
+            out message,
+            out errorMessage);
+    }
+
+    private bool TrySaveAiReplyCore(
+        PrivateChat privateChat,
+        AiAccount aiAccount,
+        string content,
+        Guid? aiResponseBatchId,
+        out PrivateMessage? message,
+        out string errorMessage)
+    {
+        bool saved = TrySaveAiRepliesCore(
             privateChat,
             aiAccount,
             new[] { content },
+            aiResponseBatchId,
             out IReadOnlyList<PrivateMessage> messages,
             out errorMessage);
         message = saved ? messages.Single() : null;
@@ -263,6 +308,23 @@ public sealed class PrivateChatService
         PrivateChat privateChat,
         AiAccount aiAccount,
         IReadOnlyList<string> contents,
+        out IReadOnlyList<PrivateMessage> messages,
+        out string errorMessage)
+    {
+        return TrySaveAiRepliesCore(
+            privateChat,
+            aiAccount,
+            contents,
+            aiResponseBatchId: null,
+            out messages,
+            out errorMessage);
+    }
+
+    private bool TrySaveAiRepliesCore(
+        PrivateChat privateChat,
+        AiAccount aiAccount,
+        IReadOnlyList<string> contents,
+        Guid? aiResponseBatchId,
         out IReadOnlyList<PrivateMessage> messages,
         out string errorMessage)
     {
@@ -317,6 +379,7 @@ public sealed class PrivateChatService
                 aiAccount.Id,
                 content,
                 firstSentAt.AddTicks(index),
+                aiResponseBatchId: aiResponseBatchId,
                 sequenceNumber: firstSequenceNumber + index))
             .ToList();
         dbContext.PrivateMessages.AddRange(newMessages);

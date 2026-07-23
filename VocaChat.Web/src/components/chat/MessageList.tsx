@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { DisplayChatMessage } from '@/types/displayChatMessage'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
+import { MessageTokenUsage } from '@/components/chat/MessageTokenUsage'
 import { Button } from '@/components/ui/button'
 import {
   buildMessageTimeline,
 } from '@/components/chat/messageTimeline'
 import { formatMessageTime } from '@/utils/dateTime'
+import { useTokenUsageVisibility } from '@/hooks/useTokenUsageVisibility'
 
 const BOTTOM_THRESHOLD = 96
 
@@ -28,6 +30,7 @@ export function MessageList({
   const previousMessageCountRef = useRef(0)
   const isNearBottomRef = useRef(true)
   const [pendingMessageCount, setPendingMessageCount] = useState(0)
+  const tokenUsageVisibility = useTokenUsageVisibility()
   const timeline = useMemo(() => buildMessageTimeline(messages), [messages])
 
   useEffect(() => {
@@ -110,6 +113,7 @@ export function MessageList({
                   key={item.id}
                   message={item.message}
                   rightAlignedAiAccountId={rightAlignedAiAccountId}
+                  showTokenUsage={tokenUsageVisibility.isVisible}
                 />
               ),
             )}
@@ -135,9 +139,14 @@ export function MessageList({
 interface MessageItemProps {
   message: DisplayChatMessage
   rightAlignedAiAccountId?: string
+  showTokenUsage: boolean
 }
 
-function MessageItem({ message, rightAlignedAiAccountId }: MessageItemProps) {
+function MessageItem({
+  message,
+  rightAlignedAiAccountId,
+  showTokenUsage,
+}: MessageItemProps) {
   const isLocalUser = message.senderType === 'User'
   const isRightAlignedAi =
     message.senderType === 'AiAccount'
@@ -183,6 +192,12 @@ function MessageItem({ message, rightAlignedAiAccountId }: MessageItemProps) {
           >
             {message.content}
           </p>
+          {!isLocalUser && showTokenUsage && (
+            <MessageTokenUsage
+              usage={message.tokenUsage}
+              align={isRightAligned ? 'right' : 'left'}
+            />
+          )}
         </div>
       </article>
     </li>

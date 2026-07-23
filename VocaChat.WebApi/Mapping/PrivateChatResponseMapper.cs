@@ -1,4 +1,5 @@
 using VocaChat.Models;
+using VocaChat.Services;
 using VocaChat.WebApi.Dtos.PrivateChats;
 
 namespace VocaChat.WebApi.Mapping;
@@ -36,7 +37,8 @@ public static class PrivateChatResponseMapper
 
     public static PrivateMessageResponse ToMessageResponse(
         PrivateMessage message,
-        IReadOnlyList<AiAccount> participants)
+        IReadOnlyList<AiAccount> participants,
+        AiMessageTokenUsageSummary? tokenUsage = null)
     {
         AiAccount? sender = message.SenderAiAccountId is Guid senderId
             ? participants.FirstOrDefault(account => account.Id == senderId)
@@ -50,6 +52,8 @@ public static class PrivateChatResponseMapper
             SenderDisplayName = message.SenderDisplayName,
             SenderAiAccountId = message.SenderAiAccountId,
             SequenceNumber = message.SequenceNumber,
+            TokenUsage = AiMessageTokenUsageResponseMapper.ToResponse(
+                tokenUsage),
             SenderAvatarUrl = sender is null
                 ? null
                 : AiAccountMediaUrls.GetAvatarUrl(sender),

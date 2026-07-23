@@ -84,7 +84,12 @@ public sealed class OpenAiCompatibleAiMessageGenerator : IAiMessageGenerator
                     _options.TopP,
                     _options.MaximumCompletionTokens,
                     cancellationToken,
-                    aiAccountId: request.Speaker.Id);
+                    aiAccountId: request.Speaker.Id,
+                    invocationContext: request.UsageCorrelation
+                        ?.CreateInvocationContext(
+                            AiModelInvocationStage.ReplyGeneration,
+                            attempt + 1,
+                            request.Speaker.Id));
 
                 try
                 {

@@ -74,7 +74,15 @@ public sealed class OpenAiCompatibleSessionInsightAnalyzer
                     maximumCompletionTokens: Math.Min(
                         _options.MaximumCompletionTokens,
                         768),
-                    cancellationToken);
+                    cancellationToken,
+                    invocationContext: new AiModelUsageCorrelation
+                    {
+                        PrivateChatId = request.Session.PrivateChatId,
+                        AutonomousPrivateChatSessionId =
+                            request.Session.Id
+                    }.CreateInvocationContext(
+                        AiModelInvocationStage.SessionInsight,
+                        attempt + 1));
 
                 try
                 {

@@ -78,6 +78,7 @@ function createMessage(
     senderType,
     senderDisplayName: senderType === 'User' ? '我' : '小语',
     senderAiAccountId: senderType === 'User' ? null : 'friend-account',
+    tokenUsage: null,
     senderAvatarUrl: null,
     content: `${id} content`,
     sentAt: `2026-07-19T00:00:0${second}Z`,

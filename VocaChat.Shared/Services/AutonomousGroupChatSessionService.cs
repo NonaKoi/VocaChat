@@ -203,9 +203,41 @@ public sealed class AutonomousGroupChatSessionService
         out AutonomousGroupChatSession? session,
         out string errorMessage)
     {
+        return TryAppendMessage(
+            roundId,
+            sender,
+            content,
+            sentAt,
+            interactionBatchId: roundId,
+            aiResponseBatchId: Guid.NewGuid(),
+            replyToMessageId,
+            out message,
+            out session,
+            out errorMessage);
+    }
+
+    public bool TryAppendMessage(
+        Guid roundId,
+        AiAccount sender,
+        string content,
+        DateTime sentAt,
+        Guid interactionBatchId,
+        Guid aiResponseBatchId,
+        Guid? replyToMessageId,
+        out GroupMessage? message,
+        out AutonomousGroupChatSession? session,
+        out string errorMessage)
+    {
         message = null;
         session = null;
         string normalizedContent = content?.Trim() ?? string.Empty;
+
+        if (interactionBatchId == Guid.Empty
+            || aiResponseBatchId == Guid.Empty)
+        {
+            errorMessage = "自主群聊消息批次标识无效。";
+            return false;
+        }
 
         if (normalizedContent.Length is 0 or > GroupMessage.ContentMaxLength)
         {
@@ -263,7 +295,8 @@ public sealed class AutonomousGroupChatSessionService
             sequenceNumber: (dbContext.GroupMessages
                 .Where(item => item.GroupChatId == storedSession.GroupChatId)
                 .Max(item => (long?)item.SequenceNumber) ?? 0) + 1,
-            interactionBatchId: round.Id,
+            interactionBatchId: interactionBatchId,
+            aiResponseBatchId: aiResponseBatchId,
             replyToMessageId: replyToMessageId);
         storedSession.RecordMessageActivity(sentAt);
         dbContext.GroupMessages.Add(newMessage);

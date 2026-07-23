@@ -93,7 +93,11 @@ public sealed class OpenAiCompatibleGroupConversationDirector
                     maximumCompletionTokens: Math.Min(
                         _options.MaximumCompletionTokens,
                         768),
-                    cancellationToken);
+                    cancellationToken,
+                    invocationContext: request.UsageCorrelation
+                        ?.CreateInvocationContext(
+                            AiModelInvocationStage.GroupDirector,
+                            attempt + 1));
 
                 try
                 {

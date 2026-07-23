@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAutonomousInteractionSettings } from '@/hooks/useAutonomousInteractionSettings'
 import { useAiModelConnectionSettings } from '@/hooks/useAiModelConnectionSettings'
+import { useTokenUsageVisibility } from '@/hooks/useTokenUsageVisibility'
 import { cn } from '@/lib/utils'
 
 interface GlobalAutonomySettingsPanelProps {
@@ -37,6 +38,7 @@ export function GlobalAutonomySettingsPanel({
 }: GlobalAutonomySettingsPanelProps) {
   const settings = useAutonomousInteractionSettings()
   const modelSettings = useAiModelConnectionSettings()
+  const tokenUsageVisibility = useTokenUsageVisibility()
   const [draft, setDraft] = useState<UpdateAutonomousInteractionSettingsRequest>()
   const [modelDraft, setModelDraft] = useState<UpdateAiModelConnectionSettingsRequest>()
   const [didSave, setDidSave] = useState(false)
@@ -191,6 +193,14 @@ export function GlobalAutonomySettingsPanel({
             draft={modelDraft}
             hasApiKey={modelSettings.data?.hasApiKey ?? false}
             onChange={updateModelDraft}
+          />
+
+          <SettingsToggle
+            id="show-token-usage"
+            label="显示消息 Token 消耗"
+            description="在 AI 消息下显示群级导演、单人导演和回复生成的实际 Token 用量。"
+            checked={tokenUsageVisibility.isVisible}
+            onCheckedChange={tokenUsageVisibility.setIsVisible}
           />
 
           <SettingsToggle

@@ -71,6 +71,7 @@ public sealed class PrivateChatInteractionService
         }
 
         AiAccount aiAccount = privateChat.Contact!.AiAccount;
+        Guid aiResponseBatchId = Guid.NewGuid();
         IReadOnlyList<string> replyContents;
         AiMessageGenerationRequest? completedRequest = null;
         AiIdentityContinuityPlan? continuityPlan = null;
@@ -100,6 +101,11 @@ public sealed class PrivateChatInteractionService
             AiMessageGenerationRequest generationRequest = new()
             {
                 Scenario = AiMessageGenerationScenario.UserPrivateChat,
+                UsageCorrelation = new AiModelUsageCorrelation
+                {
+                    PrivateChatId = privateChat.Id,
+                    AiResponseBatchId = aiResponseBatchId
+                },
                 Speaker = aiAccount,
                 FocusContent = replyTarget.Content,
                 ReplyTarget = AiDialogueReplyTarget.ReplyTo(replyTarget),
@@ -182,10 +188,11 @@ public sealed class PrivateChatInteractionService
                         exception.Message);
             }
 
-            if (!_privateChatService.TrySaveAiReply(
+            if (!_privateChatService.TrySaveAiResponseMessage(
                     privateChat,
                     aiAccount,
                     replyContent,
+                    aiResponseBatchId,
                     out PrivateMessage? aiReply,
                     out string aiReplyError)
                 || aiReply is null)

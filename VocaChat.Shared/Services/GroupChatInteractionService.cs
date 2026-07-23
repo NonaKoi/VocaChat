@@ -130,6 +130,11 @@ public sealed class GroupChatInteractionService
         GroupConversationPlanningRequest planningRequest = new()
         {
             GroupChat = groupChat,
+            UsageCorrelation = new AiModelUsageCorrelation
+            {
+                GroupChatId = groupChat.Id,
+                InteractionBatchId = interactionBatchId
+            },
             AnchorMessage = userMessage,
             RecentMessages = planningHistory,
             MaximumSpeakerCount = Math.Min(
@@ -184,6 +189,7 @@ public sealed class GroupChatInteractionService
                 turnPlan.Speakers[speakerIndex];
             AiAccount speaker = groupChat.Members.Single(member =>
                 member.Id == speakerPlan.SpeakerAiAccountId);
+            Guid aiResponseBatchId = Guid.NewGuid();
             IReadOnlyList<string> replyContents;
             Guid replyToMessageId = userMessage.Id;
             AiMessageGenerationRequest? completedRequest = null;
@@ -228,6 +234,12 @@ public sealed class GroupChatInteractionService
                             primarySpeaker.Id
                         ? AiMessageGenerationScenario.GroupPrimaryReply
                         : AiMessageGenerationScenario.GroupFollowUpReply,
+                    UsageCorrelation = new AiModelUsageCorrelation
+                    {
+                        GroupChatId = groupChat.Id,
+                        InteractionBatchId = interactionBatchId,
+                        AiResponseBatchId = aiResponseBatchId
+                    },
                     Speaker = speaker,
                     OtherParticipants = groupChat.Members
                         .Where(member => member.Id != speaker.Id)
@@ -388,6 +400,7 @@ public sealed class GroupChatInteractionService
                     speaker,
                     replyContents[replyIndex],
                     interactionBatchId,
+                    aiResponseBatchId,
                     replyToMessageId,
                     out GroupMessage? aiMessage,
                     out string aiMessageError);

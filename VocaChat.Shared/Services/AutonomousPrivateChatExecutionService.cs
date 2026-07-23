@@ -438,6 +438,8 @@ public sealed class AutonomousPrivateChatExecutionService
                 round.Id,
                 initiator,
                 initiatorBatch.Contents,
+                initiatorBatch.Request.UsageCorrelation!
+                    .AiResponseBatchId!.Value,
                 messageTime,
                 messages,
                 cancellationToken);
@@ -491,6 +493,8 @@ public sealed class AutonomousPrivateChatExecutionService
                 round.Id,
                 recipient,
                 recipientBatch.Contents,
+                recipientBatch.Request.UsageCorrelation!
+                    .AiResponseBatchId!.Value,
                 messageTime,
                 messages,
                 cancellationToken);
@@ -572,6 +576,12 @@ public sealed class AutonomousPrivateChatExecutionService
             Scenario = isClosing
                 ? AiMessageGenerationScenario.AutonomousPrivateChatClosing
                 : AiMessageGenerationScenario.AutonomousPrivateChat,
+            UsageCorrelation = new AiModelUsageCorrelation
+            {
+                PrivateChatId = session.PrivateChatId,
+                AutonomousPrivateChatSessionId = session.Id,
+                AiResponseBatchId = Guid.NewGuid()
+            },
             Speaker = speaker,
             OtherParticipants = new[] { otherParticipant },
             RelationshipTarget = otherParticipant,
@@ -724,6 +734,7 @@ public sealed class AutonomousPrivateChatExecutionService
         Guid roundId,
         AiAccount sender,
         IReadOnlyList<string> contents,
+        Guid aiResponseBatchId,
         DateTime messageTime,
         List<PrivateMessage> messages,
         CancellationToken cancellationToken)
@@ -753,6 +764,7 @@ public sealed class AutonomousPrivateChatExecutionService
                     sender,
                     contents[index],
                     messageTime,
+                    aiResponseBatchId,
                     out PrivateMessage? message,
                     out session,
                     out string errorMessage)

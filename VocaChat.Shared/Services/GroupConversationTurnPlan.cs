@@ -83,6 +83,7 @@ public sealed record GroupConversationPlanningRequest
     public const int DefaultMaximumTotalMessageCount = 12;
 
     public required GroupChat GroupChat { get; init; }
+    public AiModelUsageCorrelation? UsageCorrelation { get; init; }
     public GroupConversationPlanningScenario Scenario { get; init; } =
         GroupConversationPlanningScenario.UserMessage;
     public GroupMessage? AnchorMessage { get; init; }

@@ -1,4 +1,5 @@
 using System;
+using VocaChat.WebApi.Dtos.Common;
 
 namespace VocaChat.WebApi.Dtos.GroupMessages;
 
@@ -15,6 +16,7 @@ public sealed class GroupMessageResponse
     public long SequenceNumber { get; init; }
     public Guid? InteractionBatchId { get; init; }
     public Guid? ReplyToMessageId { get; init; }
+    public AiMessageTokenUsageResponse? TokenUsage { get; init; }
     public string? SenderAvatarUrl { get; init; }
     public string Content { get; init; } = string.Empty;
     public DateTime SentAt { get; init; }

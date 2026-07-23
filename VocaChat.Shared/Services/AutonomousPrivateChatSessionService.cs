@@ -296,9 +296,36 @@ public sealed class AutonomousPrivateChatSessionService
         out AutonomousPrivateChatSession? session,
         out string errorMessage)
     {
+        return TryAppendMessage(
+            roundId,
+            sender,
+            content,
+            sentAt,
+            Guid.NewGuid(),
+            out message,
+            out session,
+            out errorMessage);
+    }
+
+    public bool TryAppendMessage(
+        Guid roundId,
+        AiAccount sender,
+        string content,
+        DateTime sentAt,
+        Guid aiResponseBatchId,
+        out PrivateMessage? message,
+        out AutonomousPrivateChatSession? session,
+        out string errorMessage)
+    {
         ArgumentNullException.ThrowIfNull(sender);
         message = null;
         session = null;
+
+        if (aiResponseBatchId == Guid.Empty)
+        {
+            errorMessage = "自主私信消息批次标识无效。";
+            return false;
+        }
 
         if (!TryNormalizeMessageContent(
                 content,
@@ -397,6 +424,7 @@ public sealed class AutonomousPrivateChatSessionService
             storedSession.Id,
             round.Id,
             nextSequenceNumber,
+            aiResponseBatchId: aiResponseBatchId,
             sequenceNumber: (dbContext.PrivateMessages
                 .Where(item => item.PrivateChatId == storedSession.PrivateChatId)
                 .Max(item => (long?)item.SequenceNumber) ?? 0) + 1);

@@ -113,6 +113,11 @@ public sealed class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMe
             message.GroupChatId,
             message.InteractionBatchId
         });
+        builder.HasIndex(message => new
+        {
+            message.GroupChatId,
+            message.AiResponseBatchId
+        });
         builder.HasIndex(message => message.ReplyToMessageId);
     }
 }

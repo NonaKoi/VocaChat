@@ -20,6 +20,7 @@ public sealed class AutonomousInteractionsController : ControllerBase
     private readonly PrivateChatService _privateChatService;
     private readonly AutonomousGroupChatJudge _groupChatJudge;
     private readonly AutonomousGroupChatExecutionService _groupExecutionService;
+    private readonly AiModelInvocationUsageService _usageService;
 
     public AutonomousInteractionsController(
         AutonomousPrivateChatJudge privateChatJudge,
@@ -27,7 +28,8 @@ public sealed class AutonomousInteractionsController : ControllerBase
         AutonomousPrivateChatSessionService sessionService,
         PrivateChatService privateChatService,
         AutonomousGroupChatJudge groupChatJudge,
-        AutonomousGroupChatExecutionService groupExecutionService)
+        AutonomousGroupChatExecutionService groupExecutionService,
+        AiModelInvocationUsageService usageService)
     {
         _privateChatJudge = privateChatJudge;
         _executionService = executionService;
@@ -35,6 +37,7 @@ public sealed class AutonomousInteractionsController : ControllerBase
         _privateChatService = privateChatService;
         _groupChatJudge = groupChatJudge;
         _groupExecutionService = groupExecutionService;
+        _usageService = usageService;
     }
 
     /// <summary>
@@ -279,11 +282,13 @@ public sealed class AutonomousInteractionsController : ControllerBase
         };
     }
 
-    private static AutonomousGroupChatExecutionResponse ToResponse(
+    private AutonomousGroupChatExecutionResponse ToResponse(
         AutonomousGroupChatExecutionResult result)
     {
         IReadOnlyList<AiAccount> members = result.GroupChat?.Members
             ?? Array.Empty<AiAccount>();
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usageByMessage =
+            _usageService.GetForGroupMessages(result.Messages);
         return new AutonomousGroupChatExecutionResponse
         {
             Status = result.Status.ToString(),
@@ -332,7 +337,8 @@ public sealed class AutonomousInteractionsController : ControllerBase
             Messages = result.Messages
                 .Select(message => GroupMessageResponseMapper.ToResponse(
                     message,
-                    members))
+                    members,
+                    FindUsage(usageByMessage, message.Id)))
                 .ToList()
                 .AsReadOnly(),
             ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
@@ -347,6 +353,8 @@ public sealed class AutonomousInteractionsController : ControllerBase
         IReadOnlyList<AiAccount> participants = result.PrivateChat is null
             ? Array.Empty<AiAccount>()
             : _privateChatService.GetAiParticipants(result.PrivateChat);
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usageByMessage =
+            _usageService.GetForPrivateMessages(result.Messages);
 
         return new AutonomousPrivateChatExecutionResponse
         {
@@ -364,7 +372,8 @@ public sealed class AutonomousInteractionsController : ControllerBase
                 .Select(message =>
                     PrivateChatResponseMapper.ToMessageResponse(
                         message,
-                        participants))
+                        participants,
+                        FindUsage(usageByMessage, message.Id)))
                 .ToList()
                 .AsReadOnly(),
             ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
@@ -372,6 +381,13 @@ public sealed class AutonomousInteractionsController : ControllerBase
                 : result.ErrorMessage
         };
     }
+
+    private static AiMessageTokenUsageSummary? FindUsage(
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usages,
+        Guid messageId) =>
+        usages.TryGetValue(messageId, out AiMessageTokenUsageSummary? usage)
+            ? usage
+            : null;
 
     private static AutonomousPrivateChatSessionResponse ToResponse(
         AutonomousPrivateChatSession session)

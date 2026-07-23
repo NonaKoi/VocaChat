@@ -201,6 +201,7 @@ public sealed class AutonomousGroupChatExecutionService
                 _randomSource.NextUnit(),
                 NextRolls(3),
                 NextRolls(3));
+            Guid interactionBatchId = Guid.NewGuid();
             GroupConversationTurnPlan turnPlan;
             try
             {
@@ -215,7 +216,8 @@ public sealed class AutonomousGroupChatExecutionService
                             : GroupConversationPlanningScenario
                                 .AutonomousContinuation,
                         fallbackRoundPlan,
-                        densitySettings),
+                        densitySettings,
+                        interactionBatchId),
                     cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -241,6 +243,7 @@ public sealed class AutonomousGroupChatExecutionService
                 groupChat,
                 roundPlan,
                 turnPlan,
+                interactionBatchId,
                 isClosing: false,
                 currentOccurrenceProbability,
                 currentRandomRoll,
@@ -333,6 +336,7 @@ public sealed class AutonomousGroupChatExecutionService
             _randomSource.NextUnit(),
             NextRolls(2),
             NextRolls(2));
+        Guid closingInteractionBatchId = Guid.NewGuid();
         GroupConversationTurnPlan closingTurnPlan;
         try
         {
@@ -343,7 +347,8 @@ public sealed class AutonomousGroupChatExecutionService
                     session,
                     GroupConversationPlanningScenario.AutonomousClosing,
                     closingPlan,
-                    densitySettings),
+                    densitySettings,
+                    closingInteractionBatchId),
                 cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -369,6 +374,7 @@ public sealed class AutonomousGroupChatExecutionService
             groupChat,
             closingPlan,
             closingTurnPlan,
+            closingInteractionBatchId,
             isClosing: true,
             occurrenceProbability: null,
             randomRoll: null,
@@ -435,6 +441,7 @@ public sealed class AutonomousGroupChatExecutionService
         GroupChat groupChat,
         AutonomousGroupChatRoundPlan roundPlan,
         GroupConversationTurnPlan turnPlan,
+        Guid interactionBatchId,
         bool isClosing,
         double? occurrenceProbability,
         double? randomRoll,
@@ -486,6 +493,7 @@ public sealed class AutonomousGroupChatExecutionService
             GroupConversationSpeakerPlan semanticSpeakerPlan =
                 turnPlan.Speakers.Single(item =>
                     item.SpeakerAiAccountId == speaker.Id);
+            Guid aiResponseBatchId = Guid.NewGuid();
             AiDirectedMessageBatch batch;
 
             try
@@ -497,6 +505,8 @@ public sealed class AutonomousGroupChatExecutionService
                     participants,
                     speaker,
                     semanticSpeakerPlan,
+                    interactionBatchId,
+                    aiResponseBatchId,
                     roundNumber,
                     isClosing,
                     ApplyMessageBudget(
@@ -615,6 +625,8 @@ public sealed class AutonomousGroupChatExecutionService
                         speaker,
                         batch.Contents[index],
                         messageTime,
+                        interactionBatchId,
+                        aiResponseBatchId,
                         batch.Request.ReplyTarget?.Message?.MessageId,
                         out GroupMessage? message,
                         out progressedSession,
@@ -688,6 +700,8 @@ public sealed class AutonomousGroupChatExecutionService
         IReadOnlyList<AiAccount> participants,
         AiAccount speaker,
         GroupConversationSpeakerPlan speakerPlan,
+        Guid interactionBatchId,
+        Guid aiResponseBatchId,
         int roundNumber,
         bool isClosing,
         AiMessageCountRange allowedMessageCountRange,
@@ -729,6 +743,13 @@ public sealed class AutonomousGroupChatExecutionService
         AiMessageGenerationRequest request = new()
         {
             Scenario = AiMessageGenerationScenario.AutonomousGroupChat,
+            UsageCorrelation = new AiModelUsageCorrelation
+            {
+                GroupChatId = groupChat.Id,
+                AutonomousGroupChatSessionId = session.Id,
+                InteractionBatchId = interactionBatchId,
+                AiResponseBatchId = aiResponseBatchId
+            },
             Speaker = speaker,
             OtherParticipants = participants
                 .Where(account => account.Id != speaker.Id)
@@ -855,7 +876,8 @@ public sealed class AutonomousGroupChatExecutionService
         AutonomousGroupChatSession session,
         GroupConversationPlanningScenario scenario,
         AutonomousGroupChatRoundPlan fallbackRoundPlan,
-        GroupConversationDensitySettings densitySettings)
+        GroupConversationDensitySettings densitySettings,
+        Guid interactionBatchId)
     {
         IReadOnlyList<GroupMessage> recentHistory = _groupMessageService
             .GetOrderedChatHistory(groupChat)
@@ -871,6 +893,12 @@ public sealed class AutonomousGroupChatExecutionService
         return new GroupConversationPlanningRequest
         {
             GroupChat = groupChat,
+            UsageCorrelation = new AiModelUsageCorrelation
+            {
+                GroupChatId = groupChat.Id,
+                AutonomousGroupChatSessionId = session.Id,
+                InteractionBatchId = interactionBatchId
+            },
             Scenario = scenario,
             AnchorMessage = anchorMessage,
             Topic = plan.Topic,

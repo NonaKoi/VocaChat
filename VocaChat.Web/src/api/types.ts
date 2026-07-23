@@ -128,6 +128,27 @@ export interface AddGroupChatMemberRequest {
 
 export type MessageSenderType = 'User' | 'AiAccount'
 
+export interface AiModelStageTokenUsageResponse {
+  usageComplete: boolean
+  inputTokens: number | null
+  outputTokens: number | null
+  totalTokens: number | null
+  cacheHitTokens: number | null
+  cacheMissTokens: number | null
+  reasoningTokens: number | null
+  attemptCount: number
+}
+
+export interface AiMessageTokenUsageResponse {
+  groupDirector: AiModelStageTokenUsageResponse | null
+  conversationDirector: AiModelStageTokenUsageResponse | null
+  replyGeneration: AiModelStageTokenUsageResponse | null
+  usageComplete: boolean
+  totalTokens: number
+  interactionSharedMessageCount: number
+  responseSharedMessageCount: number
+}
+
 export interface GroupMessageResponse {
   id: string
   groupChatId: string
@@ -137,6 +158,7 @@ export interface GroupMessageResponse {
   sequenceNumber: number
   interactionBatchId: string | null
   replyToMessageId: string | null
+  tokenUsage: AiMessageTokenUsageResponse | null
   senderAvatarUrl: string | null
   content: string
   sentAt: string
@@ -212,6 +234,7 @@ export interface ChatMessageResponse {
   senderDisplayName: string
   senderAiAccountId: string | null
   sequenceNumber: number
+  tokenUsage: AiMessageTokenUsageResponse | null
   senderAvatarUrl: string | null
   content: string
   sentAt: string

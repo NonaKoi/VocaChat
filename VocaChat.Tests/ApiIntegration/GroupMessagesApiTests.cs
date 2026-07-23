@@ -1,7 +1,11 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using VocaChat.Data;
 using VocaChat.Models;
+using VocaChat.Services;
 using VocaChat.WebApi.Dtos.AiAccounts;
 using VocaChat.WebApi.Dtos.GroupChats;
 using VocaChat.WebApi.Dtos.GroupMessages;
@@ -144,6 +148,81 @@ public sealed class GroupMessagesApiTests
         Assert.All(interaction.AiReplies, reply => Assert.Equal(
             interaction.UserMessage.Id,
             reply.ReplyToMessageId));
+    }
+
+    [Fact]
+    public async Task GetHistory_ReturnsRecordedTokenUsageForAiMessage()
+    {
+        using VocaChatWebApiFactory factory = new();
+        using HttpClient client = factory.CreateApiClient();
+        AiAccountResponse member = await CreateAccountAsync(
+            client,
+            "TokenUsageAlpha");
+        GroupChatResponse groupChat = await CreateGroupChatAsync(
+            client,
+            "Token 用量测试群",
+            member.Id);
+
+        using HttpResponseMessage sendResponse = await client.PostAsJsonAsync(
+            $"/api/group-chats/{groupChat.Id}/messages",
+            new SendGroupMessageRequest { Content = "记录实际 Token" });
+        SendGroupMessageResponse? interaction = await sendResponse.Content
+            .ReadFromJsonAsync<SendGroupMessageResponse>();
+        Assert.NotNull(interaction);
+        GroupMessageResponse aiReply = Assert.Single(interaction.AiReplies);
+
+        using IServiceScope scope = factory.Services.CreateScope();
+        VocaChatDbContextFactory dbContextFactory = scope.ServiceProvider
+            .GetRequiredService<VocaChatDbContextFactory>();
+        using VocaChatDbContext dbContext =
+            dbContextFactory.CreateDbContext();
+        GroupMessage storedReply = dbContext.GroupMessages
+            .AsNoTracking()
+            .Single(message => message.Id == aiReply.Id);
+        Assert.NotNull(storedReply.AiResponseBatchId);
+        Assert.NotNull(storedReply.InteractionBatchId);
+
+        AiModelInvocationUsageService usageService = scope.ServiceProvider
+            .GetRequiredService<AiModelInvocationUsageService>();
+        Assert.True(usageService.TryRecord(
+            new AiModelInvocationContext
+            {
+                Stage = AiModelInvocationStage.GroupDirector,
+                GroupChatId = groupChat.Id,
+                InteractionBatchId = storedReply.InteractionBatchId
+            },
+            "director-model",
+            new AiModelTokenUsage(90, 10, 100, null, null, null)));
+        Assert.True(usageService.TryRecord(
+            new AiModelInvocationContext
+            {
+                Stage = AiModelInvocationStage.ReplyGeneration,
+                AiAccountId = member.Id,
+                GroupChatId = groupChat.Id,
+                InteractionBatchId = storedReply.InteractionBatchId,
+                AiResponseBatchId = storedReply.AiResponseBatchId
+            },
+            "reply-model",
+            new AiModelTokenUsage(120, 30, 150, 50, 70, 5)));
+
+        List<GroupMessageResponse>? history = await client
+            .GetFromJsonAsync<List<GroupMessageResponse>>(
+                $"/api/group-chats/{groupChat.Id}/messages");
+        GroupMessageResponse reloadedReply = Assert.Single(
+            Assert.IsType<List<GroupMessageResponse>>(history),
+            message => message.Id == aiReply.Id);
+
+        Assert.NotNull(reloadedReply.TokenUsage);
+        Assert.Equal(250, reloadedReply.TokenUsage.TotalTokens);
+        Assert.Equal(
+            100,
+            reloadedReply.TokenUsage.GroupDirector?.TotalTokens);
+        Assert.Equal(
+            150,
+            reloadedReply.TokenUsage.ReplyGeneration?.TotalTokens);
+        Assert.Equal(
+            50,
+            reloadedReply.TokenUsage.ReplyGeneration?.CacheHitTokens);
     }
 
     [Fact]

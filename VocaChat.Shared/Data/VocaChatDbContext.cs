@@ -33,6 +33,8 @@ public sealed class VocaChatDbContext : DbContext
         Set<AutonomousGroupChatRound>();
     public DbSet<AiInteractionDiagnosticLog> AiInteractionDiagnosticLogs =>
         Set<AiInteractionDiagnosticLog>();
+    public DbSet<AiModelInvocationUsage> AiModelInvocationUsages =>
+        Set<AiModelInvocationUsage>();
     public DbSet<AiAccount> AiAccounts => Set<AiAccount>();
     public DbSet<AiAccountTag> AiAccountTags => Set<AiAccountTag>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
@@ -80,6 +82,8 @@ public sealed class VocaChatDbContext : DbContext
             new AutonomousGroupChatRoundConfiguration());
         modelBuilder.ApplyConfiguration(
             new AiInteractionDiagnosticLogConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiModelInvocationUsageConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountTagConfiguration());
         modelBuilder.ApplyConfiguration(new ContactGroupConfiguration());

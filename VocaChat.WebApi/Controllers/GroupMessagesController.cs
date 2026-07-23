@@ -20,15 +20,18 @@ public sealed class GroupMessagesController : ControllerBase
     private readonly GroupChatService _groupChatService;
     private readonly GroupMessageService _groupMessageService;
     private readonly GroupChatInteractionService _interactionService;
+    private readonly AiModelInvocationUsageService _usageService;
 
     public GroupMessagesController(
         GroupChatService groupChatService,
         GroupMessageService groupMessageService,
-        GroupChatInteractionService interactionService)
+        GroupChatInteractionService interactionService,
+        AiModelInvocationUsageService usageService)
     {
         _groupChatService = groupChatService;
         _groupMessageService = groupMessageService;
         _interactionService = interactionService;
+        _usageService = usageService;
     }
 
     /// <summary>
@@ -48,11 +51,15 @@ public sealed class GroupMessagesController : ControllerBase
             return NotFound();
         }
 
-        List<GroupMessageResponse> response = _groupMessageService
-            .GetOrderedChatHistory(groupChat)
+        IReadOnlyList<GroupMessage> messages = _groupMessageService
+            .GetOrderedChatHistory(groupChat);
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usageByMessage =
+            _usageService.GetForGroupMessages(messages);
+        List<GroupMessageResponse> response = messages
             .Select(message => GroupMessageResponseMapper.ToResponse(
                 message,
-                groupChat.Members))
+                groupChat.Members,
+                FindUsage(usageByMessage, message.Id)))
             .ToList();
 
         return Ok(response);
@@ -93,6 +100,9 @@ public sealed class GroupMessagesController : ControllerBase
             });
         }
 
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usageByMessage =
+            _usageService.GetForGroupMessages(result.AiReplies);
+
         if (result.Status == GroupChatInteractionStatus.AiReplyFailed)
         {
             return StatusCode(
@@ -108,7 +118,8 @@ public sealed class GroupMessagesController : ControllerBase
                     SavedAiReplies = result.AiReplies
                         .Select(reply => GroupMessageResponseMapper.ToResponse(
                             reply,
-                            groupChat.Members))
+                            groupChat.Members,
+                            FindUsage(usageByMessage, reply.Id)))
                         .ToList()
                 });
         }
@@ -131,7 +142,8 @@ public sealed class GroupMessagesController : ControllerBase
             AiReplies = result.AiReplies
                 .Select(reply => GroupMessageResponseMapper.ToResponse(
                     reply,
-                    groupChat.Members))
+                    groupChat.Members,
+                    FindUsage(usageByMessage, reply.Id)))
                 .ToList(),
             ReplyCompletion = result.Status
                 == GroupChatInteractionStatus.PartiallySucceeded
@@ -144,4 +156,10 @@ public sealed class GroupMessagesController : ControllerBase
         });
     }
 
+    private static AiMessageTokenUsageSummary? FindUsage(
+        IReadOnlyDictionary<Guid, AiMessageTokenUsageSummary> usages,
+        Guid messageId) =>
+        usages.TryGetValue(messageId, out AiMessageTokenUsageSummary? usage)
+            ? usage
+            : null;
 }

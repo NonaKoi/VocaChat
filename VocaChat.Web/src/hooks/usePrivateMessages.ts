@@ -65,6 +65,7 @@ export function usePrivateMessages(privateChatId?: string) {
       senderDisplayName: '我',
       senderAiAccountId: null,
       sequenceNumber: null,
+      tokenUsage: null,
       senderAvatarUrl: null,
       content: normalizedContent,
       sentAt: new Date().toISOString(),
