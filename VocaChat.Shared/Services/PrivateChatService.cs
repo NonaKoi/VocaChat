@@ -496,11 +496,18 @@ public sealed class PrivateChatService
                 .ThenInclude(contact => contact!.AiAccount)
                     .ThenInclude(aiAccount => aiAccount.Tags)
             .Include(chat => chat.Contact)
+                .ThenInclude(contact => contact!.AiAccount)
+                    .ThenInclude(aiAccount => aiAccount.CharacterWorld)
+            .Include(chat => chat.Contact)
                 .ThenInclude(contact => contact!.ContactGroup)
             .Include(chat => chat.FirstAiAccount)
                 .ThenInclude(aiAccount => aiAccount!.Tags)
+            .Include(chat => chat.FirstAiAccount)
+                .ThenInclude(aiAccount => aiAccount!.CharacterWorld)
             .Include(chat => chat.SecondAiAccount)
-                .ThenInclude(aiAccount => aiAccount!.Tags);
+                .ThenInclude(aiAccount => aiAccount!.Tags)
+            .Include(chat => chat.SecondAiAccount)
+                .ThenInclude(aiAccount => aiAccount!.CharacterWorld);
     }
 
     private static (Guid FirstId, Guid SecondId) NormalizeAiAccountPair(

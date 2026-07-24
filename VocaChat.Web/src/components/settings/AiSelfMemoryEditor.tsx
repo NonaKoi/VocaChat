@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { LoaderCircle, Save, X } from 'lucide-react'
 import type {
+  AiSelfMemoryFactNature,
+  AiSelfMemoryMutability,
   AiSelfMemoryResponse,
   AiSelfMemoryType,
+  CharacterWorldResponse,
   SaveAiSelfMemoryRequest,
 } from '@/api/types'
 import { Button } from '@/components/ui/button'
 
 interface AiSelfMemoryEditorProps {
   memory?: AiSelfMemoryResponse
+  characterWorlds?: CharacterWorldResponse[]
+  defaultCharacterWorldId?: string
   isSaving: boolean
   errorMessage?: string
   onSave: (request: SaveAiSelfMemoryRequest) => Promise<boolean>
@@ -24,19 +29,41 @@ const memoryTypes: Array<{ value: AiSelfMemoryType; label: string }> = [
   { value: 'Preference', label: '偏好' },
 ]
 
+const factNatures: Array<{ value: AiSelfMemoryFactNature; label: string }> = [
+  { value: 'Objective', label: '客观事实' },
+  { value: 'Subjective', label: '主观看法' },
+  { value: 'Narrative', label: '叙事内容' },
+]
+
+const mutabilities: Array<{ value: AiSelfMemoryMutability; label: string }> = [
+  { value: 'Immutable', label: '恒定' },
+  { value: 'Mutable', label: '可变化' },
+  { value: 'Evolving', label: '持续演化' },
+  { value: 'Ephemeral', label: '短期状态' },
+]
+
 /** 以内联表单编辑个人记忆，避免用模态框打断账号设置流程。 */
 export function AiSelfMemoryEditor({
   memory,
+  characterWorlds = [],
+  defaultCharacterWorldId,
   isSaving,
   errorMessage,
   onSave,
   onCancel,
   onDirtyChange,
 }: AiSelfMemoryEditorProps) {
-  const initialDraft = useMemo(() => toMemoryDraft(memory), [memory])
+  const initialDraft = useMemo(
+    () => toMemoryDraft(memory, defaultCharacterWorldId),
+    [memory, defaultCharacterWorldId],
+  )
   const [draft, setDraft] = useState(initialDraft)
   const isDirty = JSON.stringify(draft) !== JSON.stringify(initialDraft)
-  const canSave = !isSaving && draft.summary.trim().length > 0 && draft.salience >= 1 && draft.salience <= 100
+  const canSave = !isSaving
+    && draft.summary.trim().length > 0
+    && draft.salience >= 1
+    && draft.salience <= 100
+    && (draft.mutability !== 'Ephemeral' || Boolean(draft.validUntil))
 
   useEffect(() => {
     setDraft(initialDraft)
@@ -57,6 +84,16 @@ export function AiSelfMemoryEditor({
     event.preventDefault()
     if (!canSave) return
     await onSave(draft)
+  }
+
+  function changeType(type: AiSelfMemoryType) {
+    const defaults = getDefaultClassification(type)
+    setDraft((current) => ({
+      ...current,
+      type,
+      factNature: defaults.factNature,
+      mutability: defaults.mutability,
+    }))
   }
 
   return (
@@ -106,7 +143,7 @@ export function AiSelfMemoryEditor({
         <div className="grid gap-5 xl:grid-cols-2">
           <div className="grid gap-2">
             <label className="text-sm font-semibold text-foreground" htmlFor="memory-type">记忆类型</label>
-            <select id="memory-type" name="type" autoComplete="off" className="form-control" value={draft.type} onChange={(event) => updateValue('type', event.target.value as AiSelfMemoryType)}>
+            <select id="memory-type" name="type" autoComplete="off" className="form-control" value={draft.type} onChange={(event) => changeType(event.target.value as AiSelfMemoryType)}>
               {memoryTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
             </select>
           </div>
@@ -127,9 +164,81 @@ export function AiSelfMemoryEditor({
         </div>
 
         <div className="grid gap-5 xl:grid-cols-3">
+          <div className="grid gap-2">
+            <label className="text-sm font-semibold text-foreground" htmlFor="memory-fact-nature">事实性质</label>
+            <select
+              id="memory-fact-nature"
+              name="factNature"
+              autoComplete="off"
+              className="form-control"
+              value={draft.factNature ?? ''}
+              onChange={(event) => updateValue('factNature', event.target.value as AiSelfMemoryFactNature)}
+            >
+              {factNatures.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <label className="text-sm font-semibold text-foreground" htmlFor="memory-mutability">可变性</label>
+            <select
+              id="memory-mutability"
+              name="mutability"
+              autoComplete="off"
+              className="form-control"
+              value={draft.mutability ?? ''}
+              onChange={(event) => updateValue('mutability', event.target.value as AiSelfMemoryMutability)}
+            >
+              {mutabilities.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <label className="text-sm font-semibold text-foreground" htmlFor="memory-world">所属世界</label>
+            <select
+              id="memory-world"
+              name="characterWorldId"
+              autoComplete="off"
+              className="form-control"
+              value={draft.characterWorldId ?? ''}
+              onChange={(event) => updateValue('characterWorldId', event.target.value || null)}
+            >
+              {characterWorlds.length === 0 && (
+                <option value={draft.characterWorldId ?? ''}>账号当前世界</option>
+              )}
+              {characterWorlds.map((world) => (
+                <option key={world.id} value={world.id}>{world.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-foreground" htmlFor="memory-fact-key">事实键</label>
+          <input
+            id="memory-fact-key"
+            name="factKey"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            className="form-control"
+            value={draft.factKey ?? ''}
+            maxLength={100}
+            placeholder="例如 birthplace；留空时由系统生成…"
+            onChange={(event) => updateValue('factKey', event.target.value || null)}
+          />
+          <p className="text-xs leading-5 text-muted-foreground">
+            同一账号和世界中，相同事实键代表同一项事实；用户保存的新版本会成为用户正典。
+          </p>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-3">
           <MemoryDateField id="memory-occurred-at" label="发生时间" value={draft.occurredAt} onChange={(value) => updateValue('occurredAt', value)} />
           <MemoryDateField id="memory-valid-from" label="有效开始" value={draft.validFrom} onChange={(value) => updateValue('validFrom', value)} />
-          <MemoryDateField id="memory-valid-until" label="有效结束" value={draft.validUntil} onChange={(value) => updateValue('validUntil', value)} />
+          <MemoryDateField
+            id="memory-valid-until"
+            label="有效结束"
+            value={draft.validUntil}
+            errorMessage={draft.mutability === 'Ephemeral' && !draft.validUntil ? '短期状态需要填写有效结束时间。' : undefined}
+            onChange={(value) => updateValue('validUntil', value)}
+          />
         </div>
 
         <label className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-border bg-surface px-3 py-2.5">
@@ -158,20 +267,38 @@ export function AiSelfMemoryEditor({
   )
 }
 
-function MemoryDateField({ id, label, value, onChange }: { id: string; label: string; value: string | null; onChange: (value: string | null) => void }) {
+function MemoryDateField({ id, label, value, errorMessage, onChange }: { id: string; label: string; value: string | null; errorMessage?: string; onChange: (value: string | null) => void }) {
   return (
     <div className="grid gap-2">
       <label className="text-sm font-semibold text-foreground" htmlFor={id}>{label}</label>
-      <input id={id} name={id} autoComplete="off" type="datetime-local" className="form-control" value={toDateTimeLocalValue(value)} onChange={(event) => onChange(event.target.value ? new Date(event.target.value).toISOString() : null)} />
+      <input
+        id={id}
+        name={id}
+        autoComplete="off"
+        type="datetime-local"
+        className="form-control"
+        value={toDateTimeLocalValue(value)}
+        aria-invalid={Boolean(errorMessage)}
+        aria-describedby={errorMessage ? `${id}-error` : undefined}
+        onChange={(event) => onChange(event.target.value ? new Date(event.target.value).toISOString() : null)}
+      />
+      {errorMessage && <p id={`${id}-error`} className="text-xs text-destructive" role="alert">{errorMessage}</p>}
     </div>
   )
 }
 
-function toMemoryDraft(memory?: AiSelfMemoryResponse): SaveAiSelfMemoryRequest {
+function toMemoryDraft(
+  memory?: AiSelfMemoryResponse,
+  defaultCharacterWorldId?: string,
+): SaveAiSelfMemoryRequest {
   return memory
     ? {
         type: memory.type,
         summary: memory.summary,
+        factKey: memory.factKey,
+        factNature: memory.factNature,
+        mutability: memory.mutability,
+        characterWorldId: memory.characterWorldId,
         salience: memory.salience,
         isUserLocked: memory.isUserLocked,
         occurredAt: memory.occurredAt,
@@ -181,12 +308,33 @@ function toMemoryDraft(memory?: AiSelfMemoryResponse): SaveAiSelfMemoryRequest {
     : {
         type: 'PersonalFact',
         summary: '',
+        factKey: null,
+        factNature: 'Objective',
+        mutability: 'Immutable',
+        characterWorldId: defaultCharacterWorldId ?? null,
         salience: 60,
         isUserLocked: true,
         occurredAt: null,
         validFrom: null,
         validUntil: null,
       }
+}
+
+function getDefaultClassification(type: AiSelfMemoryType): {
+  factNature: AiSelfMemoryFactNature
+  mutability: AiSelfMemoryMutability
+} {
+  switch (type) {
+    case 'Preference':
+      return { factNature: 'Subjective', mutability: 'Evolving' }
+    case 'Experience':
+      return { factNature: 'Narrative', mutability: 'Immutable' }
+    case 'OngoingActivity':
+    case 'Plan':
+      return { factNature: 'Objective', mutability: 'Mutable' }
+    default:
+      return { factNature: 'Objective', mutability: 'Immutable' }
+  }
 }
 
 function toDateTimeLocalValue(value: string | null): string {

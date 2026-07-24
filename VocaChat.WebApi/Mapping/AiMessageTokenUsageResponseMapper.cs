@@ -16,6 +16,10 @@ internal static class AiMessageTokenUsageResponseMapper
                 ConversationDirector = ToStageResponse(
                     summary.ConversationDirector),
                 ReplyGeneration = ToStageResponse(summary.ReplyGeneration),
+                SelfMemoryJudgment = ToStageResponse(
+                    summary.SelfMemoryJudgment),
+                WorldKnowledgeExtraction = ToStageResponse(
+                    summary.WorldKnowledgeExtraction),
                 UsageComplete = summary.UsageComplete,
                 TotalTokens = summary.TotalTokens,
                 InteractionSharedMessageCount =

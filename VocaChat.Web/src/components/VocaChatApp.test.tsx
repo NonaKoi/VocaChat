@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VocaChatApp } from '@/components/VocaChatApp'
 
 const account = {
-  id: 'account-1', vcNumber: 'XiaoYu#01', nickname: '小语', identityDescription: '学习伙伴', personality: '耐心', speakingStyle: '简洁温和', signature: '按自己的节奏前进。', birthday: '2000-07-23', age: 26, zodiacSign: '狮子座', gender: 'Female', location: '中国 上海', occupation: '插画师', hometown: '中国 杭州', onlineStatus: 'Online', avatarUrl: null, coverUrl: null, interestTags: ['绘画'], personalityTags: ['耐心'], createdAt: '2026-07-17T12:00:00',
+  id: 'account-1', vcNumber: 'XiaoYu#01', nickname: '小语', identityDescription: '学习伙伴', personality: '耐心', speakingStyle: '简洁温和', signature: '按自己的节奏前进。', birthday: '2000-07-23', age: 26, zodiacSign: '狮子座', gender: 'Female', location: '中国 上海', occupation: '插画师', hometown: '中国 杭州', onlineStatus: 'Online', avatarUrl: null, coverUrl: null, characterWorldId: 'world-default', characterWorld: { id: 'world-default', name: '现实世界', description: '采用现代现实社会的基本规则。', createdAt: '2026-07-17T10:00:00Z', updatedAt: '2026-07-17T10:00:00Z' }, interestTags: ['绘画'], personalityTags: ['耐心'], createdAt: '2026-07-17T12:00:00',
 }
 
 vi.mock('@/hooks/useGroupChats', () => ({

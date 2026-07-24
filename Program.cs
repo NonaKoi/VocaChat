@@ -27,7 +27,7 @@ public class Program
         AiMessageGenerationOptions messageGenerationOptions = new()
         {
             BaseUrl = Environment.GetEnvironmentVariable("VOCACHAT_AI_BASE_URL")
-                ?? "http://127.0.0.1:11434/v1/",
+                ?? "http://127.0.0.1:11434/api/",
             Model = Environment.GetEnvironmentVariable("VOCACHAT_AI_MODEL")
                 ?? "vocachat-qwen3.5-4b",
             ApiKey = Environment.GetEnvironmentVariable("VOCACHAT_AI_API_KEY")
@@ -40,18 +40,52 @@ public class Program
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
+        using HttpClient ollamaClient = new(
+            new SocketsHttpHandler
+            {
+                UseProxy = false
+            })
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
         AiModelInvocationUsageService modelUsageService = new(
+            dbContextFactory);
+        AiInteractionDiagnosticLogService diagnosticLogService = new(
+            dbContextFactory);
+        AiWorldKnowledgeService worldKnowledgeService = new(
+            dbContextFactory);
+        AiWorldAwarenessService worldAwarenessService = new(
             dbContextFactory);
         OpenAiCompatibleChatClient chatClient = new(
             modelClient,
+            ollamaClient,
             messageGenerationOptions,
             modelConnectionSettingsService,
             modelUsageService);
+        IAiWorldKnowledgeSemanticExtractor worldKnowledgeSemanticExtractor =
+            new OpenAiCompatibleAiWorldKnowledgeSemanticExtractor(
+                chatClient,
+                messageGenerationOptions);
+        AiWorldKnowledgeCandidateExtractor worldKnowledgeCandidateExtractor =
+            new(worldKnowledgeSemanticExtractor);
+        AiWorldKnowledgeMessageProcessor worldKnowledgeProcessor = new(
+            dbContextFactory,
+            worldKnowledgeCandidateExtractor,
+            worldKnowledgeService,
+            worldAwarenessService,
+            diagnosticLogService);
+        AiWorldConversationContextService worldConversationContextService =
+            new(
+                dbContextFactory,
+                worldAwarenessService,
+                worldKnowledgeService,
+                worldKnowledgeCandidateExtractor);
         IAiMessageGenerator messageGenerator =
             new OpenAiCompatibleAiMessageGenerator(
                 chatClient,
                 messageGenerationOptions,
-                new AiConversationContextBuilder());
+                new AiConversationContextBuilder(),
+                diagnosticLogService);
         IConversationDirector conversationDirector =
             new OpenAiCompatibleConversationDirector(
                 chatClient,
@@ -63,14 +97,18 @@ public class Program
             new(dbContextFactory);
         ConversationQuestionPolicyService questionPolicyService = new(
             dbContextFactory);
-        AiInteractionDiagnosticLogService diagnosticLogService = new(
-            dbContextFactory);
+        IAiSelfMemorySemanticJudge selfMemorySemanticJudge =
+            new OpenAiCompatibleAiSelfMemorySemanticJudge(
+                chatClient,
+                messageGenerationOptions);
         AiIdentityContinuityService identityContinuityService = new(
             new AiSelfMemoryService(dbContextFactory),
+            selfMemorySemanticJudge,
             diagnosticLogService);
         GroupConversationContextService conversationContextService = new(
             dbContextFactory,
-            identityContinuityService);
+            identityContinuityService,
+            worldConversationContextService);
         GroupConversationPlanValidator groupPlanValidator = new();
         GroupConversationDensitySettingsResolver densityResolver = new(
             dbContextFactory);
@@ -96,7 +134,8 @@ public class Program
             identityContinuityService,
             conversationContextService,
             densityResolver,
-            groupDiagnosticService);
+            groupDiagnosticService,
+            worldKnowledgeProcessor);
 
         VocaChatConsoleApp consoleApp = new(
             aiAccountService,

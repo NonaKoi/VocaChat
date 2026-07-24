@@ -53,8 +53,10 @@ describe('MessageList', () => {
         cacheHitTokens: 40,
         cacheMissTokens: 60,
       },
+      selfMemoryJudgment: createStageUsage(45, 5, 50),
+      worldKnowledgeExtraction: createStageUsage(20, 5, 25),
       usageComplete: true,
-      totalTokens: 360,
+      totalTokens: 435,
       interactionSharedMessageCount: 2,
       responseSharedMessageCount: 1,
     }
@@ -70,8 +72,10 @@ describe('MessageList', () => {
     expect(screen.getByText(/群级导演（本轮 2 条共享）/)).toBeInTheDocument()
     expect(screen.getByText(/单人导演/)).toBeInTheDocument()
     expect(screen.getByText(/回复生成/)).toBeInTheDocument()
+    expect(screen.getByText(/记忆判断/)).toBeInTheDocument()
+    expect(screen.getByText(/世界知识提取/)).toBeInTheDocument()
     expect(screen.getByText(/缓存命中 40 \/ 未命中 60/)).toBeInTheDocument()
-    expect(screen.getByText('合计 360 Token')).toBeInTheDocument()
+    expect(screen.getByText('合计 435 Token')).toBeInTheDocument()
   })
 })
 

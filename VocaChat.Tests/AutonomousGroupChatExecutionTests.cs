@@ -83,6 +83,14 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
                 AiMessageGenerationScenario.AutonomousGroupChat,
                 request.Scenario);
             Assert.Equal(2, request.OtherParticipants.Count);
+            Assert.NotNull(request.GroupWorldConversationContext);
+            Assert.All(
+                request.GroupWorldConversationContext!
+                    .ParticipantContexts
+                    .SelectMany(context => context.RelevantKnowledge),
+                knowledge => Assert.Equal(
+                    request.Speaker.Id,
+                    knowledge.OwnerAiAccountId));
         });
 
         AutonomousGroupChatSession? storedSession =
@@ -107,6 +115,16 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
         Assert.Equal(
             firstResult.Messages.Select(message => message.Id),
             storedMessages.Select(message => message.Id));
+        using (VocaChat.Data.VocaChatDbContext audienceDbContext =
+               _database.CreateDbContextFactory().CreateDbContext())
+        {
+            Assert.All(
+                firstResult.Messages,
+                message => Assert.Equal(
+                    3,
+                    audienceDbContext.GroupMessageAudience.Count(audience =>
+                        audience.GroupMessageId == message.Id)));
+        }
 
         AutonomousGroupChatExecutionResult secondResult =
             await executionService.ExecuteAsync(
@@ -146,6 +164,98 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
         Assert.Equal(1, result.Session.CompletedRounds);
         Assert.Single(result.Rounds, round => !round.IsClosing);
         Assert.Single(result.Rounds, round => round.IsClosing);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenFirstSpeakerFails_CompletesRoundWithRemainingSpeakers()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup(
+            groupChatMaximumRounds: 1);
+        FailFirstRequestGenerator generator = new();
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(generator, new ZeroGroupRandomSource());
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 20, 9, 30, 0),
+                randomJitter: 10,
+                requestedTopic: "单成员失败后继续测试");
+
+        Assert.Equal(
+            AutonomousGroupChatExecutionStatus.Completed,
+            result.Status);
+        AutonomousGroupChatRound normalRound = Assert.Single(
+            result.Rounds,
+            round => !round.IsClosing);
+        IReadOnlyList<GroupMessage> normalRoundMessages = result.Messages
+            .Where(message =>
+                message.AutonomousGroupChatRoundId == normalRound.Id)
+            .ToList()
+            .AsReadOnly();
+        Assert.NotEmpty(normalRoundMessages);
+        Guid failedSpeakerId = generator.Requests[0].Speaker.Id;
+        Assert.DoesNotContain(
+            normalRoundMessages,
+            message => message.SenderAiAccountId == failedSpeakerId);
+        Assert.Equal(
+            normalRoundMessages
+                .Select(message => message.SenderAiAccountId)
+                .Distinct()
+                .Count(),
+            normalRound.PlannedSpeakerCount);
+        Assert.Equal(
+            normalRoundMessages.Count,
+            normalRound.PlannedMessageCount);
+
+        AiInteractionDiagnosticLogService diagnosticService = new(
+            _database.CreateDbContextFactory());
+        AiInteractionDiagnosticLog failureLog = Assert.Single(
+            diagnosticService.GetRecent(),
+            log => log.Code ==
+                AiInteractionDiagnosticCode.GroupConversationExecutionFailed);
+        Assert.Equal(failedSpeakerId, failureLog.AiAccountId);
+        Assert.True(failureLog.WasRecovered);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAllSpeakersFail_MarksSessionAsGenerationFailed()
+    {
+        IReadOnlyList<AiAccount> accounts = CreateStrongGroup(
+            groupChatMaximumRounds: 1);
+        FailAfterRequestsGenerator generator = new(successfulRequestCount: 0);
+        AutonomousGroupChatExecutionService executionService =
+            CreateExecutionService(generator, new ZeroGroupRandomSource());
+
+        AutonomousGroupChatExecutionResult result =
+            await executionService.ExecuteAsync(
+                accounts.Select(account => account.Id),
+                new DateTime(2026, 7, 20, 9, 45, 0),
+                randomJitter: 10,
+                requestedTopic: "全部成员失败测试");
+
+        Assert.Equal(
+            AutonomousGroupChatExecutionStatus.GenerationFailed,
+            result.Status);
+        Assert.Equal(
+            AutonomousGroupChatSessionStatus.Failed,
+            result.Session!.Status);
+        Assert.Equal(
+            AutonomousGroupChatSessionEndReason.GenerationFailed,
+            result.Session.EndReason);
+        Assert.Empty(result.Messages);
+
+        IReadOnlyList<AiInteractionDiagnosticLog> failureLogs =
+            new AiInteractionDiagnosticLogService(
+                    _database.CreateDbContextFactory())
+                .GetRecent()
+                .Where(log => log.Code ==
+                    AiInteractionDiagnosticCode
+                        .GroupConversationExecutionFailed)
+                .ToList()
+                .AsReadOnly();
+        Assert.NotEmpty(failureLogs);
+        Assert.All(failureLogs, log => Assert.False(log.WasRecovered));
     }
 
     [Fact]
@@ -235,6 +345,61 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
             Assert.True(decision.OccurrenceProbability < previousProbability);
             previousProbability = decision.OccurrenceProbability;
         }
+    }
+
+    [Fact]
+    public void ContinuationDecider_LowInformationReducesGroupProbability()
+    {
+        AutonomousGroupChatContinuationDecider decider = new();
+        AutonomousGroupChatPlan plan = new()
+        {
+            MemberAiAccountIds = new[]
+            {
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid()
+            },
+            InitiatorAiAccountId = Guid.NewGuid(),
+            ContinuationRatePercent = 80,
+            MaximumRounds = 6,
+            Decision = new AutonomousGroupChatDecision
+            {
+                AverageRelationshipScore = 70,
+                WeakestRelationshipScore = 60
+            }
+        };
+        AutonomousGroupChatRoundPlan round = new()
+        {
+            Speakers = new[]
+            {
+                new AutonomousGroupChatSpeakerPlan
+                {
+                    SpeakerAiAccountId = Guid.NewGuid(),
+                    MessageCount = 1
+                },
+                new AutonomousGroupChatSpeakerPlan
+                {
+                    SpeakerAiAccountId = Guid.NewGuid(),
+                    MessageCount = 1
+                }
+            }
+        };
+
+        double normalProbability = decider.Decide(
+            plan,
+            1,
+            round,
+            previousRoundNaturallyClosed: false,
+            randomRoll: 0.99).OccurrenceProbability;
+        double lowInformationProbability = decider.Decide(
+            plan,
+            1,
+            round,
+            previousRoundNaturallyClosed: false,
+            randomRoll: 0.99,
+            consecutiveLowInformationRounds: 2).OccurrenceProbability;
+
+        Assert.True(lowInformationProbability < normalProbability);
     }
 
     [Fact]
@@ -521,7 +686,12 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
             new AiInteractionDiagnosticLogService(factory));
         GroupConversationContextService conversationContextService = new(
             factory,
-            identityContinuityService);
+            identityContinuityService,
+            new AiWorldConversationContextService(
+                factory,
+                new AiWorldAwarenessService(factory),
+                new AiWorldKnowledgeService(factory),
+                new AiWorldKnowledgeCandidateExtractor()));
         return new AutonomousGroupChatExecutionService(
             new AutonomousGroupChatJudge(factory),
             new AutonomousGroupChatPlanningService(factory),
@@ -548,7 +718,19 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
             conversationContextService,
             new GroupConversationDensitySettingsResolver(factory),
             new GroupConversationDiagnosticService(
-                new AiInteractionDiagnosticLogService(factory)));
+                new AiInteractionDiagnosticLogService(factory)),
+            CreateWorldKnowledgeProcessor(factory));
+    }
+
+    private static AiWorldKnowledgeMessageProcessor
+        CreateWorldKnowledgeProcessor(
+            VocaChat.Data.VocaChatDbContextFactory factory)
+    {
+        return new AiWorldKnowledgeMessageProcessor(
+            factory,
+            new AiWorldKnowledgeCandidateExtractor(),
+            new AiWorldKnowledgeService(factory),
+            new AiWorldAwarenessService(factory));
     }
 
     public void Dispose()
@@ -590,6 +772,35 @@ public sealed class AutonomousGroupChatExecutionTests : IDisposable
             IReadOnlyList<string> messages = Enumerable
                 .Range(1, request.ExpectedMessageCount)
                 .Select(index => $"{request.Speaker.Nickname}-{_requestCount}-{index}")
+                .ToList()
+                .AsReadOnly();
+            return Task.FromResult(messages);
+        }
+    }
+
+    private sealed class FailFirstRequestGenerator : IAiMessageGenerator
+    {
+        private bool _failed;
+
+        public List<AiMessageGenerationRequest> Requests { get; } = new();
+
+        public Task<IReadOnlyList<string>> GenerateMessagesAsync(
+            AiMessageGenerationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests.Add(request);
+            if (!_failed)
+            {
+                _failed = true;
+                throw new InvalidOperationException(
+                    "受控首位成员生成失败。");
+            }
+
+            IReadOnlyList<string> messages = Enumerable
+                .Range(1, request.ExpectedMessageCount)
+                .Select(index =>
+                    $"{request.Speaker.Nickname}-局部恢复-{index}")
                 .ToList()
                 .AsReadOnly();
             return Task.FromResult(messages);

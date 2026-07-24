@@ -255,6 +255,15 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         IReadOnlyList<string> unresolvedGoals = ParseStringList(
             root,
             "unresolvedGoals");
+        if (coveredPoints.Any(coveredPoint =>
+                ConversationInformationGainEvaluator.RepeatsPlanPoint(
+                    newContribution,
+                    coveredPoint)))
+        {
+            throw new AiMessageGenerationException(
+                "导演的新增内容只是复述已经覆盖的观点。");
+        }
+
         IReadOnlyList<string> avoidedTopics = ParseStringList(
             root,
             "avoidedTopics");
@@ -484,6 +493,10 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         {
             string operationText = GetRequiredString(item, "operation");
             string typeText = GetRequiredString(item, "type");
+            string factNatureText =
+                GetRequiredString(item, "factNature");
+            string mutabilityText =
+                GetRequiredString(item, "mutability");
             if (!Enum.TryParse(
                     operationText,
                     ignoreCase: true,
@@ -493,12 +506,28 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                     typeText,
                     ignoreCase: true,
                     out AiSelfMemoryType type)
-                || !Enum.IsDefined(type))
+                || !Enum.IsDefined(type)
+                || !Enum.TryParse(
+                    factNatureText,
+                    ignoreCase: true,
+                    out AiSelfMemoryFactNature factNature)
+                || !Enum.IsDefined(factNature)
+                || !Enum.TryParse(
+                    mutabilityText,
+                    ignoreCase: true,
+                    out AiSelfMemoryMutability mutability)
+                || !Enum.IsDefined(mutability))
             {
                 throw new AiMessageGenerationException(
-                    "导演返回了不支持的个人记忆操作或类型。");
+                    "导演返回了不支持的个人记忆操作、类型或分类。");
             }
 
+            Guid subjectAiAccountId = GetRequiredGuid(
+                item,
+                "subjectAiAccountId");
+            Guid characterWorldId = GetRequiredGuid(
+                item,
+                "characterWorldId");
             Guid? targetMemoryId = null;
             if (item.TryGetProperty(
                     "targetMemoryId",
@@ -517,19 +546,27 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
                 targetMemoryId = parsedTargetId;
             }
 
+            string factKey = GetRequiredString(item, "factKey")
+                .ToLowerInvariant();
             string summary = GetRequiredString(item, "summary");
             string reason = GetRequiredString(item, "reason");
-            if (summary.Length > AiSelfMemory.SummaryMaxLength
+            if (factKey.Length > AiSelfMemory.FactKeyMaxLength
+                || summary.Length > AiSelfMemory.SummaryMaxLength
                 || reason.Length > 200)
             {
                 throw new AiMessageGenerationException(
-                    "导演返回的个人记忆摘要或原因过长。");
+                    "导演返回的个人记忆事实键、摘要或原因过长。");
             }
 
             proposals.Add(new AiSelfMemoryProposal(
                 operation,
                 targetMemoryId,
+                subjectAiAccountId,
+                characterWorldId,
                 type,
+                factKey,
+                factNature,
+                mutability,
                 summary,
                 reason));
         }
@@ -555,12 +592,50 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         {
             builder.AppendLine($"- {instruction}");
         }
+        builder.AppendLine($"发言账号 Id：{request.Speaker.Id}");
         builder.AppendLine($"发言者：{request.Speaker.Nickname}");
         builder.AppendLine($"身份：{DisplayOrDefault(request.Speaker.IdentityDescription)}");
         builder.AppendLine($"性格：{DisplayOrDefault(request.Speaker.Personality)}");
         builder.AppendLine($"说话方式：{DisplayOrDefault(request.Speaker.SpeakingStyle)}");
+        (string worldName, string worldDescription) =
+            GetCharacterWorldDescription(request.Speaker);
+        builder.AppendLine(
+            $"所属角色世界 Id：{request.Speaker.CharacterWorldId}");
+        builder.AppendLine($"所属角色世界：{worldName}");
+        builder.AppendLine($"角色世界权威说明：{worldDescription}");
+        builder.AppendLine(
+            request.Speaker.CharacterWorldId == CharacterWorld.DefaultWorldId
+                ? "世界事实边界：默认现实世界中的当前营业、近期活动、票价、地址和经营信息需要用户或用户确认资料提供来源；新名称本身不构成违规。"
+                : "世界事实边界：允许规划符合该角色世界的新人物、地点和名词，但必须保持当前发言者的身份归属，不能借用其他角色的经历。");
         builder.AppendLine(
             $"其他参与者：{string.Join("、", request.OtherParticipants.Select(account => account.Nickname))}");
+        if (context.GroupWorldConversationContext is not null)
+        {
+            AppendGroupWorldConversationContext(
+                builder,
+                context.GroupWorldConversationContext,
+                request.OtherParticipants);
+        }
+        else if (context.WorldConversationContext is not null)
+        {
+            AppendWorldConversationContext(
+                builder,
+                context.WorldConversationContext,
+                request.RelationshipTarget);
+        }
+        else if (context.CrossWorldAiAccountIds.Count > 0)
+        {
+            string crossWorldNames = string.Join(
+                "、",
+                request.OtherParticipants
+                    .Where(account =>
+                        context.CrossWorldAiAccountIds.Contains(account.Id))
+                    .Select(account => account.Nickname));
+            builder.AppendLine(
+                $"跨世界远程通信对象：{crossWorldNames}。可以规划听闻、讨论、"
+                + "假设或评价，但不能规划无依据的见面、共同到访、"
+                + "物品传递或对方世界亲历。");
+        }
         builder.AppendLine(
             request.RelationshipTarget is null
                 ? "本轮 AI 关系对象：无（回应本地用户或面向全群，不能任意套用成员关系）"
@@ -631,6 +706,10 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         }
 
         AppendSelfMemories(builder, context.SelfMemories);
+        AppendProtectedFactPlanningBoundary(
+            builder,
+            request,
+            context.SelfMemories);
         AppendMemories(builder, context.Memories);
 
         builder.AppendLine("先从整段会话判断已经表达过什么、原始要求还有什么没完成，再选择一个会话节拍和动作。");
@@ -640,11 +719,168 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         builder.AppendLine("newContribution 必须指出本轮相对最近消息新增的内容，不能只是换一种说法赞同上一句。");
         builder.AppendLine("forbiddenClaims 必须包含当前好友没有资料或本人历史依据、因此不能声称亲历的事实类型。");
         builder.AppendLine("referencedSelfMemoryIds 只能填写本轮确实需要使用的本人个人记忆 Id；没有使用时返回空数组。");
-        builder.AppendLine("selfMemoryProposals 只记录本轮最终台词确实准备表达、且以后仍需保持一致的动态个人事实，最多两项。普通寒暄、即时情绪和对其他人的事实不得记录。");
-        builder.AppendLine("新增稳定身份事实不属于本轮权限；只可建议 OngoingActivity、Plan、Experience 或 Preference。Add 的 targetMemoryId 为 null；Update 和 Archive 必须指向上方当前账号的有效导演记忆。");
+        builder.AppendLine("selfMemoryProposals 只记录本轮最终台词确实准备表达、且以后仍需保持一致的动态个人事实，最多两项。每项必须原样填写当前发言账号 Id 和所属角色世界 Id，并提供稳定事实键、事实性质与可变性。普通寒暄、即时情绪和对其他人的事实不得记录。");
+        builder.AppendLine("新增稳定身份事实不属于本轮权限；只可建议 OngoingActivity、Plan、Experience 或 Preference。Add 的 targetMemoryId 为 null；Update 和 Archive 必须指向上方当前账号的有效导演记忆。事实性质只能是 Objective、Subjective 或 Narrative；可变性只能是 Immutable、Mutable、Evolving 或 Ephemeral。");
         builder.AppendLine("messageCount 必须在允许范围内；简单反应通常一条，普通回答可用一到两条，包含多个关联信息时可用两到三条，确实需要分层说明时可用三到四条。不能为了凑数切碎同一句话，也不要习惯性总选两条。");
         builder.AppendLine("用户明确要求多说几句、分开说或不要只回一句时，只要允许范围容纳，messageCount 至少选择 2。");
         return builder.ToString();
+    }
+
+    private static void AppendWorldConversationContext(
+        StringBuilder builder,
+        AiWorldConversationContext context,
+        AiAccount? relationshipTarget)
+    {
+        builder.AppendLine("当前发言者的世界认知边界（硬约束）：");
+        builder.AppendLine(
+            $"- 对平行世界存在的认知：{context.ParallelWorldAwareness}");
+        builder.AppendLine(
+            $"- 对当前对象背景差异的认知：{context.RelationshipAwareness}");
+
+        if (context.IsNewlyInformedByCurrentMessage)
+        {
+            builder.AppendLine(
+                "- 当前目标消息刚刚让发言者第一次明确获知平行世界可能存在。"
+                + "本轮应结合身份和性格作出自然反应，可以怀疑、求证、警惕、"
+                + "好奇或冷静接受，不能使用统一震惊模板。");
+        }
+
+        switch (context.RelationshipAwareness)
+        {
+            case AiWorldAwarenessState.AssumedSharedWorld:
+                builder.AppendLine(
+                    "- 目前仍默认双方生活在同一通常背景中。不能规划“另一个世界”"
+                    + "或“跨世界”的结论，陌生名词只能先当作地区、学校、组织或"
+                    + "生活环境差异理解。");
+                break;
+            case AiWorldAwarenessState.AnomalyObserved:
+                builder.AppendLine(
+                    "- 已注意到少量异常，但尚不能断言双方来自不同世界，也不能"
+                    + "显示系统保存的世界名称。可以保留听闻距离并询问概念含义。");
+                break;
+            case AiWorldAwarenessState.DifferentBackgroundRecognized:
+                builder.AppendLine(
+                    "- 已认识到双方生活背景明显不同，可以比较环境和常识，"
+                    + "但尚不能直接断言跨世界，也不能使用未在对话中获知的世界名。");
+                break;
+            case AiWorldAwarenessState.CrossWorldConfirmed:
+                builder.AppendLine(
+                    context.CanNameSubjectWorld
+                        ? $"- 已通过对话确认跨世界关系；当前对象所在世界可称为"
+                            + $"“{context.VisibleSubjectWorldName}”。仍只能使用下方"
+                            + "有来源的具体知识。"
+                        : "- 已通过对话确认跨世界关系，但当前没有可靠世界名称。"
+                            + "只能使用有来源的具体知识。");
+                break;
+        }
+
+        if (context.KnowsParallelWorldsExist
+            && context.RelationshipAwareness !=
+                AiWorldAwarenessState.CrossWorldConfirmed)
+        {
+            builder.AppendLine(
+                "- 发言者已经知道平行世界可能存在，可以把它作为一种可能性，"
+                + "但不能因此直接认定当前对象来自其他世界。");
+        }
+
+        AppendWorldInquiryGuidance(builder, context.InquiryMode);
+        builder.AppendLine(
+            relationshipTarget is null
+                ? "- 本轮没有具体 AI 对象，不得把任何方向性世界知识套给本地用户。"
+                : $"- 下方知识只属于当前发言者对"
+                    + $"“{relationshipTarget.Nickname}”的认识。");
+        builder.AppendLine("- 当前话题相关的已验证世界知识：");
+        if (context.RelevantKnowledge.Count == 0)
+        {
+            builder.AppendLine("  （暂无）");
+            return;
+        }
+
+        foreach (AiConversationWorldKnowledge knowledge in
+                 context.RelevantKnowledge)
+        {
+            builder.AppendLine(
+                $"  - [{knowledge.TrustLevel}] {knowledge.Summary}");
+        }
+    }
+
+    private static void AppendGroupWorldConversationContext(
+        StringBuilder builder,
+        AiGroupWorldConversationContext context,
+        IReadOnlyList<AiAccount> participants)
+    {
+        builder.AppendLine("当前发言者的群聊世界认知边界（逐成员硬隔离）：");
+        builder.AppendLine(
+            $"- 对平行世界存在的认知：{context.ParallelWorldAwareness}");
+        if (context.IsNewlyInformedByCurrentMessage)
+        {
+            builder.AppendLine(
+                "- 当前目标消息刚刚让发言者第一次明确获知平行世界可能存在；"
+                + "需要按本人身份和性格自然反应，不能套用统一震惊模板。");
+        }
+
+        if (context.ParticipantContexts.Count == 0)
+        {
+            builder.AppendLine(
+                "- 本轮没有可用的成员方向性世界知识，不能从账号资料或"
+                + "模型先验补全其他成员的世界。");
+            return;
+        }
+
+        foreach (AiWorldConversationContext participantContext in
+                 context.ParticipantContexts)
+        {
+            AiAccount? participant = participants.SingleOrDefault(account =>
+                account.Id == participantContext.SubjectAiAccountId);
+            if (participant is null)
+            {
+                continue;
+            }
+
+            builder.AppendLine(
+                $"- 对“{participant.Nickname}”的背景认知："
+                + $"{participantContext.RelationshipAwareness}");
+            builder.AppendLine(
+                participantContext.CanNameSubjectWorld
+                    ? $"  已经从对话得知其世界名称为"
+                        + $"“{participantContext.VisibleSubjectWorldName}”。"
+                    : "  不得显示或猜测其系统世界名称。");
+            AppendWorldInquiryGuidance(
+                builder,
+                participantContext.InquiryMode);
+            if (participantContext.RelevantKnowledge.Count == 0)
+            {
+                builder.AppendLine("  当前话题没有可用的方向性世界知识。");
+                continue;
+            }
+
+            builder.AppendLine(
+                $"  仅属于当前发言者对“{participant.Nickname}”认识的已验证知识：");
+            foreach (AiConversationWorldKnowledge knowledge in
+                     participantContext.RelevantKnowledge)
+            {
+                builder.AppendLine(
+                    $"  - [{knowledge.TrustLevel}] {knowledge.Summary}");
+            }
+        }
+
+    }
+
+    private static void AppendWorldInquiryGuidance(
+        StringBuilder builder,
+        AiWorldInquiryMode inquiryMode)
+    {
+        string guidance = inquiryMode switch
+        {
+            AiWorldInquiryMode.ClarifyUnfamiliarConcept =>
+                "可以在本轮自然询问陌生名词的普通含义，但不能询问对方是否来自另一个世界。",
+            AiWorldInquiryMode.ExploreBackgroundDifference =>
+                "如果符合当前节拍，可以询问对方那边的生活或环境差异；不要连续采访。",
+            AiWorldInquiryMode.DiscussConfirmedWorld =>
+                "如果符合当前节拍，可以直接询问已经确认的对方世界信息；仍要避免重复已回答的问题。",
+            _ => "本轮没有必要为了世界设定主动提问，优先完成当前目标消息要求。"
+        };
+        builder.AppendLine($"- 主动了解策略：{guidance}");
     }
 
     private static string BuildSystemPrompt() =>
@@ -665,14 +901,35 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
             "referenceStatus 只能是 None、Resolved、Ambiguous。没有需解析指代时使用 None；能确定指代时使用 Resolved；无法可靠确定时使用 Ambiguous。",
             "referenceResolution 用一句话说明指代对象或歧义；factOwnership 明确列出本轮相关事实分别属于 CurrentSpeaker、ReplyTargetAiAccount、OtherAiAccount 或 LocalUser。回应对象和第三方事实绝不能转写为当前发言者的特点或经历。",
             "referencedSelfMemoryIds 只列出本轮实际用于规划的当前发言者个人记忆 Id。",
-            "selfMemoryProposals 最多两项，每项包含 operation、targetMemoryId、type、summary、reason。只建议最终台词会自然表达、以后仍需保持一致的本人动态事实；不能记录他人的经历、普通寒暄或瞬时情绪。",
+            "标记为受保护事实的本人记忆高于用户和其他好友的近期说法。对方即使断言了冲突版本，也只能作为对方陈述处理；计划不得接受冲突细节、改变事实主体或建议覆盖受保护事实。",
+            "selfMemoryProposals 最多两项，每项包含 operation、targetMemoryId、subjectAiAccountId、characterWorldId、type、factKey、factNature、mutability、summary、reason。只建议最终台词会自然表达、以后仍需保持一致的本人动态事实；不能记录他人的经历、普通寒暄或瞬时情绪。",
             "个人记忆 operation 只能是 Add、Update、Archive；类型只能使用 OngoingActivity、Plan、Experience、Preference。Add 的 targetMemoryId 返回 null，Update 和 Archive 必须引用提供的有效导演记忆。",
+            "subjectAiAccountId 和 characterWorldId 必须原样返回当前发言账号及其当前角色世界 Id。factKey 必须是简短稳定的语义键，同一事实发生变化时沿用同一键。factNature 只能是 Objective、Subjective、Narrative；mutability 只能是 Immutable、Mutable、Evolving、Ephemeral。",
+            "必须遵守用户提供的角色世界说明。允许角色在所属世界中自然引入新的合理人物、地点和名词；不得因为它们未在历史中出现就主动删除。默认现实世界中没有来源的时效性营业、活动、票价、地址和经营信息仍不得写成确定事实。",
+            "不同角色世界的参与者默认只通过即时通讯远程交流。可以规划介绍、听闻、评价和假设，但没有用户明确规则时不能规划已经见面、共同到访、传递物品或亲历对方世界。",
             "长期记忆只代表当前发言者过去对当前对象形成的认识。只有与本轮目标自然相关时才能用于规划，不能让记忆取代目标消息，也不能把对方经历归到当前发言者名下。",
             "messageCount 表示本轮应独立发送几条聊天消息，必须处于业务层允许范围内。消息数量服务于完整表达和自然节奏，不用于机械切句。",
             "不要固定选择两条：先根据内容判断一条是否足以说完整，再在同样自然的多个数量之间保留变化。",
             "各数组没有内容时返回空数组；普通语义数组最多五项，个人记忆建议最多两项。",
             "严格输出 json 对象，不要输出 Markdown 或额外解释。",
             "json 示例：{\"action\":\"Answer\",\"questionMode\":\"Optional\",\"beat\":\"Clarify\",\"topicFocus\":\"对方询问的时间\",\"responseGoal\":\"给出明确时间\",\"messageCount\":2,\"targetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"coveredPoints\":[],\"unresolvedGoals\":[\"回答具体时间\"],\"newContribution\":\"给出尚未出现的具体时间\",\"avoidedTopics\":[],\"forbiddenClaims\":[\"没有本人历史依据的昨晚行程\"],\"referenceStatus\":\"None\",\"referenceResolution\":\"\",\"factOwnership\":[],\"referencedSelfMemoryIds\":[],\"selfMemoryProposals\":[]}");
+
+    private static (string Name, string Description)
+        GetCharacterWorldDescription(AiAccount account)
+    {
+        if (account.CharacterWorld is not null)
+        {
+            return (
+                account.CharacterWorld.Name,
+                DisplayOrDefault(account.CharacterWorld.Description));
+        }
+
+        return account.CharacterWorldId == CharacterWorld.DefaultWorldId
+            ? (
+                CharacterWorld.DefaultWorldName,
+                CharacterWorld.DefaultWorldDescription)
+            : ("用户定义世界", "遵守该账号已经关联的角色世界设定。");
+    }
 
     private static AiMessageCountRange GetMessageCountRange(
         AiMessageGenerationRequest request) =>
@@ -707,8 +964,12 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         }
 
         AiDialogueMessage message = contextMessage.Message;
+        string worldLabel = contextMessage.CharacterWorldId is Guid worldId
+            ? $" [World={worldId}]"
+            : string.Empty;
         builder.AppendLine(
-            $"[{contextMessage.Ownership}] [{FormatSentAt(message.SentAt)}] "
+            $"[{contextMessage.Ownership}] [{contextMessage.FactUsage}]"
+            + $"{worldLabel} [{FormatSentAt(message.SentAt)}] "
             + $"{message.SenderDisplayName}：{Truncate(message.Content, 400)}");
     }
 
@@ -750,9 +1011,46 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         foreach (AiConversationSelfMemory memory in memories)
         {
             builder.AppendLine(
-                $"[{memory.Id}] [{memory.Type}] {Truncate(memory.Summary, 300)}"
+                $"[{(memory.IsProtectedFact ? "受保护事实" : "一般记忆")}] "
+                + $"[{memory.Id}] [{memory.Type}] [{memory.FactNature}] "
+                + $"[{memory.Mutability}] [{memory.TrustLevel}] "
+                + $"[事实键={memory.FactKey}] [世界={memory.CharacterWorldId}] "
+                + Truncate(memory.Summary, 300)
                 + $"（来源：{memory.Source}，用户锁定：{memory.IsUserLocked}）");
         }
+    }
+
+    private static void AppendProtectedFactPlanningBoundary(
+        StringBuilder builder,
+        AiMessageGenerationRequest request,
+        IReadOnlyList<AiConversationSelfMemory> memories)
+    {
+        string currentTarget = string.Join(
+            ' ',
+            new[]
+            {
+                request.FocusContent,
+                request.ReplyTarget?.Message?.Content ?? string.Empty,
+                request.ConversationAnchor?.Content ?? string.Empty
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        if (!memories.Any(memory =>
+                memory.IsProtectedFact
+                && AiFactGroundingMatcher.HasTopicOverlap(
+                    currentTarget,
+                    memory.Summary)))
+        {
+            return;
+        }
+
+        builder.AppendLine(
+            "当前目标涉及受保护事实。计划只能使用该事实明确包含的内容；"
+            + "不得接受对方提供的冲突版本，也不得根据身份资料、世界说明"
+            + "或旧台词补写事实中没有的地点、原因、现场动作和结果。"
+            + "受保护事实本身已经确认；对方直接询问或给出冲突版本时，"
+            + "计划应要求自然纠正并重述正确事实，不能把已知事实规划成"
+            + "“无法判断”或含糊回避。条目使用“因此/所以”等词表达的"
+            + "因果方向必须保持，不能把后半句反写成前半句的原因。"
+            + "未知细节应规划为纠正或保留不确定性。");
     }
 
     private static string GetRequiredString(
@@ -773,6 +1071,20 @@ public sealed class OpenAiCompatibleConversationDirector : IConversationDirector
         }
 
         return value;
+    }
+
+    private static Guid GetRequiredGuid(
+        JsonElement root,
+        string propertyName)
+    {
+        string value = GetRequiredString(root, propertyName);
+        if (!Guid.TryParse(value, out Guid parsed))
+        {
+            throw new AiMessageGenerationException(
+                $"导演计划中的 {propertyName} 必须是有效 Guid。");
+        }
+
+        return parsed;
     }
 
     private static string ValidateLength(

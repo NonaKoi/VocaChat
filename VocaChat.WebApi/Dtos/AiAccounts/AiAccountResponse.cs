@@ -1,4 +1,5 @@
 using System;
+using VocaChat.WebApi.Dtos.CharacterWorlds;
 
 namespace VocaChat.WebApi.Dtos.AiAccounts;
 
@@ -24,6 +25,8 @@ public sealed class AiAccountResponse
     public string OnlineStatus { get; init; } = string.Empty;
     public string? AvatarUrl { get; init; }
     public string? CoverUrl { get; init; }
+    public Guid CharacterWorldId { get; init; }
+    public CharacterWorldResponse CharacterWorld { get; init; } = new();
     public IReadOnlyList<string> InterestTags { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> PersonalityTags { get; init; } = Array.Empty<string>();
     public DateTime CreatedAt { get; init; }

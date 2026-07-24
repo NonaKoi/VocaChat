@@ -181,7 +181,19 @@ public sealed class GroupConversationContextServiceTests : IDisposable
             new AiInteractionDiagnosticLogService(factory));
         return new GroupConversationContextService(
             factory,
-            identityContinuityService);
+            identityContinuityService,
+            CreateWorldConversationContextService(factory));
+    }
+
+    private static AiWorldConversationContextService
+        CreateWorldConversationContextService(
+            VocaChatDbContextFactory factory)
+    {
+        return new AiWorldConversationContextService(
+            factory,
+            new AiWorldAwarenessService(factory),
+            new AiWorldKnowledgeService(factory),
+            new AiWorldKnowledgeCandidateExtractor());
     }
 
     private AiAccount CreateAccount(string nickname)

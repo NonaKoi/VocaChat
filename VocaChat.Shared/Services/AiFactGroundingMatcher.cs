@@ -9,6 +9,23 @@ internal static class AiFactGroundingMatcher
 {
     public static bool HasGroundingOverlap(string claim, string source)
     {
+        return HasOverlap(claim, source, maximumRequiredOverlap: 3);
+    }
+
+    /// <summary>
+    /// 判断两段文本是否在谈论同一事实主题。该判断比事实依据校验更宽，
+    /// 只用于从受保护记忆中找到当前话题，不能证明回复已经陈述完整事实。
+    /// </summary>
+    public static bool HasTopicOverlap(string claim, string source)
+    {
+        return HasOverlap(claim, source, maximumRequiredOverlap: 2);
+    }
+
+    private static bool HasOverlap(
+        string claim,
+        string source,
+        int maximumRequiredOverlap)
+    {
         string normalizedClaim = Normalize(claim);
         string normalizedSource = Normalize(source);
         if (normalizedClaim.Length == 0 || normalizedSource.Length == 0)
@@ -25,7 +42,9 @@ internal static class AiFactGroundingMatcher
         HashSet<string> sourceFragments = GetFragments(normalizedSource);
         int overlapCount = GetFragments(normalizedClaim)
             .Count(sourceFragments.Contains);
-        int requiredOverlap = Math.Min(3, Math.Max(1, sourceFragments.Count / 3));
+        int requiredOverlap = Math.Min(
+            maximumRequiredOverlap,
+            Math.Max(1, sourceFragments.Count / 3));
         return overlapCount >= requiredOverlap;
     }
 

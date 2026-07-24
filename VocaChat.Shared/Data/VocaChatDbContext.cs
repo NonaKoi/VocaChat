@@ -23,6 +23,14 @@ public sealed class VocaChatDbContext : DbContext
         Set<AiRelationshipChange>();
     public DbSet<AiMemory> AiMemories => Set<AiMemory>();
     public DbSet<AiSelfMemory> AiSelfMemories => Set<AiSelfMemory>();
+    public DbSet<AiParallelWorldAwareness> AiParallelWorldAwareness =>
+        Set<AiParallelWorldAwareness>();
+    public DbSet<AiWorldAwareness> AiWorldAwareness =>
+        Set<AiWorldAwareness>();
+    public DbSet<AiWorldKnowledge> AiWorldKnowledge =>
+        Set<AiWorldKnowledge>();
+    public DbSet<AiWorldKnowledgeEvidence> AiWorldKnowledgeEvidence =>
+        Set<AiWorldKnowledgeEvidence>();
     public DbSet<AutonomousPrivateChatSession> AutonomousPrivateChatSessions =>
         Set<AutonomousPrivateChatSession>();
     public DbSet<AutonomousPrivateChatRound> AutonomousPrivateChatRounds =>
@@ -36,6 +44,7 @@ public sealed class VocaChatDbContext : DbContext
     public DbSet<AiModelInvocationUsage> AiModelInvocationUsages =>
         Set<AiModelInvocationUsage>();
     public DbSet<AiAccount> AiAccounts => Set<AiAccount>();
+    public DbSet<CharacterWorld> CharacterWorlds => Set<CharacterWorld>();
     public DbSet<AiAccountTag> AiAccountTags => Set<AiAccountTag>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
     public DbSet<Contact> Contacts => Set<Contact>();
@@ -43,6 +52,8 @@ public sealed class VocaChatDbContext : DbContext
     public DbSet<PrivateMessage> PrivateMessages => Set<PrivateMessage>();
     public DbSet<GroupChat> GroupChats => Set<GroupChat>();
     public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+    public DbSet<GroupMessageAudience> GroupMessageAudience =>
+        Set<GroupMessageAudience>();
     public DbSet<Post> Posts => Set<Post>();
     public DbSet<PostImage> PostImages => Set<PostImage>();
     public DbSet<PostLike> PostLikes => Set<PostLike>();
@@ -73,6 +84,14 @@ public sealed class VocaChatDbContext : DbContext
         modelBuilder.ApplyConfiguration(new AiMemoryConfiguration());
         modelBuilder.ApplyConfiguration(new AiSelfMemoryConfiguration());
         modelBuilder.ApplyConfiguration(
+            new AiParallelWorldAwarenessConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiWorldAwarenessConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiWorldKnowledgeConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new AiWorldKnowledgeEvidenceConfiguration());
+        modelBuilder.ApplyConfiguration(
             new AutonomousPrivateChatSessionConfiguration());
         modelBuilder.ApplyConfiguration(
             new AutonomousPrivateChatRoundConfiguration());
@@ -85,6 +104,7 @@ public sealed class VocaChatDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new AiModelInvocationUsageConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountConfiguration());
+        modelBuilder.ApplyConfiguration(new CharacterWorldConfiguration());
         modelBuilder.ApplyConfiguration(new AiAccountTagConfiguration());
         modelBuilder.ApplyConfiguration(new ContactGroupConfiguration());
         modelBuilder.ApplyConfiguration(new ContactConfiguration());
@@ -92,6 +112,8 @@ public sealed class VocaChatDbContext : DbContext
         modelBuilder.ApplyConfiguration(new PrivateMessageConfiguration());
         modelBuilder.ApplyConfiguration(new GroupChatConfiguration());
         modelBuilder.ApplyConfiguration(new GroupMessageConfiguration());
+        modelBuilder.ApplyConfiguration(
+            new GroupMessageAudienceConfiguration());
         modelBuilder.ApplyConfiguration(new PostConfiguration());
         modelBuilder.ApplyConfiguration(new PostImageConfiguration());
         modelBuilder.ApplyConfiguration(new PostLikeConfiguration());

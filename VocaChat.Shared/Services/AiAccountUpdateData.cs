@@ -19,6 +19,7 @@ public sealed class AiAccountUpdateData
     public string Occupation { get; init; } = string.Empty;
     public string Hometown { get; init; } = string.Empty;
     public OnlineStatus OnlineStatus { get; init; } = OnlineStatus.Offline;
+    public Guid? CharacterWorldId { get; init; }
     public IReadOnlyCollection<string> InterestTags { get; init; } =
         Array.Empty<string>();
     public IReadOnlyCollection<string> PersonalityTags { get; init; } =
@@ -35,5 +36,6 @@ public enum AiAccountUpdateStatus
     InvalidData,
     DuplicateNickname,
     DuplicateVcNumber,
+    CharacterWorldNotFound,
     PersistenceFailed
 }

@@ -5,7 +5,7 @@ import type { AiAccountResponse, ContactResponse, PostResponse } from '@/api/typ
 import { ActivityFeed } from '@/components/activity/ActivityFeed'
 import { ContactList } from '@/components/contacts/ContactList'
 
-const friend: AiAccountResponse = { id: 'friend-1', vcNumber: 'Friend#01', nickname: '小语', identityDescription: '', personality: '', speakingStyle: '', signature: '一起慢慢前进。', birthday: null, age: null, zodiacSign: null, gender: 'Unspecified', location: '', occupation: '', hometown: '', onlineStatus: 'Online', avatarUrl: null, coverUrl: null, interestTags: [], personalityTags: [], createdAt: '2026-07-17T12:00:00' }
+const friend: AiAccountResponse = { id: 'friend-1', vcNumber: 'Friend#01', nickname: '小语', identityDescription: '', personality: '', speakingStyle: '', signature: '一起慢慢前进。', birthday: null, age: null, zodiacSign: null, gender: 'Unspecified', location: '', occupation: '', hometown: '', onlineStatus: 'Online', avatarUrl: null, coverUrl: null, characterWorldId: 'world-default', characterWorld: { id: 'world-default', name: '现实世界', description: '采用现代现实社会的基本规则。', createdAt: '2026-07-17T10:00:00Z', updatedAt: '2026-07-17T10:00:00Z' }, interestTags: [], personalityTags: [], createdAt: '2026-07-17T12:00:00' }
 
 describe('好友与动态页面', () => {
   it('按好友分组显示真实联系人并支持选择', async () => {

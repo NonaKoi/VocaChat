@@ -15,7 +15,12 @@ public enum AiSelfMemoryProposalOperation
 public sealed record AiSelfMemoryProposal(
     AiSelfMemoryProposalOperation Operation,
     Guid? TargetMemoryId,
+    Guid SubjectAiAccountId,
+    Guid CharacterWorldId,
     AiSelfMemoryType Type,
+    string FactKey,
+    AiSelfMemoryFactNature FactNature,
+    AiSelfMemoryMutability Mutability,
     string Summary,
     string Reason);
 
@@ -57,6 +62,10 @@ public sealed class AiSelfMemoryProposalApplicationResult
     public AiSelfMemoryProposalApplicationStatus Status { get; init; }
     public int AppliedCount { get; init; }
     public int AlreadyAppliedCount { get; init; }
+    public int AcceptedCount { get; init; }
+    public int SupersededCount { get; init; }
+    public int ArchivedCount { get; init; }
+    public int PendingCount { get; init; }
     public int RejectedCount { get; init; }
     public string Message { get; init; } = string.Empty;
 

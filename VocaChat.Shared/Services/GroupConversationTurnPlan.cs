@@ -72,6 +72,7 @@ public sealed record GroupConversationTurnPlan
         { get; init; }
     public required AiSpeakerSelectionStatus SelectionStatus { get; init; }
     public bool UsedRuleFallback { get; init; }
+    public string? ModelPlanRejectionReason { get; init; }
 }
 
 /// <summary>

@@ -87,6 +87,10 @@ public sealed class AiAccountConfiguration : IEntityTypeConfiguration<AiAccount>
         builder.Property(aiAccount => aiAccount.ProfileCoverMediaId)
             .HasMaxLength(AiAccount.MediaIdMaxLength);
 
+        builder.Property(aiAccount => aiAccount.CharacterWorldId)
+            .IsRequired()
+            .HasDefaultValue(CharacterWorld.DefaultWorldId);
+
         builder.Property(aiAccount => aiAccount.CreatedAt)
             .IsRequired();
 
@@ -95,6 +99,14 @@ public sealed class AiAccountConfiguration : IEntityTypeConfiguration<AiAccount>
 
         builder.HasIndex(aiAccount => aiAccount.VcNumber)
             .IsUnique();
+
+        builder.HasIndex(aiAccount => aiAccount.CharacterWorldId);
+
+        builder.HasOne(aiAccount => aiAccount.CharacterWorld)
+            .WithMany()
+            .HasForeignKey(aiAccount => aiAccount.CharacterWorldId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .IsRequired();
 
         builder.Navigation(aiAccount => aiAccount.Tags)
             .HasField("_tags")

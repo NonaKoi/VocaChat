@@ -60,6 +60,15 @@ export function MessageTokenUsage({
         sharedLabel={responseSharedLabel}
         usage={usage.replyGeneration}
       />
+      <StageUsage
+        label="记忆判断"
+        sharedLabel={responseSharedLabel}
+        usage={usage.selfMemoryJudgment}
+      />
+      <StageUsage
+        label="世界知识提取"
+        usage={usage.worldKnowledgeExtraction}
+      />
       <p>
         合计 {formatTokenCount(usage.totalTokens)} Token
         {!usage.usageComplete && ' · 部分调用未返回用量'}

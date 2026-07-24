@@ -25,6 +25,10 @@ public sealed class AutonomousPrivateChatExecutionService
     private readonly AiReplyTimingScheduler _replyTimingScheduler;
     private readonly ConversationQuestionPolicyService _questionPolicyService;
     private readonly AiIdentityContinuityService _identityContinuityService;
+    private readonly AiWorldKnowledgeMessageProcessor?
+        _worldKnowledgeProcessor;
+    private readonly AiWorldConversationContextService?
+        _worldConversationContextService;
 
     public AutonomousPrivateChatExecutionService(
         AutonomousPrivateChatJudge privateChatJudge,
@@ -42,7 +46,10 @@ public sealed class AutonomousPrivateChatExecutionService
         AiMemoryService memoryService,
         AiReplyTimingScheduler replyTimingScheduler,
         ConversationQuestionPolicyService questionPolicyService,
-        AiIdentityContinuityService identityContinuityService)
+        AiIdentityContinuityService identityContinuityService,
+        AiWorldKnowledgeMessageProcessor? worldKnowledgeProcessor = null,
+        AiWorldConversationContextService?
+            worldConversationContextService = null)
     {
         _privateChatJudge = privateChatJudge;
         _aiAccountService = aiAccountService;
@@ -64,6 +71,9 @@ public sealed class AutonomousPrivateChatExecutionService
             ?? throw new ArgumentNullException(nameof(questionPolicyService));
         _identityContinuityService = identityContinuityService
             ?? throw new ArgumentNullException(nameof(identityContinuityService));
+        _worldKnowledgeProcessor = worldKnowledgeProcessor;
+        _worldConversationContextService =
+            worldConversationContextService;
     }
 
     /// <summary>
@@ -162,6 +172,7 @@ public sealed class AutonomousPrivateChatExecutionService
         double? currentRandomRoll = null;
         AutonomousPrivateChatRoundPlan? previousRoundPlan = null;
         string lastMessageContent = string.Empty;
+        int consecutiveLowInformationRounds = 0;
         AutonomousPrivateChatSessionEndReason completionReason =
             AutonomousPrivateChatSessionEndReason.HardLimitReached;
 
@@ -174,6 +185,7 @@ public sealed class AutonomousPrivateChatExecutionService
                 _randomSource.NextUnit(),
                 _randomSource.NextUnit());
             int roundNumber = session.CompletedRounds + 1;
+            int roundMessageStart = messages.Count;
 
             RoundExecutionAttempt roundAttempt = await TryExecuteRoundAsync(
                     session,
@@ -214,6 +226,12 @@ public sealed class AutonomousPrivateChatExecutionService
             session = roundAttempt.ProgressedSession ?? session;
             previousRoundPlan = roundPlan;
             lastMessageContent = messages[^1].Content;
+            ConversationInformationGainAssessment informationGain =
+                AssessInformationGain(messages, roundMessageStart);
+            consecutiveLowInformationRounds =
+                informationGain.IsLowInformation
+                    ? consecutiveLowInformationRounds + 1
+                    : 0;
 
             if (session.CompletedRounds >= session.MaximumRounds)
             {
@@ -230,7 +248,8 @@ public sealed class AutonomousPrivateChatExecutionService
                     currentOccurrenceProbability,
                     roundPlan,
                     naturallyClosed,
-                    _randomSource.NextUnit());
+                    _randomSource.NextUnit(),
+                    consecutiveLowInformationRounds);
 
             if (!continuationDecision.ShouldContinue)
             {
@@ -446,10 +465,11 @@ public sealed class AutonomousPrivateChatExecutionService
         messageTime = initiatorSaveAttempt.MessageTime;
         progressedSession = initiatorSaveAttempt.ProgressedSession;
         errorMessage = initiatorSaveAttempt.ErrorMessage;
-        ApplyIdentityContinuity(
+        await ApplyIdentityContinuityAsync(
             session.PrivateChatId,
             initiatorBatch,
-            messages.Skip(initiatorMessageStart).ToList());
+            messages.Skip(initiatorMessageStart).ToList(),
+            cancellationToken);
         if (!initiatorSaveAttempt.Succeeded)
         {
             return RoundExecutionAttempt.Failed(
@@ -501,10 +521,11 @@ public sealed class AutonomousPrivateChatExecutionService
         messageTime = recipientSaveAttempt.MessageTime;
         progressedSession = recipientSaveAttempt.ProgressedSession;
         errorMessage = recipientSaveAttempt.ErrorMessage;
-        ApplyIdentityContinuity(
+        await ApplyIdentityContinuityAsync(
             session.PrivateChatId,
             recipientBatch,
-            messages.Skip(recipientMessageStart).ToList());
+            messages.Skip(recipientMessageStart).ToList(),
+            cancellationToken);
         if (!recipientSaveAttempt.Succeeded)
         {
             return RoundExecutionAttempt.Failed(
@@ -602,6 +623,9 @@ public sealed class AutonomousPrivateChatExecutionService
         };
         generationRequest = _identityContinuityService
             .PrepareGenerationRequest(generationRequest);
+        generationRequest = _worldConversationContextService?
+            .PrepareGenerationRequest(generationRequest)
+            ?? generationRequest;
         ConversationDirectionPlan directionPlan =
             await _conversationDirector.CreatePlanAsync(
                 generationRequest,
@@ -625,17 +649,18 @@ public sealed class AutonomousPrivateChatExecutionService
             contents);
     }
 
-    private void ApplyIdentityContinuity(
+    private async Task ApplyIdentityContinuityAsync(
         Guid privateChatId,
         AiDirectedMessageBatch batch,
-        IReadOnlyList<PrivateMessage> savedMessages)
+        IReadOnlyList<PrivateMessage> savedMessages,
+        CancellationToken cancellationToken)
     {
         if (savedMessages.Count == 0)
         {
             return;
         }
 
-        _identityContinuityService.ApplyAfterMessagesSaved(
+        await _identityContinuityService.ApplyAfterMessagesSavedAsync(
             batch.Request,
             batch.ContinuityPlan,
             privateChatId,
@@ -644,7 +669,8 @@ public sealed class AutonomousPrivateChatExecutionService
                     message.Content,
                     message.SentAt))
                 .ToList()
-                .AsReadOnly());
+                .AsReadOnly(),
+            cancellationToken);
     }
 
     /// <summary>
@@ -777,6 +803,12 @@ public sealed class AutonomousPrivateChatExecutionService
             }
 
             messages.Add(message);
+            if (_worldKnowledgeProcessor is not null)
+            {
+                await _worldKnowledgeProcessor.ProcessPrivateMessageAsync(
+                    message.Id,
+                    cancellationToken);
+            }
         }
 
         return MessageSaveAttempt.Completed(session, messageTime);
@@ -842,6 +874,36 @@ public sealed class AutonomousPrivateChatExecutionService
         return string.IsNullOrWhiteSpace(secondaryError)
             ? primaryError
             : $"{primaryError} {secondaryError}";
+    }
+
+    private static ConversationInformationGainAssessment
+        AssessInformationGain(
+        IReadOnlyList<PrivateMessage> messages,
+        int roundMessageStart)
+    {
+        IReadOnlyList<ConversationInformationMessage> previousRounds =
+            messages
+                .Take(roundMessageStart)
+                .Where(message =>
+                    message.SenderAiAccountId is not null)
+                .Select(message => new ConversationInformationMessage(
+                    message.SenderAiAccountId!.Value,
+                    message.Content))
+                .ToList()
+                .AsReadOnly();
+        IReadOnlyList<ConversationInformationMessage> currentRound =
+            messages
+                .Skip(roundMessageStart)
+                .Where(message =>
+                    message.SenderAiAccountId is not null)
+                .Select(message => new ConversationInformationMessage(
+                    message.SenderAiAccountId!.Value,
+                    message.Content))
+                .ToList()
+                .AsReadOnly();
+        return ConversationInformationGainEvaluator.AssessRound(
+            currentRound,
+            previousRounds);
     }
 
     private sealed record RoundExecutionAttempt(

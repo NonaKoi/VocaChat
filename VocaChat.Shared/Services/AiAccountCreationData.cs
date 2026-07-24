@@ -21,6 +21,7 @@ public sealed class AiAccountCreationData
     public string Occupation { get; init; } = string.Empty;
     public string Hometown { get; init; } = string.Empty;
     public OnlineStatus OnlineStatus { get; init; } = OnlineStatus.Offline;
+    public Guid? CharacterWorldId { get; init; }
     public IReadOnlyCollection<string> InterestTags { get; init; } = Array.Empty<string>();
     public IReadOnlyCollection<string> PersonalityTags { get; init; } = Array.Empty<string>();
 }

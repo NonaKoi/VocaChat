@@ -90,9 +90,8 @@ public sealed class OpenAiCompatibleGroupConversationDirector
                     userPrompt,
                     temperature: 0.25,
                     topP: 0.65,
-                    maximumCompletionTokens: Math.Min(
-                        _options.MaximumCompletionTokens,
-                        768),
+                    maximumCompletionTokens:
+                        _options.GroupDirectorMaximumCompletionTokens,
                     cancellationToken,
                     invocationContext: request.UsageCorrelation
                         ?.CreateInvocationContext(
@@ -104,12 +103,18 @@ public sealed class OpenAiCompatibleGroupConversationDirector
                     GroupConversationTurnPlan plan = ParsePlan(
                         content,
                         request,
-                        fallbackPlan.SelectionStatus,
+                        fallbackPlan,
                         candidateIds);
                     if (_validator.TryValidate(
                             request,
                             plan,
-                            out string planError))
+                            out string planError)
+                        && TryValidateWorldKnowledgeScopes(
+                            request,
+                            plan,
+                            candidatePool,
+                            candidateContexts,
+                            out planError))
                     {
                         return plan;
                     }
@@ -130,19 +135,24 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         {
             throw;
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception)
+            when (!cancellationToken.IsCancellationRequested)
         {
-            // 群级模型导演不可用不应阻断聊天，继续执行规则回退计划。
+            validationError = $"模型导演调用失败：{exception.Message}";
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return fallbackPlan;
+        return fallbackPlan with
+        {
+            ModelPlanRejectionReason = validationError
+                ?? "模型群聊计划在限定次数内未通过验证。"
+        };
     }
 
     private static GroupConversationTurnPlan ParsePlan(
         string? content,
         GroupConversationPlanningRequest request,
-        AiSpeakerSelectionStatus selectionStatus,
+        GroupConversationTurnPlan fallbackPlan,
         IReadOnlySet<Guid> candidateIds)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -166,22 +176,27 @@ public sealed class OpenAiCompatibleGroupConversationDirector
                     "群聊导演选择了候选池之外的发言者。");
             }
 
+            GroupConversationRole role =
+                GetRequiredEnum<GroupConversationRole>(item, "role");
             speakers.Add(new GroupConversationSpeakerPlan
             {
                 SpeakerAiAccountId = speakerId,
-                ReplyTargetMessageId = GetOptionalGuid(
+                ReplyTargetMessageId = ResolveReplyTargetMessageId(
                     item,
-                    "replyTargetMessageId"),
+                    request),
                 TargetAiAccountId = GetOptionalGuid(
                     item,
                     "targetAiAccountId"),
                 Audience = GetRequiredEnum<GroupConversationAudience>(
                     item,
                     "audience"),
-                Role = GetRequiredEnum<GroupConversationRole>(item, "role"),
-                ResponseGoal = GetRequiredString(item, "responseGoal"),
+                Role = role,
+                ResponseGoal = GetOptionalString(
+                        item,
+                        "responseGoal")
+                    ?? GetDefaultResponseGoal(role),
                 NewContribution = GetRequiredString(item, "newContribution"),
-                AvoidedRepetition = GetStringList(
+                AvoidedRepetition = GetOptionalStringList(
                     item,
                     "avoidedRepetition")
             });
@@ -190,12 +205,16 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         return new GroupConversationTurnPlan
         {
             AnchorMessageId = request.AnchorMessage?.Id,
-            TopicFocus = GetRequiredString(root, "topicFocus"),
-            TurnGoal = GetRequiredString(root, "turnGoal"),
-            CoveredPoints = GetStringList(root, "coveredPoints"),
-            UnresolvedGoals = GetStringList(root, "unresolvedGoals"),
+            TopicFocus = GetOptionalString(root, "topicFocus")
+                ?? ResolveTopic(request),
+            TurnGoal = GetOptionalString(root, "turnGoal")
+                ?? fallbackPlan.TurnGoal,
+            CoveredPoints = GetOptionalStringList(root, "coveredPoints"),
+            UnresolvedGoals = GetOptionalStringList(
+                root,
+                "unresolvedGoals"),
             Speakers = speakers.AsReadOnly(),
-            SelectionStatus = selectionStatus,
+            SelectionStatus = fallbackPlan.SelectionStatus,
             UsedRuleFallback = false
         };
     }
@@ -352,16 +371,19 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         "不得安排附和复读。每位发言者必须有不同的 newContribution，并在 avoidedRepetition 中写出需要避免复述的已表达内容。newContribution 应描述发言角度和需要增加的信息类型，不要写成带有大量具体细节的台词草稿。",
         "多人被点名且立场相同时，第一位负责共同结论，后续成员必须回应更早发言者并增加不同的权衡、行动建议、例外或细节；不得让多位成员并列重复同一结论和理由。",
         "每位候选人的个人记忆、经历和方向记忆都有明确所有者。只能据此判断该候选人是否适合发言，绝不能把一位成员的事实分配给另一位成员。",
+        "群聊调度可以看到分别标注的候选视角，但这些视角不能合并。某位候选人的世界认知和已学知识只允许进入该候选人的计划；没有列在该候选视角下的其他世界细节不能写入其 newContribution。",
         "当某位候选人的明确资料或本人记忆与当前话题高度匹配时，在不违反点名和数量规则的前提下优先选择该候选人。宽泛的职业或兴趣关联不能替代更直接的事实依据。",
         "关系亲近只调节语气、距离和互动意愿，不证明双方存在未记录的共同经历、固定习惯或反复发生的互动。newContribution 不得把推测写成个人事实；只能原样使用已提供事实或在省略细节后做更抽象的概括，不能从宽泛资料推导出具体地点、物品、事件、感官细节或相处习惯。没有资料、本人记忆或最近真实消息支持时，只能提出当下建议、设想或意愿，并且不得与已有记忆冲突。",
+        "不同角色世界的成员默认只通过即时通讯远程交流。可以安排介绍、听闻、评价和假设，但没有用户明确规则时不能安排已经见面、共同到访、物品传递或亲历对方世界。",
+        "允许角色在自己的角色世界中自然引入新的合理人物、地点和名词，不得仅因为历史中没有出现就删除。默认现实世界中没有用户或确认资料来源的当前营业、近期活动、票价、地址和经营信息不能安排成确定事实；可以改为条件式建议或提醒确认。",
         scenario == GroupConversationPlanningScenario.UserMessage
             ? "用户提供的事实只属于用户或用户明确指向的对象，不得改写成候选成员自己的经历。"
             : "预设话题是共同讨论情境，只能据此安排成员表达即时观点、偏好或提议；不得把话题扩写成成员此前经历、当前行程或既定个人安排，除非该成员的资料或本人记忆明确支持。",
         "关系具有方向。候选人到回应对象与回应对象到候选人的分数可能不同；关系只调节距离、立场和互动方式，不替代事实依据。",
         "严格输出 json 对象，不要输出 Markdown 或额外解释。",
         scenario == GroupConversationPlanningScenario.UserMessage
-            ? "json 示例：{\"topicFocus\":\"周末去哪\",\"turnGoal\":\"回答用户并补充不同偏好\",\"coveredPoints\":[],\"unresolvedGoals\":[\"给出可选地点\"],\"speakers\":[{\"speakerAiAccountId\":\"00000000-0000-0000-0000-000000000000\",\"replyTargetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"targetAiAccountId\":null,\"audience\":\"LocalUser\",\"role\":\"DirectAnswer\",\"responseGoal\":\"直接回答用户\",\"newContribution\":\"提出一个具体去处\",\"avoidedRepetition\":[]}]}"
-            : "自主开场 json 示例：{\"topicFocus\":\"周末去哪\",\"turnGoal\":\"由发起者自然说起周末去处\",\"coveredPoints\":[],\"unresolvedGoals\":[],\"speakers\":[{\"speakerAiAccountId\":\"00000000-0000-0000-0000-000000000000\",\"replyTargetMessageId\":null,\"targetAiAccountId\":null,\"audience\":\"WholeGroup\",\"role\":\"ShiftTopic\",\"responseGoal\":\"自然引入话题\",\"newContribution\":\"提出一个当下想到的周末去处\",\"avoidedRepetition\":[]}]}");
+            ? "json 示例：{\"topicFocus\":\"周末去哪\",\"turnGoal\":\"回答用户并补充不同偏好\",\"coveredPoints\":[],\"unresolvedGoals\":[\"给出可选场所类型\"],\"speakers\":[{\"speakerAiAccountId\":\"00000000-0000-0000-0000-000000000000\",\"replyTargetMessageId\":\"00000000-0000-0000-0000-000000000000\",\"targetAiAccountId\":null,\"audience\":\"LocalUser\",\"role\":\"DirectAnswer\",\"responseGoal\":\"直接回答用户\",\"newContribution\":\"提出一种场所类型和选择条件\",\"avoidedRepetition\":[]}]}"
+            : "自主开场 json 示例：{\"topicFocus\":\"周末去哪\",\"turnGoal\":\"由发起者自然说起周末去处\",\"coveredPoints\":[],\"unresolvedGoals\":[],\"speakers\":[{\"speakerAiAccountId\":\"00000000-0000-0000-0000-000000000000\",\"replyTargetMessageId\":null,\"targetAiAccountId\":null,\"audience\":\"WholeGroup\",\"role\":\"ShiftTopic\",\"responseGoal\":\"自然引入话题\",\"newContribution\":\"提出一种当下想去的场所类型和选择条件\",\"avoidedRepetition\":[]}]}");
 
     private IReadOnlyList<AiAccount> ResolveCandidatePool(
         GroupConversationPlanningRequest request)
@@ -415,6 +437,12 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         AiAccount account,
         GroupConversationCandidateContext? context)
     {
+        (string worldName, string worldDescription) =
+            GetCharacterWorldDescription(account);
+        builder.AppendLine(
+            $"  {account.Nickname}所属角色世界：{worldName}");
+        builder.AppendLine(
+            $"  {account.Nickname}角色世界权威说明：{worldDescription}");
         builder.AppendLine($"  {account.Nickname}本人的相关个人记忆：");
         if (context is null || context.RelevantSelfMemories.Count == 0)
         {
@@ -427,6 +455,9 @@ public sealed class OpenAiCompatibleGroupConversationDirector
             {
                 builder.AppendLine(
                     $"  - 所有者={account.Nickname}; 类型={memory.Type}; "
+                    + $"性质={memory.FactNature}; 可变性={memory.Mutability}; "
+                    + $"可信等级={memory.TrustLevel}; "
+                    + $"事实键={memory.FactKey}; 世界={memory.CharacterWorldId}; "
                     + $"内容={Truncate(memory.Summary, 180)}");
             }
         }
@@ -435,26 +466,176 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         if (context is null || context.Relationships.Count == 0)
         {
             builder.AppendLine("  - （没有可靠的 AI 关系对象）");
+        }
+        else
+        {
+            foreach (GroupConversationRelationshipContext relationship in
+                     context.Relationships)
+            {
+                builder.AppendLine(
+                    $"  - {account.Nickname}→{relationship.TargetDisplayName}="
+                    + $"{relationship.SpeakerToTargetScore:0.##}; "
+                    + $"{relationship.TargetDisplayName}→{account.Nickname}="
+                    + $"{relationship.TargetToSpeakerScore:0.##}");
+                foreach (AiConversationMemory memory in relationship
+                             .RelevantMemories)
+                {
+                    builder.AppendLine(
+                        $"    方向记忆所有者={account.Nickname}; "
+                        + $"对象={relationship.TargetDisplayName}; "
+                        + $"内容={Truncate(memory.Summary, 180)}");
+                }
+            }
+        }
+
+        AppendCandidateWorldContext(
+            builder,
+            account,
+            context?.WorldConversationContext);
+    }
+
+    private static void AppendCandidateWorldContext(
+        StringBuilder builder,
+        AiAccount candidate,
+        AiGroupWorldConversationContext? context)
+    {
+        builder.AppendLine(
+            $"  {candidate.Nickname}本人可用的群聊世界认知（不可转给其他候选人）：");
+        if (context is null)
+        {
+            builder.AppendLine(
+                "  - 未提供经过业务验证的世界认知，不能从系统世界资料补全。");
             return;
         }
 
-        foreach (GroupConversationRelationshipContext relationship in
-                 context.Relationships)
+        builder.AppendLine(
+            $"  - 平行世界认知={context.ParallelWorldAwareness}; "
+            + $"当前消息首次告知={context.IsNewlyInformedByCurrentMessage}");
+        foreach (AiWorldConversationContext participantContext in
+                 context.ParticipantContexts)
         {
             builder.AppendLine(
-                $"  - {account.Nickname}→{relationship.TargetDisplayName}="
-                + $"{relationship.SpeakerToTargetScore:0.##}; "
-                + $"{relationship.TargetDisplayName}→{account.Nickname}="
-                + $"{relationship.TargetToSpeakerScore:0.##}");
-            foreach (AiConversationMemory memory in relationship
-                         .RelevantMemories)
+                $"  - 对象AI Id={participantContext.SubjectAiAccountId}; "
+                + $"背景认知={participantContext.RelationshipAwareness}; "
+                + $"询问深度={participantContext.InquiryMode}; "
+                + $"可见世界名={participantContext.VisibleSubjectWorldName ?? "无"}");
+            foreach (AiConversationWorldKnowledge knowledge in
+                     participantContext.RelevantKnowledge)
             {
                 builder.AppendLine(
-                    $"    方向记忆所有者={account.Nickname}; "
-                    + $"对象={relationship.TargetDisplayName}; "
-                    + $"内容={Truncate(memory.Summary, 180)}");
+                    $"    [{knowledge.TrustLevel}] "
+                    + $"{Truncate(knowledge.Summary, 180)}");
             }
         }
+    }
+
+    /// <summary>
+    /// 群级导演可以比较候选人，但不能把一位候选人的世界资料写入
+    /// 另一位候选人的语义计划。最终台词仍会在消息生成器中再次校验。
+    /// </summary>
+    private static bool TryValidateWorldKnowledgeScopes(
+        GroupConversationPlanningRequest planningRequest,
+        GroupConversationTurnPlan plan,
+        IReadOnlyList<AiAccount> candidatePool,
+        IReadOnlyList<GroupConversationCandidateContext> candidateContexts,
+        out string errorMessage)
+    {
+        IReadOnlyList<AiDialogueMessage> recentMessages = planningRequest
+            .RecentMessages
+            .Select(message => new AiDialogueMessage(
+                message.SenderDisplayName,
+                message.Content,
+                message.SenderType,
+                message.SenderAiAccountId,
+                message.Id,
+                message.SentAt))
+            .ToList()
+            .AsReadOnly();
+        AiDialogueMessage? anchor = planningRequest.AnchorMessage is null
+            ? null
+            : new AiDialogueMessage(
+                planningRequest.AnchorMessage.SenderDisplayName,
+                planningRequest.AnchorMessage.Content,
+                planningRequest.AnchorMessage.SenderType,
+                planningRequest.AnchorMessage.SenderAiAccountId,
+                planningRequest.AnchorMessage.Id,
+                planningRequest.AnchorMessage.SentAt);
+
+        foreach (GroupConversationSpeakerPlan speakerPlan in plan.Speakers)
+        {
+            AiAccount speaker = candidatePool.Single(account =>
+                account.Id == speakerPlan.SpeakerAiAccountId);
+            GroupConversationCandidateContext? candidateContext =
+                candidateContexts.SingleOrDefault(context =>
+                    context.AiAccountId == speaker.Id);
+            AiAccount? relationshipTarget =
+                speakerPlan.TargetAiAccountId is Guid targetId
+                    ? planningRequest.GroupChat.Members.SingleOrDefault(
+                        member => member.Id == targetId)
+                    : null;
+            AiGroupWorldConversationContext? groupWorldContext =
+                candidateContext?.WorldConversationContext;
+            AiMessageGenerationRequest validationRequest = new()
+            {
+                Scenario = planningRequest.Scenario ==
+                        GroupConversationPlanningScenario.UserMessage
+                    ? AiMessageGenerationScenario.GroupPrimaryReply
+                    : AiMessageGenerationScenario.AutonomousGroupChat,
+                Speaker = speaker,
+                OtherParticipants = planningRequest.GroupChat.Members
+                    .Where(member => member.Id != speaker.Id)
+                    .ToList()
+                    .AsReadOnly(),
+                RelationshipTarget = relationshipTarget,
+                Topic = plan.TopicFocus,
+                FocusContent =
+                    planningRequest.AnchorMessage?.Content
+                    ?? planningRequest.Topic,
+                ReplyTarget = anchor is null
+                    ? AiDialogueReplyTarget.OpenTopic()
+                    : AiDialogueReplyTarget.ReplyTo(anchor),
+                ConversationAnchor = anchor,
+                RecentMessages = recentMessages,
+                WorldConversationContext = relationshipTarget is null
+                    ? null
+                    : groupWorldContext?.FindParticipant(
+                        relationshipTarget.Id),
+                GroupWorldConversationContext = groupWorldContext
+            };
+            AiNarrativeConsistencyDecision decision =
+                AiNarrativeConsistencyPolicy.Evaluate(
+                    new[] { speakerPlan.NewContribution },
+                    validationRequest,
+                    validationRequest.WorldConversationContext,
+                    groupWorldContext);
+            if (decision.RequiresRegeneration)
+            {
+                errorMessage =
+                    $"发言者“{speaker.Nickname}”的计划越过了其世界认知边界："
+                    + decision.Reason;
+                return false;
+            }
+        }
+
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    private static (string Name, string Description)
+        GetCharacterWorldDescription(AiAccount account)
+    {
+        if (account.CharacterWorld is not null)
+        {
+            return (
+                account.CharacterWorld.Name,
+                DisplayOrDefault(account.CharacterWorld.Description));
+        }
+
+        return account.CharacterWorldId == CharacterWorld.DefaultWorldId
+            ? (
+                CharacterWorld.DefaultWorldName,
+                CharacterWorld.DefaultWorldDescription)
+            : ("用户定义世界", "遵守该账号已经关联的角色世界设定。");
     }
 
     private static string FormatTags(AiAccount account)
@@ -555,6 +736,39 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         return id;
     }
 
+    /// <summary>
+    /// 模型给出的消息目标只能引用当前请求中的真实群消息；
+    /// 缺失、格式错误或越界时统一回退到当前群聊锚点。
+    /// </summary>
+    private static Guid? ResolveReplyTargetMessageId(
+        JsonElement root,
+        GroupConversationPlanningRequest request)
+    {
+        if (request.Scenario ==
+            GroupConversationPlanningScenario.AutonomousOpening)
+        {
+            return null;
+        }
+
+        Guid? anchorMessageId = request.AnchorMessage?.Id;
+        if (!root.TryGetProperty(
+                "replyTargetMessageId",
+                out JsonElement value)
+            || value.ValueKind == JsonValueKind.Null
+            || value.ValueKind != JsonValueKind.String
+            || !Guid.TryParse(value.GetString(), out Guid requestedId))
+        {
+            return anchorMessageId;
+        }
+
+        bool belongsToCurrentHistory = request.RecentMessages.Any(message =>
+            message.Id == requestedId);
+        return belongsToCurrentHistory
+            || requestedId == anchorMessageId
+                ? requestedId
+                : anchorMessageId;
+    }
+
     private static TEnum GetRequiredEnum<TEnum>(
         JsonElement root,
         string propertyName)
@@ -571,11 +785,42 @@ public sealed class OpenAiCompatibleGroupConversationDirector
         return result;
     }
 
-    private static IReadOnlyList<string> GetStringList(
+    private static string? GetOptionalString(
         JsonElement root,
         string propertyName)
     {
-        JsonElement array = GetRequiredArray(root, propertyName);
+        if (!root.TryGetProperty(propertyName, out JsonElement value)
+            || value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            throw new AiMessageGenerationException(
+                $"群聊导演字段 {propertyName} 不是有效文本。");
+        }
+
+        return value.GetString()!.Trim();
+    }
+
+    private static IReadOnlyList<string> GetOptionalStringList(
+        JsonElement root,
+        string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement array)
+            || array.ValueKind == JsonValueKind.Null)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (array.ValueKind != JsonValueKind.Array)
+        {
+            throw new AiMessageGenerationException(
+                $"群聊导演字段 {propertyName} 不是数组。");
+        }
+
         List<string> values = new();
         foreach (JsonElement item in array.EnumerateArray())
         {
@@ -591,4 +836,20 @@ public sealed class OpenAiCompatibleGroupConversationDirector
 
         return values.AsReadOnly();
     }
+
+    private static string GetDefaultResponseGoal(
+        GroupConversationRole role) => role switch
+        {
+            GroupConversationRole.DirectAnswer => "直接回应当前锚点消息",
+            GroupConversationRole.Complement => "补充前面尚未表达的新内容",
+            GroupConversationRole.AgreeAndExtend => "承接已有观点并继续推进",
+            GroupConversationRole.Disagree => "给出不同判断及其依据",
+            GroupConversationRole.React => "对当前内容作出自然反应",
+            GroupConversationRole.Comfort => "回应对方情绪并提供支持",
+            GroupConversationRole.Clarify => "澄清当前仍不明确的内容",
+            GroupConversationRole.Tease => "以符合关系的方式轻微调侃",
+            GroupConversationRole.ShiftTopic => "自然引入或轻微转移话题",
+            GroupConversationRole.Close => "承接最后内容并自然收束",
+            _ => "围绕当前锚点完成本轮发言职责"
+        };
 }

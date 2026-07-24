@@ -66,6 +66,7 @@ public sealed class GroupConversationDirectorTests : IDisposable
 
         Assert.False(plan.UsedRuleFallback);
         Assert.Equal(2, plan.Speakers.Count);
+        Assert.Null(plan.ModelPlanRejectionReason);
         Assert.Equal(GroupConversationAudience.LocalUser, plan.Speakers[0].Audience);
         Assert.Equal(GroupConversationRole.DirectAnswer, plan.Speakers[0].Role);
         Assert.Equal(
@@ -76,6 +77,9 @@ public sealed class GroupConversationDirectorTests : IDisposable
         Assert.NotNull(handler.RequestBody);
         using JsonDocument requestBody = JsonDocument.Parse(
             handler.RequestBody!);
+        Assert.Equal(
+            768,
+            requestBody.RootElement.GetProperty("max_tokens").GetInt32());
         string userPrompt = requestBody.RootElement
             .GetProperty("messages")[1]
             .GetProperty("content")
@@ -84,6 +88,10 @@ public sealed class GroupConversationDirectorTests : IDisposable
         Assert.Contains($"{first.Nickname}本人的相关个人记忆", userPrompt);
         Assert.Contains("→", userPrompt);
         Assert.Contains("与潜在回应对象的方向上下文", userPrompt);
+        Assert.Contains($"{first.Nickname}所属角色世界：现实世界", userPrompt);
+        Assert.Contains("角色世界权威说明", userPrompt);
+        Assert.Contains("本人可用的群聊世界认知", userPrompt);
+        Assert.Contains("不可转给其他候选人", userPrompt);
         Assert.Contains("应优先于只有宽泛职业或兴趣关联的候选人", userPrompt);
         Assert.Contains("不能并列重复同一结论和理由", userPrompt);
         Assert.Contains("不能据此虚构双方过去共同做过的事", userPrompt);
@@ -97,8 +105,50 @@ public sealed class GroupConversationDirectorTests : IDisposable
         Assert.Contains("后续成员必须回应更早发言者", systemPrompt);
         Assert.Contains("不要写成带有大量具体细节的台词草稿", systemPrompt);
         Assert.Contains("不能从宽泛资料推导出具体地点", systemPrompt);
+        Assert.Contains("允许角色在自己的角色世界中自然引入", systemPrompt);
+        Assert.Contains("默认现实世界中没有用户或确认资料来源", systemPrompt);
         Assert.Contains("不证明双方存在未记录的共同经历", systemPrompt);
         Assert.Contains("不得把推测写成个人事实", systemPrompt);
+    }
+
+    [Fact]
+    public async Task ModelDirector_WithMissingSafeFieldsAndInvalidMessageTarget_UsesDefaults()
+    {
+        GroupContext context = CreateContext("Alpha");
+        GroupConversationPlanningRequest request = CreateRequest(
+            context,
+            "聊聊今天适合做什么");
+        AiAccount speaker = context.GroupChat.Members[0];
+        string json = JsonSerializer.Serialize(new
+        {
+            speakers = new[]
+            {
+                new
+                {
+                    speakerAiAccountId = speaker.Id,
+                    replyTargetMessageId = Guid.NewGuid(),
+                    targetAiAccountId = (Guid?)null,
+                    audience = "LocalUser",
+                    role = "DirectAnswer",
+                    newContribution = "提出一种适合今天的活动"
+                }
+            }
+        });
+        OpenAiCompatibleGroupConversationDirector director = CreateDirector(
+            context.Planner,
+            new RecordingHandler(CreateResponse(json)));
+
+        GroupConversationTurnPlan plan = await director.CreatePlanAsync(request);
+
+        Assert.False(plan.UsedRuleFallback);
+        Assert.Equal(request.AnchorMessage!.Content, plan.TopicFocus);
+        Assert.False(string.IsNullOrWhiteSpace(plan.TurnGoal));
+        Assert.Empty(plan.CoveredPoints);
+        Assert.Empty(plan.UnresolvedGoals);
+        GroupConversationSpeakerPlan speakerPlan = Assert.Single(plan.Speakers);
+        Assert.Equal(request.AnchorMessage.Id, speakerPlan.ReplyTargetMessageId);
+        Assert.False(string.IsNullOrWhiteSpace(speakerPlan.ResponseGoal));
+        Assert.Empty(speakerPlan.AvoidedRepetition);
     }
 
     [Fact]
@@ -136,6 +186,8 @@ public sealed class GroupConversationDirectorTests : IDisposable
         GroupConversationTurnPlan plan = await director.CreatePlanAsync(request);
 
         Assert.True(plan.UsedRuleFallback);
+        Assert.False(string.IsNullOrWhiteSpace(
+            plan.ModelPlanRejectionReason));
         GroupConversationSpeakerPlan speakerPlan = Assert.Single(plan.Speakers);
         Assert.Equal(
             context.GroupChat.Members[0].Id,
@@ -181,9 +233,67 @@ public sealed class GroupConversationDirectorTests : IDisposable
         GroupConversationTurnPlan plan = await director.CreatePlanAsync(request);
 
         Assert.True(plan.UsedRuleFallback);
+        Assert.False(string.IsNullOrWhiteSpace(
+            plan.ModelPlanRejectionReason));
         Assert.Equal(
             beta.Id,
             Assert.Single(plan.Speakers).SpeakerAiAccountId);
+    }
+
+    [Fact]
+    public async Task ModelDirector_WhenPlanBorrowsOtherCandidatesWorldFact_UsesFallback()
+    {
+        GroupContext context = CreateContext("Alpha", "Beta");
+        AiAccount alpha = context.GroupChat.Members.Single(member =>
+            member.Nickname == "Alpha");
+        AiAccount beta = context.GroupChat.Members.Single(member =>
+            member.Nickname == "Beta");
+        CharacterWorld alphaWorld = new(
+            "星环帝国",
+            "由星环舰队维持航路的世界。");
+        alpha.AssignCharacterWorld(alphaWorld);
+        GroupConversationPlanningRequest request = CreateRequest(
+            context,
+            "你们怎么看今天的安排？");
+        string invalidJson = JsonSerializer.Serialize(new
+        {
+            topicFocus = "今天的安排",
+            turnGoal = "回答用户",
+            coveredPoints = Array.Empty<string>(),
+            unresolvedGoals = new[] { "给出判断" },
+            speakers = new[]
+            {
+                new
+                {
+                    speakerAiAccountId = beta.Id,
+                    replyTargetMessageId = request.AnchorMessage!.Id,
+                    targetAiAccountId = (Guid?)null,
+                    audience = "LocalUser",
+                    role = "DirectAnswer",
+                    responseGoal = "回答用户",
+                    newContribution = "引用星环帝国舰队的经验给出建议",
+                    avoidedRepetition = Array.Empty<string>()
+                }
+            }
+        });
+        OpenAiCompatibleGroupConversationDirector director = CreateDirector(
+            context.Planner,
+            new RecordingHandler(CreateResponse(invalidJson)));
+
+        GroupConversationTurnPlan plan = await director.CreatePlanAsync(
+            request);
+
+        Assert.True(plan.UsedRuleFallback);
+        Assert.Contains(
+            "世界认知边界",
+            plan.ModelPlanRejectionReason,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            plan.Speakers,
+            item => item.SpeakerAiAccountId == beta.Id
+                && item.NewContribution.Contains(
+                    "星环帝国",
+                    StringComparison.Ordinal));
     }
 
     [Fact]
@@ -214,6 +324,41 @@ public sealed class GroupConversationDirectorTests : IDisposable
 
         Assert.False(valid);
         Assert.Contains("重复选择", errorMessage);
+    }
+
+    [Fact]
+    public void Validator_WhenContributionsAreParaphrases_RejectsPlan()
+    {
+        GroupContext context = CreateContext("Alpha", "Beta");
+        GroupConversationPlanningRequest request = CreateRequest(
+            context,
+            "聊聊周末去哪");
+        GroupConversationTurnPlan plan = new()
+        {
+            AnchorMessageId = request.AnchorMessage!.Id,
+            TopicFocus = "周末去处",
+            TurnGoal = "给出两个不同角度",
+            Speakers = new[]
+            {
+                CreateSpeakerPlan(
+                    context.GroupChat.Members[0].Id,
+                    request.AnchorMessage.Id,
+                    "说明周末去旧书店会比较合适"),
+                CreateSpeakerPlan(
+                    context.GroupChat.Members[1].Id,
+                    request.AnchorMessage.Id,
+                    "说明周末去旧书店应该更合适")
+            },
+            SelectionStatus = AiSpeakerSelectionStatus.DefaultSelection
+        };
+
+        bool valid = new GroupConversationPlanValidator().TryValidate(
+            request,
+            plan,
+            out string errorMessage);
+
+        Assert.False(valid);
+        Assert.Contains("换词重复", errorMessage);
     }
 
     [Fact]
@@ -394,7 +539,9 @@ public sealed class GroupConversationDirectorTests : IDisposable
             .GetProperty("content")
             .GetString()!;
         Assert.Contains("不得替发起者虚构此前经历", userPrompt);
-        Assert.Contains("提出一个当下想到的周末去处", systemPrompt);
+        Assert.Contains(
+            "提出一种当下想去的场所类型和选择条件",
+            systemPrompt);
     }
 
     private OpenAiCompatibleGroupConversationDirector CreateDirector(
@@ -419,7 +566,12 @@ public sealed class GroupConversationDirectorTests : IDisposable
             new GroupConversationPlanValidator(),
             new GroupConversationContextService(
                 factory,
-                identityContinuityService));
+                identityContinuityService,
+                new AiWorldConversationContextService(
+                    factory,
+                    new AiWorldAwarenessService(factory),
+                    new AiWorldKnowledgeService(factory),
+                    new AiWorldKnowledgeCandidateExtractor())));
     }
 
     private GroupContext CreateContext(params string[] nicknames)

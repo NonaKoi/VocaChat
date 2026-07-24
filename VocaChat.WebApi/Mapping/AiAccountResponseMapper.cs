@@ -10,6 +10,10 @@ public static class AiAccountResponseMapper
 {
     public static AiAccountResponse ToResponse(AiAccount aiAccount)
     {
+        CharacterWorld characterWorld = aiAccount.CharacterWorld
+            ?? throw new InvalidOperationException(
+                "AI 账号响应缺少角色世界数据。");
+
         return new AiAccountResponse
         {
             Id = aiAccount.Id,
@@ -29,6 +33,9 @@ public static class AiAccountResponseMapper
             OnlineStatus = aiAccount.OnlineStatus.ToString(),
             AvatarUrl = AiAccountMediaUrls.GetAvatarUrl(aiAccount),
             CoverUrl = AiAccountMediaUrls.GetCoverUrl(aiAccount),
+            CharacterWorldId = aiAccount.CharacterWorldId,
+            CharacterWorld =
+                CharacterWorldResponseMapper.ToResponse(characterWorld),
             InterestTags = aiAccount.Tags
                 .Where(tag => tag.Type == AiAccountTagType.Interest)
                 .OrderBy(tag => tag.Value)

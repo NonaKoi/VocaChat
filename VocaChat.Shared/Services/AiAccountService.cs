@@ -264,6 +264,17 @@ public class AiAccountService
             }
 
             using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+            Guid selectedWorldId = creationData.CharacterWorldId
+                ?? CharacterWorld.DefaultWorldId;
+            CharacterWorld? selectedWorld = dbContext.CharacterWorlds
+                .SingleOrDefault(world => world.Id == selectedWorldId);
+            if (selectedWorld is null)
+            {
+                errorMessage = "角色世界不存在。";
+                return false;
+            }
+
+            newAiAccount.AssignCharacterWorld(selectedWorld);
             dbContext.AiAccounts.Add(newAiAccount);
             dbContext.Contacts.Add(new Contact(
                 newAiAccount.Id,
@@ -402,6 +413,7 @@ public class AiAccountService
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
         AiAccount? storedAccount = dbContext.AiAccounts
             .Include(account => account.Tags)
+            .Include(account => account.CharacterWorld)
             .SingleOrDefault(account => account.Id == aiAccountId);
         if (storedAccount is null)
         {
@@ -423,6 +435,20 @@ public class AiAccountService
         {
             errorMessage = "VC号已存在。";
             return AiAccountUpdateStatus.DuplicateVcNumber;
+        }
+
+        if (updateData.CharacterWorldId.HasValue)
+        {
+            CharacterWorld? selectedWorld = dbContext.CharacterWorlds
+                .SingleOrDefault(world =>
+                    world.Id == updateData.CharacterWorldId.Value);
+            if (selectedWorld is null)
+            {
+                errorMessage = "角色世界不存在。";
+                return AiAccountUpdateStatus.CharacterWorldNotFound;
+            }
+
+            storedAccount.AssignCharacterWorld(selectedWorld);
         }
 
         storedAccount.UpdateProfile(
@@ -503,6 +529,7 @@ public class AiAccountService
 
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
         AiAccount? storedAccount = dbContext.AiAccounts
+            .Include(account => account.CharacterWorld)
             .SingleOrDefault(account => account.Id == aiAccountId);
 
         if (storedAccount is null)
@@ -586,6 +613,7 @@ public class AiAccountService
 
         return dbContext.AiAccounts
             .Include(account => account.Tags)
+            .Include(account => account.CharacterWorld)
             .AsNoTracking()
             .SingleOrDefault(account => account.Id == id);
     }
@@ -606,6 +634,7 @@ public class AiAccountService
 
         return dbContext.AiAccounts
             .Include(account => account.Tags)
+            .Include(account => account.CharacterWorld)
             .AsNoTracking()
             .SingleOrDefault(account => account.Nickname == trimmedNickname);
     }
@@ -626,6 +655,7 @@ public class AiAccountService
 
         return dbContext.AiAccounts
             .Include(account => account.Tags)
+            .Include(account => account.CharacterWorld)
             .AsNoTracking()
             .SingleOrDefault(account => account.VcNumber == trimmedVcNumber);
     }
@@ -639,6 +669,7 @@ public class AiAccountService
 
         List<AiAccount> aiAccounts = dbContext.AiAccounts
             .Include(account => account.Tags)
+            .Include(account => account.CharacterWorld)
             .AsNoTracking()
             .OrderBy(account => account.CreatedAt)
             .ThenBy(account => account.Id)
@@ -687,6 +718,7 @@ public class AiAccountService
         using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
         AiAccount? storedAccount = dbContext.AiAccounts
             .Include(account => account.Tags)
+            .Include(account => account.CharacterWorld)
             .SingleOrDefault(account => account.Id == aiAccountId);
 
         if (storedAccount is null)

@@ -52,7 +52,7 @@ public sealed class AiIdentityContinuityServiceTests : IDisposable
         AiMessageGenerationRequest prepared = CreateService()
             .PrepareGenerationRequest(request, now);
 
-        Assert.Equal(6, prepared.RelevantSelfMemories.Count);
+        Assert.Equal(8, prepared.RelevantSelfMemories.Count);
         Assert.All(prepared.RelevantSelfMemories, memory =>
             Assert.Equal(speaker.Id, memory.AiAccountId));
         Assert.Contains(prepared.RelevantSelfMemories, memory =>
@@ -61,6 +61,42 @@ public sealed class AiIdentityContinuityServiceTests : IDisposable
             memory.Summary == "已经过期的短期安排");
         Assert.DoesNotContain(prepared.RelevantSelfMemories, memory =>
             memory.Summary == "另一个账号正在准备音乐节");
+    }
+
+    [Fact]
+    public void PrepareGenerationRequest_KeepsRelevantMemoryBeyondLockedAnchors()
+    {
+        AiAccount speaker = CreateAccount("ContinuityRelevance");
+        AiSelfMemoryService memoryService = CreateMemoryService();
+        for (int index = 0; index < 6; index++)
+        {
+            CreateMemory(
+                memoryService,
+                speaker.Id,
+                $"用户锁定但与当前话题无关的记录 {index}",
+                salience: 100 - index,
+                isUserLocked: true);
+        }
+        CreateMemory(
+            memoryService,
+            speaker.Id,
+            "最近正在准备秋季插画展",
+            salience: 10);
+
+        AiMessageGenerationRequest prepared = CreateService()
+            .PrepareGenerationRequest(
+                CreateRequest(speaker) with
+                {
+                    FocusContent = "秋季插画展准备得怎么样了"
+                });
+
+        Assert.Equal(7, prepared.RelevantSelfMemories.Count);
+        Assert.Equal(
+            7,
+            prepared.RelevantSelfMemories.Count(memory =>
+                memory.IsProtectedFact));
+        Assert.Contains(prepared.RelevantSelfMemories, memory =>
+            memory.Summary == "最近正在准备秋季插画展");
     }
 
     [Fact]
@@ -100,13 +136,23 @@ public sealed class AiIdentityContinuityServiceTests : IDisposable
                 new AiSelfMemoryProposal(
                     AiSelfMemoryProposalOperation.Add,
                     null,
+                    speaker.Id,
+                    speaker.CharacterWorldId,
                     AiSelfMemoryType.OngoingActivity,
+                    "activity.illustration-exhibition",
+                    AiSelfMemoryFactNature.Objective,
+                    AiSelfMemoryMutability.Mutable,
                     "正在为插画展整理最后一批作品",
                     "本轮准备自然说明当前进度"),
                 new AiSelfMemoryProposal(
                     AiSelfMemoryProposalOperation.Add,
                     null,
+                    speaker.Id,
+                    speaker.CharacterWorldId,
                     AiSelfMemoryType.PersonalFact,
+                    "profile.occupation",
+                    AiSelfMemoryFactNature.Objective,
+                    AiSelfMemoryMutability.Immutable,
                     "突然更换了职业",
                     "稳定身份事实不能由导演自动创建")
             });

@@ -103,6 +103,7 @@ public class AiAccountsController : ControllerBase
                 Occupation = request.Occupation ?? string.Empty,
                 Hometown = request.Hometown ?? string.Empty,
                 OnlineStatus = onlineStatus,
+                CharacterWorldId = request.CharacterWorldId,
                 InterestTags = request.InterestTags ?? Array.Empty<string>(),
                 PersonalityTags = request.PersonalityTags ?? Array.Empty<string>()
             },
@@ -167,6 +168,7 @@ public class AiAccountsController : ControllerBase
                 Occupation = request.Occupation ?? string.Empty,
                 Hometown = request.Hometown ?? string.Empty,
                 OnlineStatus = onlineStatus,
+                CharacterWorldId = request.CharacterWorldId,
                 InterestTags = request.InterestTags ?? Array.Empty<string>(),
                 PersonalityTags =
                     request.PersonalityTags ?? Array.Empty<string>()
@@ -184,6 +186,11 @@ public class AiAccountsController : ControllerBase
             return StatusCode(
                 StatusCodes.Status500InternalServerError,
                 new { message = errorMessage });
+        }
+
+        if (status == AiAccountUpdateStatus.CharacterWorldNotFound)
+        {
+            return BadRequest(new { message = errorMessage });
         }
 
         if (status != AiAccountUpdateStatus.Success || aiAccount is null)

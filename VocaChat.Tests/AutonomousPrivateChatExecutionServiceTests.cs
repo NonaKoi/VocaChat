@@ -170,6 +170,10 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
             request => Assert.Equal(
                 AiDialogueReplyTargetKind.Message,
                 request.ReplyTarget!.Kind));
+        Assert.All(
+            normalRequests,
+            request => Assert.NotNull(
+                request.WorldConversationContext));
     }
 
     [Fact]
@@ -463,7 +467,30 @@ public sealed class AutonomousPrivateChatExecutionServiceTests : IDisposable
             new ConversationQuestionPolicyService(factory),
             new AiIdentityContinuityService(
                 new AiSelfMemoryService(factory),
-                new AiInteractionDiagnosticLogService(factory)));
+                new AiInteractionDiagnosticLogService(factory)),
+            CreateWorldKnowledgeProcessor(factory),
+            CreateWorldConversationContextService(factory));
+    }
+
+    private static AiWorldKnowledgeMessageProcessor
+        CreateWorldKnowledgeProcessor(VocaChatDbContextFactory factory)
+    {
+        return new AiWorldKnowledgeMessageProcessor(
+            factory,
+            new AiWorldKnowledgeCandidateExtractor(),
+            new AiWorldKnowledgeService(factory),
+            new AiWorldAwarenessService(factory));
+    }
+
+    private static AiWorldConversationContextService
+        CreateWorldConversationContextService(
+            VocaChatDbContextFactory factory)
+    {
+        return new AiWorldConversationContextService(
+            factory,
+            new AiWorldAwarenessService(factory),
+            new AiWorldKnowledgeService(factory),
+            new AiWorldKnowledgeCandidateExtractor());
     }
 
     public void Dispose()

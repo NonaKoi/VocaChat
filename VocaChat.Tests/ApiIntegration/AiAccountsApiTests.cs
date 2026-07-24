@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using VocaChat.Models;
 using VocaChat.WebApi.Dtos.AiAccounts;
 
 namespace VocaChat.Tests.ApiIntegration;
@@ -49,6 +50,12 @@ public sealed class AiAccountsApiTests
         Assert.Equal("Male", createdAccount.Gender);
         Assert.Equal("Online", createdAccount.OnlineStatus);
         Assert.Equal("狮子座", createdAccount.ZodiacSign);
+        Assert.Equal(
+            CharacterWorld.DefaultWorldId,
+            createdAccount.CharacterWorldId);
+        Assert.Equal(
+            CharacterWorld.DefaultWorldName,
+            createdAccount.CharacterWorld.Name);
         Assert.Equal(request.InterestTags, createdAccount.InterestTags);
         Assert.Equal(request.PersonalityTags, createdAccount.PersonalityTags);
 

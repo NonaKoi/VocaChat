@@ -3,6 +3,7 @@ import {
   CakeSlice,
   CalendarClock,
   CircleUserRound,
+  Globe2,
   House,
   MapPin,
   MessageCircleMore,
@@ -135,6 +136,7 @@ export function AiAccountDetails({
             <ProfileFact icon={MapPin} label="所在地" value={account.location || '未设置'} />
             <ProfileFact icon={BriefcaseBusiness} label="职业" value={account.occupation || '未设置'} />
             <ProfileFact icon={House} label="故乡" value={account.hometown || '未设置'} />
+            <ProfileFact icon={Globe2} label="角色世界" value={account.characterWorld.name} />
           </dl>
         </section>
 

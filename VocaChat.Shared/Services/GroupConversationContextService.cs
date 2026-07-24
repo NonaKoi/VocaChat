@@ -22,7 +22,8 @@ public sealed record GroupConversationRelationshipContext(
 public sealed record GroupConversationCandidateContext(
     Guid AiAccountId,
     IReadOnlyList<AiConversationSelfMemory> RelevantSelfMemories,
-    IReadOnlyList<GroupConversationRelationshipContext> Relationships);
+    IReadOnlyList<GroupConversationRelationshipContext> Relationships,
+    AiGroupWorldConversationContext? WorldConversationContext);
 
 /// <summary>
 /// 为群级导演和实际发言者组装同一套有方向关系、关系记忆和个人记忆边界。
@@ -36,16 +37,22 @@ public sealed class GroupConversationContextService
 
     private readonly VocaChatDbContextFactory _dbContextFactory;
     private readonly AiIdentityContinuityService _identityContinuityService;
+    private readonly AiWorldConversationContextService
+        _worldConversationContextService;
 
     public GroupConversationContextService(
         VocaChatDbContextFactory dbContextFactory,
-        AiIdentityContinuityService identityContinuityService)
+        AiIdentityContinuityService identityContinuityService,
+        AiWorldConversationContextService worldConversationContextService)
     {
         _dbContextFactory = dbContextFactory
             ?? throw new ArgumentNullException(nameof(dbContextFactory));
         _identityContinuityService = identityContinuityService
             ?? throw new ArgumentNullException(
                 nameof(identityContinuityService));
+        _worldConversationContextService = worldConversationContextService
+            ?? throw new ArgumentNullException(
+                nameof(worldConversationContextService));
     }
 
     /// <summary>
@@ -99,6 +106,8 @@ public sealed class GroupConversationContextService
             AiMessageGenerationRequest preparedCandidate =
                 _identityContinuityService.PrepareGenerationRequest(
                     candidateRequest);
+            preparedCandidate = _worldConversationContextService
+                .PrepareGroupGenerationRequest(preparedCandidate);
             IReadOnlyList<GroupConversationRelationshipContext>
                 relationships = targetPriority
                     .Where(targetId => targetId != candidate.Id)
@@ -120,7 +129,8 @@ public sealed class GroupConversationContextService
                     .Take(MaximumCandidateSelfMemoryCount)
                     .ToList()
                     .AsReadOnly(),
-                relationships));
+                relationships,
+                preparedCandidate.GroupWorldConversationContext));
         }
 
         return contexts.AsReadOnly();
@@ -170,8 +180,11 @@ public sealed class GroupConversationContextService
             }
         }
 
-        return _identityContinuityService.PrepareGenerationRequest(
-            enrichedRequest);
+        AiMessageGenerationRequest identityPrepared =
+            _identityContinuityService.PrepareGenerationRequest(
+                enrichedRequest);
+        return _worldConversationContextService
+            .PrepareGroupGenerationRequest(identityPrepared);
     }
 
     private GroupConversationRelationshipContext LoadRelationshipContext(

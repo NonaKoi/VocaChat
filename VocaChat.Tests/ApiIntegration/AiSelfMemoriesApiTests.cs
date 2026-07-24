@@ -23,6 +23,10 @@ public sealed class AiSelfMemoriesApiTests
         {
             Type = "OngoingActivity",
             Summary = "最近正在整理旅行照片",
+            FactKey = "current.travel-photos",
+            FactNature = "Objective",
+            Mutability = "Mutable",
+            CharacterWorldId = account.CharacterWorldId,
             Salience = 75,
             IsUserLocked = true,
             OccurredAt = new DateTime(2026, 7, 20, 10, 0, 0)
@@ -39,6 +43,11 @@ public sealed class AiSelfMemoriesApiTests
         Assert.Equal(account.Id, created.AiAccountId);
         Assert.Equal("User", created.Source);
         Assert.Equal("Active", created.Status);
+        Assert.Equal("current.travel-photos", created.FactKey);
+        Assert.Equal("Objective", created.FactNature);
+        Assert.Equal("Mutable", created.Mutability);
+        Assert.Equal("UserCanon", created.TrustLevel);
+        Assert.Equal(account.CharacterWorldId, created.CharacterWorldId);
         Assert.Null(created.SourceMessageId);
 
         IReadOnlyList<AiSelfMemoryResponse>? createdCollection =
@@ -52,6 +61,10 @@ public sealed class AiSelfMemoriesApiTests
             {
                 Type = "Experience",
                 Summary = "整理完了第一批旅行照片",
+                FactKey = "current.travel-photos",
+                FactNature = "Narrative",
+                Mutability = "Immutable",
+                CharacterWorldId = account.CharacterWorldId,
                 Salience = 90,
                 IsUserLocked = true,
                 OccurredAt = new DateTime(2026, 7, 20, 11, 0, 0)
@@ -61,9 +74,11 @@ public sealed class AiSelfMemoriesApiTests
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         Assert.Equal("Experience", updated!.Type);
         Assert.Equal(90, updated.Salience);
+        Assert.Equal(created.Id, updated.SupersedesMemoryId);
+        Assert.NotEqual(created.Id, updated.Id);
 
         using HttpResponseMessage archiveResponse = await client.PutAsJsonAsync(
-            $"/api/ai-accounts/{account.Id}/self-memories/{created.Id}/status",
+            $"/api/ai-accounts/{account.Id}/self-memories/{updated.Id}/status",
             new UpdateAiSelfMemoryStatusRequest { Status = "Archived" });
         AiSelfMemoryResponse? archived = await archiveResponse.Content
             .ReadFromJsonAsync<AiSelfMemoryResponse>();
@@ -77,7 +92,11 @@ public sealed class AiSelfMemoriesApiTests
             await client.GetFromJsonAsync<IReadOnlyList<AiSelfMemoryResponse>>(
                 $"/api/ai-accounts/{account.Id}/self-memories?status=Archived");
         Assert.Empty(activeMemories!);
-        Assert.Equal(created.Id, Assert.Single(archivedMemories!).Id);
+        Assert.Equal(updated.Id, Assert.Single(archivedMemories!).Id);
+        IReadOnlyList<AiSelfMemoryResponse>? supersededMemories =
+            await client.GetFromJsonAsync<IReadOnlyList<AiSelfMemoryResponse>>(
+                $"/api/ai-accounts/{account.Id}/self-memories?status=Superseded");
+        Assert.Equal(created.Id, Assert.Single(supersededMemories!).Id);
     }
 
     [Fact]
@@ -123,6 +142,32 @@ public sealed class AiSelfMemoriesApiTests
                     Salience = 50
                 });
         Assert.Equal(HttpStatusCode.BadRequest, invalidTypeResponse.StatusCode);
+
+        using HttpResponseMessage invalidClassificationResponse =
+            await client.PostAsJsonAsync(
+                $"/api/ai-accounts/{owner.Id}/self-memories",
+                new CreateAiSelfMemoryRequest
+                {
+                    Type = "Preference",
+                    Summary = "不会保存的分类",
+                    FactNature = "Unknown",
+                    Salience = 50
+                });
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            invalidClassificationResponse.StatusCode);
+
+        using HttpResponseMessage missingWorldResponse =
+            await client.PostAsJsonAsync(
+                $"/api/ai-accounts/{owner.Id}/self-memories",
+                new CreateAiSelfMemoryRequest
+                {
+                    Type = "Preference",
+                    Summary = "不会保存到不存在的世界",
+                    CharacterWorldId = Guid.NewGuid(),
+                    Salience = 50
+                });
+        Assert.Equal(HttpStatusCode.BadRequest, missingWorldResponse.StatusCode);
 
         using HttpResponseMessage crossAccountResponse =
             await client.PutAsJsonAsync(

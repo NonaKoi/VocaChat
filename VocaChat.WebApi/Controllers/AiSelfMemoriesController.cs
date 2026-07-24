@@ -83,17 +83,31 @@ public sealed class AiSelfMemoriesController : ControllerBase
         {
             return BadRequest(new { message = "个人记忆类型无效。" });
         }
+        if (!TryParseOptionalFactNature(
+                request.FactNature,
+                out AiSelfMemoryFactNature? factNature)
+            || !TryParseOptionalMutability(
+                request.Mutability,
+                out AiSelfMemoryMutability? mutability))
+        {
+            return BadRequest(new { message = "个人记忆的事实性质或可变性无效。" });
+        }
 
         AiSelfMemoryOperationStatus status =
             _memoryService.TryCreateUserMemory(
                 aiAccountId,
-                type,
-                request.Summary,
-                request.Salience,
-                request.IsUserLocked,
-                request.OccurredAt,
-                request.ValidFrom,
-                request.ValidUntil,
+                new AiSelfMemoryWriteData(
+                    type,
+                    request.Summary,
+                    request.Salience,
+                    request.IsUserLocked,
+                    request.OccurredAt,
+                    request.ValidFrom,
+                    request.ValidUntil,
+                    request.FactKey,
+                    factNature,
+                    mutability,
+                    request.CharacterWorldId),
                 out AiSelfMemory? memory,
                 out string errorMessage);
 
@@ -129,18 +143,32 @@ public sealed class AiSelfMemoriesController : ControllerBase
         {
             return BadRequest(new { message = "个人记忆类型无效。" });
         }
+        if (!TryParseOptionalFactNature(
+                request.FactNature,
+                out AiSelfMemoryFactNature? factNature)
+            || !TryParseOptionalMutability(
+                request.Mutability,
+                out AiSelfMemoryMutability? mutability))
+        {
+            return BadRequest(new { message = "个人记忆的事实性质或可变性无效。" });
+        }
 
         AiSelfMemoryOperationStatus status =
             _memoryService.TryUpdateUserMemory(
                 aiAccountId,
                 memoryId,
-                type,
-                request.Summary,
-                request.Salience,
-                request.IsUserLocked,
-                request.OccurredAt,
-                request.ValidFrom,
-                request.ValidUntil,
+                new AiSelfMemoryWriteData(
+                    type,
+                    request.Summary,
+                    request.Salience,
+                    request.IsUserLocked,
+                    request.OccurredAt,
+                    request.ValidFrom,
+                    request.ValidUntil,
+                    request.FactKey,
+                    factNature,
+                    mutability,
+                    request.CharacterWorldId),
                 out AiSelfMemory? memory,
                 out string errorMessage);
 
@@ -237,6 +265,52 @@ public sealed class AiSelfMemoriesController : ControllerBase
         return true;
     }
 
+    private static bool TryParseOptionalFactNature(
+        string? value,
+        out AiSelfMemoryFactNature? factNature)
+    {
+        factNature = null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        if (!Enum.TryParse(
+                value,
+                ignoreCase: true,
+                out AiSelfMemoryFactNature parsedValue)
+            || !Enum.IsDefined(parsedValue))
+        {
+            return false;
+        }
+
+        factNature = parsedValue;
+        return true;
+    }
+
+    private static bool TryParseOptionalMutability(
+        string? value,
+        out AiSelfMemoryMutability? mutability)
+    {
+        mutability = null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        if (!Enum.TryParse(
+                value,
+                ignoreCase: true,
+                out AiSelfMemoryMutability parsedValue)
+            || !Enum.IsDefined(parsedValue))
+        {
+            return false;
+        }
+
+        mutability = parsedValue;
+        return true;
+    }
+
     private static AiSelfMemoryResponse ToResponse(AiSelfMemory memory)
     {
         return new AiSelfMemoryResponse
@@ -245,12 +319,18 @@ public sealed class AiSelfMemoriesController : ControllerBase
             AiAccountId = memory.AiAccountId,
             Type = memory.Type.ToString(),
             Summary = memory.Summary,
+            FactKey = memory.FactKey,
+            FactNature = memory.FactNature.ToString(),
+            Mutability = memory.Mutability.ToString(),
+            TrustLevel = memory.TrustLevel.ToString(),
+            CharacterWorldId = memory.CharacterWorldId,
             Source = memory.Source.ToString(),
             Status = memory.Status.ToString(),
             Salience = memory.Salience,
             IsUserLocked = memory.IsUserLocked,
             SourceConversationId = memory.SourceConversationId,
             SourceMessageId = memory.SourceMessageId,
+            SupersedesMemoryId = memory.SupersedesMemoryId,
             OccurredAt = memory.OccurredAt,
             ValidFrom = memory.ValidFrom,
             ValidUntil = memory.ValidUntil,

@@ -5,6 +5,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AiAccountResponse } from '@/api/types'
 import { AccountProfileSettingsPage } from '@/components/settings/AccountProfileSettingsPage'
 
+vi.mock('@/hooks/useCharacterWorlds', () => ({
+  useCharacterWorlds: () => ({
+    data: [
+      {
+        id: 'world-default',
+        name: '现实世界',
+        description: '采用现代现实社会的基本规则。',
+        createdAt: '2026-07-17T10:00:00Z',
+        updatedAt: '2026-07-17T10:00:00Z',
+      },
+      {
+        id: 'world-academy',
+        name: '基沃托斯',
+        description: '用户定义的学园都市。',
+        createdAt: '2026-07-18T10:00:00Z',
+        updatedAt: '2026-07-18T10:00:00Z',
+      },
+    ],
+    status: 'success',
+    isCreating: false,
+    reload: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    clearMutationError: vi.fn(),
+  }),
+}))
+
 const firstAccount = createAccount('account-1', '林澈', '1000001')
 const secondAccount = createAccount('account-2', '周野', '1000002')
 
@@ -52,6 +79,36 @@ describe('AccountProfileSettingsPage', () => {
     await user.click(screen.getByRole('button', { name: /周野/ }))
     expect(await screen.findByRole('heading', { name: '周野' })).toBeInTheDocument()
   })
+
+  it('选择角色世界后随账号资料一起保存', async () => {
+    const user = userEvent.setup()
+    const updateAccount = vi.fn().mockImplementation(
+      async (_id, request) => ({
+        ...firstAccount,
+        ...request,
+        characterWorld: {
+          id: request.characterWorldId,
+          name: '基沃托斯',
+          description: '用户定义的学园都市。',
+          createdAt: '2026-07-18T10:00:00Z',
+          updatedAt: '2026-07-18T10:00:00Z',
+        },
+      }),
+    )
+
+    renderPage({ onUpdateAccount: updateAccount })
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: '当前角色世界' }),
+      'world-academy',
+    )
+    await user.click(screen.getByRole('button', { name: '保存资料' }))
+
+    await waitFor(() => expect(updateAccount).toHaveBeenCalledWith(
+      firstAccount.id,
+      expect.objectContaining({ characterWorldId: 'world-academy' }),
+    ))
+  })
 })
 
 function renderPage(overrides: Partial<ComponentProps<typeof AccountProfileSettingsPage>> = {}) {
@@ -89,6 +146,14 @@ function createAccount(id: string, nickname: string, vcNumber: string): AiAccoun
     onlineStatus: 'Online',
     avatarUrl: null,
     coverUrl: null,
+    characterWorldId: 'world-default',
+    characterWorld: {
+      id: 'world-default',
+      name: '现实世界',
+      description: '采用现代现实社会的基本规则。',
+      createdAt: '2026-07-17T10:00:00Z',
+      updatedAt: '2026-07-17T10:00:00Z',
+    },
     interestTags: ['摄影'],
     personalityTags: ['安静'],
     createdAt: '2026-07-17T12:00:00Z',

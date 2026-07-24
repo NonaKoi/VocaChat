@@ -5,11 +5,13 @@ using System.Text.Json;
 namespace VocaChat.Services;
 
 /// <summary>
-/// 封装 OpenAI 兼容 Chat Completions 的传输细节，供导演和消息生成器复用。
+/// 封装 OpenAI 兼容 Chat Completions 和 Ollama 原生 Chat 的传输细节，
+/// 供导演和消息生成器复用。
 /// </summary>
 public sealed class OpenAiCompatibleChatClient
 {
     private readonly HttpClient _httpClient;
+    private readonly HttpClient _ollamaHttpClient;
     private readonly AiMessageGenerationOptions _options;
     private readonly AiModelConnectionSettingsService? _connectionSettingsService;
     private readonly AiModelInvocationUsageService? _usageService;
@@ -42,8 +44,25 @@ public sealed class OpenAiCompatibleChatClient
         AiMessageGenerationOptions options,
         AiModelConnectionSettingsService? connectionSettingsService,
         AiModelInvocationUsageService? usageService)
+        : this(
+            httpClient,
+            httpClient,
+            options,
+            connectionSettingsService,
+            usageService)
+    {
+    }
+
+    public OpenAiCompatibleChatClient(
+        HttpClient httpClient,
+        HttpClient ollamaHttpClient,
+        AiMessageGenerationOptions options,
+        AiModelConnectionSettingsService? connectionSettingsService,
+        AiModelInvocationUsageService? usageService)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _ollamaHttpClient = ollamaHttpClient
+            ?? throw new ArgumentNullException(nameof(ollamaHttpClient));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _connectionSettingsService = connectionSettingsService;
         _usageService = usageService;
@@ -80,25 +99,29 @@ public sealed class OpenAiCompatibleChatClient
 
         try
         {
+            bool usesOllamaNativeApi = UsesOllamaNativeApi(
+                connection.BaseUrl);
             using HttpRequestMessage request = new(
                 HttpMethod.Post,
-                BuildChatCompletionsUri(connection.BaseUrl))
+                usesOllamaNativeApi
+                    ? BuildOllamaChatUri(connection.BaseUrl)
+                    : BuildChatCompletionsUri(connection.BaseUrl))
             {
-                Content = JsonContent.Create(new
-                {
-                    model = connection.Model,
-                    messages = new object[]
-                    {
-                        new { role = "system", content = systemPrompt },
-                        new { role = "user", content = userPrompt }
-                    },
-                    response_format = new { type = "json_object" },
-                    thinking = new { type = "disabled" },
-                    temperature,
-                    top_p = topP,
-                    max_tokens = maximumCompletionTokens,
-                    stream = false
-                })
+                Content = usesOllamaNativeApi
+                    ? CreateOllamaRequestContent(
+                        connection.Model,
+                        systemPrompt,
+                        userPrompt,
+                        temperature,
+                        topP,
+                        maximumCompletionTokens)
+                    : CreateOpenAiRequestContent(
+                        connection.Model,
+                        systemPrompt,
+                        userPrompt,
+                        temperature,
+                        topP,
+                        maximumCompletionTokens)
             };
 
             if (!string.IsNullOrWhiteSpace(connection.ApiKey))
@@ -107,7 +130,10 @@ public sealed class OpenAiCompatibleChatClient
                     new AuthenticationHeaderValue("Bearer", connection.ApiKey);
             }
 
-            using HttpResponseMessage response = await _httpClient.SendAsync(
+            HttpClient transportClient = usesOllamaNativeApi
+                ? _ollamaHttpClient
+                : _httpClient;
+            using HttpResponseMessage response = await transportClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
                 timeoutSource.Token);
@@ -130,14 +156,21 @@ public sealed class OpenAiCompatibleChatClient
                 _usageService?.TryRecord(
                     invocationContext,
                     connection.Model,
-                    ParseUsage(root));
+                    usesOllamaNativeApi
+                        ? ParseOllamaUsage(root)
+                        : ParseOpenAiUsage(root));
             }
 
-            return root
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString();
+            string? content = usesOllamaNativeApi
+                ? ParseOllamaContent(root)
+                : ParseOpenAiContent(root);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                throw new AiMessageGenerationException(
+                    "AI 文本生成服务没有返回有效正文。");
+            }
+
+            return content;
         }
         catch (AiMessageGenerationException)
         {
@@ -170,7 +203,74 @@ public sealed class OpenAiCompatibleChatClient
         }
     }
 
-    private static AiModelTokenUsage? ParseUsage(JsonElement root)
+    private static JsonContent CreateOpenAiRequestContent(
+        string model,
+        string systemPrompt,
+        string userPrompt,
+        double temperature,
+        double topP,
+        int maximumCompletionTokens)
+    {
+        return JsonContent.Create(new
+        {
+            model,
+            messages = CreateMessages(systemPrompt, userPrompt),
+            response_format = new { type = "json_object" },
+            thinking = new { type = "disabled" },
+            temperature,
+            top_p = topP,
+            max_tokens = maximumCompletionTokens,
+            stream = false
+        });
+    }
+
+    private static JsonContent CreateOllamaRequestContent(
+        string model,
+        string systemPrompt,
+        string userPrompt,
+        double temperature,
+        double topP,
+        int maximumCompletionTokens)
+    {
+        return JsonContent.Create(new
+        {
+            model,
+            messages = CreateMessages(systemPrompt, userPrompt),
+            stream = false,
+            think = false,
+            format = "json",
+            options = new
+            {
+                temperature,
+                top_p = topP,
+                num_predict = maximumCompletionTokens
+            }
+        });
+    }
+
+    private static object[] CreateMessages(
+        string systemPrompt,
+        string userPrompt) =>
+        new object[]
+        {
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userPrompt }
+        };
+
+    private static string? ParseOpenAiContent(JsonElement root) =>
+        root
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString();
+
+    private static string? ParseOllamaContent(JsonElement root) =>
+        root
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString();
+
+    private static AiModelTokenUsage? ParseOpenAiUsage(JsonElement root)
     {
         if (!root.TryGetProperty("usage", out JsonElement usage)
             || usage.ValueKind != JsonValueKind.Object
@@ -216,6 +316,29 @@ public sealed class OpenAiCompatibleChatClient
             reasoningTokens);
     }
 
+    private static AiModelTokenUsage? ParseOllamaUsage(JsonElement root)
+    {
+        if (!TryGetNonNegativeInt(
+                root,
+                "prompt_eval_count",
+                out int promptTokens)
+            || !TryGetNonNegativeInt(
+                root,
+                "eval_count",
+                out int completionTokens))
+        {
+            return null;
+        }
+
+        return new AiModelTokenUsage(
+            promptTokens,
+            completionTokens,
+            promptTokens + completionTokens,
+            PromptCacheHitTokens: null,
+            PromptCacheMissTokens: null,
+            ReasoningTokens: null);
+    }
+
     private static int? GetOptionalNonNegativeInt(
         JsonElement element,
         string propertyName) =>
@@ -250,6 +373,18 @@ public sealed class OpenAiCompatibleChatClient
             : _connectionSettingsService.ResolveGlobal();
     }
 
+    private static bool UsesOllamaNativeApi(string baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri))
+        {
+            return false;
+        }
+
+        return baseUri.AbsolutePath
+            .TrimEnd('/')
+            .EndsWith("/api", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Uri BuildChatCompletionsUri(string baseUrl)
     {
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri)
@@ -263,5 +398,20 @@ public sealed class OpenAiCompatibleChatClient
             ? baseUrl
             : $"{baseUrl}/";
         return new Uri(new Uri(normalizedBaseUrl), "chat/completions");
+    }
+
+    private static Uri BuildOllamaChatUri(string baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri)
+            || (baseUri.Scheme != Uri.UriSchemeHttp
+                && baseUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new AiMessageGenerationException("AI 接口地址无效。");
+        }
+
+        string normalizedBaseUrl = baseUrl.EndsWith('/')
+            ? baseUrl
+            : $"{baseUrl}/";
+        return new Uri(new Uri(normalizedBaseUrl), "chat");
     }
 }

@@ -28,6 +28,8 @@ public sealed class ContactService
             .AsNoTracking()
             .Include(contact => contact.AiAccount)
                 .ThenInclude(aiAccount => aiAccount.Tags)
+            .Include(contact => contact.AiAccount)
+                .ThenInclude(aiAccount => aiAccount.CharacterWorld)
             .Include(contact => contact.ContactGroup)
             .OrderBy(contact => contact.ContactGroup.SortOrder)
             .ThenBy(contact => contact.CreatedAt)
@@ -57,6 +59,8 @@ public sealed class ContactService
             .AsNoTracking()
             .Include(contact => contact.AiAccount)
                 .ThenInclude(aiAccount => aiAccount.Tags)
+            .Include(contact => contact.AiAccount)
+                .ThenInclude(aiAccount => aiAccount.CharacterWorld)
             .Include(contact => contact.ContactGroup)
             .FirstOrDefault(contact => contact.Id == contactId);
     }
@@ -69,6 +73,8 @@ public sealed class ContactService
             .AsNoTracking()
             .Include(contact => contact.AiAccount)
                 .ThenInclude(aiAccount => aiAccount.Tags)
+            .Include(contact => contact.AiAccount)
+                .ThenInclude(aiAccount => aiAccount.CharacterWorld)
             .Include(contact => contact.ContactGroup)
             .FirstOrDefault(contact => contact.AiAccountId == aiAccountId);
     }
@@ -158,6 +164,8 @@ public sealed class ContactService
             .AsNoTracking()
             .Include(candidate => candidate.AiAccount)
                 .ThenInclude(aiAccount => aiAccount.Tags)
+            .Include(candidate => candidate.AiAccount)
+                .ThenInclude(aiAccount => aiAccount.CharacterWorld)
             .Include(candidate => candidate.ContactGroup)
             .Single(candidate => candidate.Id == contactId);
         return true;

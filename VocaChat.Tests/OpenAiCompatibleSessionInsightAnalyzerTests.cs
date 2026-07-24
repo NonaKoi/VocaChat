@@ -165,6 +165,7 @@ public sealed class OpenAiCompatibleSessionInsightAnalyzerTests
         };
         AiMessageGenerationOptions options = new()
         {
+            BaseUrl = "https://api.example.test/v1/",
             Model = "vocachat-test-model",
             OutputValidationRetryCount = outputValidationRetryCount
         };

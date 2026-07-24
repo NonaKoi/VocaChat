@@ -170,12 +170,14 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
         Assert.Equal(string.Empty, updateError);
         Assert.Equal("上周在安静的咖啡馆完成了插画", updated!.Summary);
         Assert.Equal(AiSelfMemorySource.User, updated.Source);
+        Assert.Equal(memory.Id, updated.SupersedesMemoryId);
+        Assert.NotEqual(memory.Id, updated.Id);
 
         Assert.Equal(
             AiSelfMemoryOperationStatus.Success,
             service.TryChangeUserManagedStatus(
                 owner.Id,
-                memory.Id,
+                updated.Id,
                 AiSelfMemoryStatus.Archived,
                 out AiSelfMemory? archived,
                 out _));
@@ -195,12 +197,22 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
             AiSelfMemoryOperationStatus.Success,
             restartedService.TryChangeUserManagedStatus(
                 owner.Id,
-                memory.Id,
+                updated.Id,
                 AiSelfMemoryStatus.Active,
                 out AiSelfMemory? restored,
                 out _));
         Assert.Equal(AiSelfMemoryStatus.Active, restored!.Status);
         Assert.Equal(90, restored.Salience);
+
+        restartedService.TryGetMemories(
+            owner.Id,
+            10,
+            status: null,
+            out IReadOnlyList<AiSelfMemory> history,
+            out _);
+        Assert.Contains(history, item =>
+            item.Id == memory.Id
+            && item.Status == AiSelfMemoryStatus.Superseded);
     }
 
     [Fact]
@@ -265,10 +277,13 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
             account,
             "最近正在准备秋季插画展");
         AiSelfMemoryService service = CreateService();
-        AiSelfMemoryProposal proposal = new(
+        AiSelfMemoryProposal proposal = CreateProposal(
+            account,
             AiSelfMemoryProposalOperation.Add,
-            TargetMemoryId: null,
             AiSelfMemoryType.OngoingActivity,
+            "ongoing:autumn-art-exhibition",
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Evolving,
             "正在准备秋季插画展",
             "这是当前发言者明确表达的持续事项");
 
@@ -291,12 +306,14 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
                 account.Id,
                 chat.Id,
                 validation.AcceptedProposals,
+                CreateJudgment(validation.AcceptedProposals),
                 new[] { evidence });
         AiSelfMemoryProposalApplicationResult retryResult =
             service.ApplyDirectorProposals(
                 account.Id,
                 chat.Id,
                 validation.AcceptedProposals,
+                CreateJudgment(validation.AcceptedProposals),
                 new[] { evidence });
 
         Assert.Equal(AiSelfMemoryProposalApplicationStatus.Success, firstResult.Status);
@@ -325,12 +342,16 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
             "喜欢安静的展览",
             80);
         AiSelfMemoryService service = CreateService();
-        AiSelfMemoryProposal updateUserMemory = new(
+        AiSelfMemoryProposal updateUserMemory = CreateProposal(
+            account,
             AiSelfMemoryProposalOperation.Update,
-            userMemory.Id,
             AiSelfMemoryType.Preference,
+            userMemory.FactKey,
+            AiSelfMemoryFactNature.Subjective,
+            AiSelfMemoryMutability.Mutable,
             "现在只喜欢热闹的展览",
-            "试图覆盖用户记忆");
+            "试图覆盖用户记忆",
+            userMemory.Id);
 
         Assert.Equal(
             AiSelfMemoryOperationStatus.Success,
@@ -344,10 +365,13 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
         Assert.False(decision.IsAccepted);
         Assert.Contains("用户来源", decision.Reason);
 
-        AiSelfMemoryProposal personalFact = new(
+        AiSelfMemoryProposal personalFact = CreateProposal(
+            account,
             AiSelfMemoryProposalOperation.Add,
-            null,
             AiSelfMemoryType.PersonalFact,
+            "profile:occupation",
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Mutable,
             "突然更换了职业",
             "稳定资料不应自动修改");
         service.TryValidateDirectorProposals(
@@ -359,16 +383,434 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void ApplyDirectorProposals_RechecksHardRulesAfterSemanticAcceptance()
+    {
+        AiAccount account = CreateAccount("FinalHardRule");
+        (PrivateChat chat, PrivateMessage message) =
+            CreatePersistedAiMessage(account, "我突然换了职业");
+        AiSelfMemoryProposal proposal = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Add,
+            AiSelfMemoryType.PersonalFact,
+            "profile:occupation",
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Mutable,
+            "我突然换了职业",
+            "尝试通过语义判断写入稳定资料");
+        AiSelfMemoryService service = CreateService();
+
+        AiSelfMemoryProposalApplicationResult result =
+            service.ApplyDirectorProposals(
+                account.Id,
+                chat.Id,
+                new[] { proposal },
+                CreateJudgment(new[] { proposal }),
+                new[]
+                {
+                    new AiPersistedMessageEvidence(
+                        message.Id,
+                        message.Content,
+                        message.SentAt)
+                });
+
+        Assert.Equal(
+            AiSelfMemoryProposalApplicationStatus.PartialFailure,
+            result.Status);
+        Assert.Equal(1, result.RejectedCount);
+        service.TryGetMemories(
+            account.Id,
+            10,
+            status: null,
+            out IReadOnlyList<AiSelfMemory> memories,
+            out _);
+        Assert.Empty(memories);
+    }
+
+    [Fact]
+    public void ApplyDirectorProposals_PendingDecisionDoesNotPersistMemory()
+    {
+        AiAccount account = CreateAccount("PendingMemory");
+        (PrivateChat chat, PrivateMessage message) =
+            CreatePersistedAiMessage(account, "也许最近会去学陶艺");
+        AiSelfMemoryProposal proposal = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Add,
+            AiSelfMemoryType.Plan,
+            "plan:learn-pottery",
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Evolving,
+            "最近可能会去学陶艺",
+            "证据仍然含混");
+        AiSelfMemoryService service = CreateService();
+
+        AiSelfMemoryProposalApplicationResult result =
+            service.ApplyDirectorProposals(
+                account.Id,
+                chat.Id,
+                new[] { proposal },
+                AiSelfMemorySemanticJudgmentResult.Pending(
+                    new[] { proposal },
+                    "证据不足"),
+                new[]
+                {
+                    new AiPersistedMessageEvidence(
+                        message.Id,
+                        message.Content,
+                        message.SentAt)
+                });
+
+        Assert.Equal(
+            AiSelfMemoryProposalApplicationStatus.PartialFailure,
+            result.Status);
+        Assert.Equal(1, result.PendingCount);
+        service.TryGetMemories(
+            account.Id,
+            10,
+            status: null,
+            out IReadOnlyList<AiSelfMemory> memories,
+            out _);
+        Assert.Empty(memories);
+    }
+
+    [Fact]
+    public void DirectorProposal_CannotModifyImmutableDirectorMemory()
+    {
+        AiAccount account = CreateAccount("ImmutableDirectorMemory");
+        (PrivateChat chat, PrivateMessage message) =
+            CreatePersistedAiMessage(account, "上周在海边看到了流星");
+        AiSelfMemoryService service = CreateService();
+        AiSelfMemoryProposal add = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Add,
+            AiSelfMemoryType.Experience,
+            "experience:seaside-meteor",
+            AiSelfMemoryFactNature.Narrative,
+            AiSelfMemoryMutability.Immutable,
+            "上周在海边看到了流星",
+            "已经发生的经历");
+        service.ApplyDirectorProposals(
+            account.Id,
+            chat.Id,
+            new[] { add },
+            CreateJudgment(new[] { add }),
+            new[]
+            {
+                new AiPersistedMessageEvidence(
+                    message.Id,
+                    message.Content,
+                    message.SentAt)
+            });
+        service.TryGetActiveContextMemories(
+            account.Id,
+            10,
+            out IReadOnlyList<AiSelfMemory> memories,
+            out _);
+        AiSelfMemory immutable = Assert.Single(memories);
+        Assert.Equal(AiSelfMemoryMutability.Immutable, immutable.Mutability);
+
+        AiSelfMemoryProposal update = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Update,
+            AiSelfMemoryType.Experience,
+            immutable.FactKey,
+            AiSelfMemoryFactNature.Narrative,
+            AiSelfMemoryMutability.Immutable,
+            "上周没有去过海边",
+            "试图改写已发生经历",
+            immutable.Id);
+        service.TryValidateDirectorProposals(
+            account.Id,
+            new[] { update },
+            out AiSelfMemoryProposalValidationResult validation,
+            out _);
+
+        AiSelfMemoryProposalDecision decision =
+            Assert.Single(validation.Decisions);
+        Assert.False(decision.IsAccepted);
+        Assert.Contains("恒定", decision.Reason);
+    }
+
+    [Fact]
+    public void SameFactKey_CanExistInDifferentWorlds_AndContextUsesCurrentWorld()
+    {
+        AiAccount account = CreateAccount("ScopedMemory");
+        VocaChat.Data.VocaChatDbContextFactory factory =
+            _database.CreateDbContextFactory();
+        CharacterWorldService worldService = new(factory);
+        Assert.Equal(
+            CharacterWorldOperationStatus.Success,
+            worldService.TryCreate(
+                "镜海世界",
+                "一座漂浮群岛构成的幻想世界。",
+                out CharacterWorld? otherWorld,
+                out string worldError));
+        Assert.Equal(string.Empty, worldError);
+        AiSelfMemoryService service = new(factory);
+
+        AiSelfMemoryWriteData defaultWorldMemory = new(
+            AiSelfMemoryType.PersonalFact,
+            "出生于宁波",
+            90,
+            IsUserLocked: true,
+            OccurredAt: null,
+            ValidFrom: null,
+            ValidUntil: null,
+            FactKey: "birthplace",
+            FactNature: AiSelfMemoryFactNature.Objective,
+            Mutability: AiSelfMemoryMutability.Immutable,
+            CharacterWorldId: CharacterWorld.DefaultWorldId);
+        AiSelfMemoryWriteData otherWorldMemory = defaultWorldMemory with
+        {
+            Summary = "出生于镜海港",
+            CharacterWorldId = otherWorld!.Id
+        };
+
+        Assert.Equal(
+            AiSelfMemoryOperationStatus.Success,
+            service.TryCreateUserMemory(
+                account.Id,
+                defaultWorldMemory,
+                out AiSelfMemory? currentWorldFact,
+                out _));
+        Assert.Equal(
+            AiSelfMemoryOperationStatus.Success,
+            service.TryCreateUserMemory(
+                account.Id,
+                otherWorldMemory,
+                out AiSelfMemory? otherWorldFact,
+                out _));
+        Assert.NotEqual(currentWorldFact!.Id, otherWorldFact!.Id);
+
+        service.TryGetActiveContextMemories(
+            account.Id,
+            10,
+            out IReadOnlyList<AiSelfMemory> recalled,
+            out _);
+        AiSelfMemory recalledFact = Assert.Single(recalled);
+        Assert.Equal(CharacterWorld.DefaultWorldId, recalledFact.CharacterWorldId);
+        Assert.Equal("出生于宁波", recalledFact.Summary);
+    }
+
+    [Fact]
+    public void DirectorProposal_CannotPersistUnverifiedExternalStatus()
+    {
+        AiAccount account = CreateAccount("ExternalStatusMemory");
+        AiSelfMemoryService service = CreateService();
+        AiSelfMemoryProposal proposal = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Add,
+            AiSelfMemoryType.Experience,
+            "external:teahouse-opening-hours",
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Mutable,
+            "水巷茶室今晚通宵开放",
+            "将外部营业信息当成个人记忆");
+
+        Assert.Equal(
+            AiSelfMemoryOperationStatus.Success,
+            service.TryValidateDirectorProposals(
+                account.Id,
+                new[] { proposal },
+                out AiSelfMemoryProposalValidationResult validation,
+                out string errorMessage));
+
+        Assert.Equal(string.Empty, errorMessage);
+        Assert.Empty(validation.AcceptedProposals);
+        AiSelfMemoryProposalDecision decision = Assert.Single(
+            validation.Decisions);
+        Assert.False(decision.IsAccepted);
+        Assert.Contains("营业、活动或经营信息", decision.Reason);
+    }
+
+    [Fact]
+    public void DirectorProposal_CustomWorldNarrative_CanBecomeNarrativeCandidate()
+    {
+        VocaChat.Data.VocaChatDbContextFactory factory =
+            _database.CreateDbContextFactory();
+        CharacterWorldService worldService = new(factory);
+        Assert.Equal(
+            CharacterWorldOperationStatus.Success,
+            worldService.TryCreate(
+                "镜海群岛",
+                "浮空岛之间以潮汐列车往来，夜间会举办潮汐歌会。",
+                out CharacterWorld? world,
+                out string worldError));
+        Assert.Equal(string.Empty, worldError);
+        AiAccount account = CreateAccount(
+            "NarrativeCandidate",
+            world!.Id);
+        AiSelfMemoryService service = CreateService();
+        AiSelfMemoryProposal proposal = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Add,
+            AiSelfMemoryType.Experience,
+            "experience:tide-song-concert",
+            AiSelfMemoryFactNature.Narrative,
+            AiSelfMemoryMutability.Immutable,
+            "今晚在星渊茶室听过潮汐歌会",
+            "保存当前世界中的本人经历");
+
+        Assert.Equal(
+            AiSelfMemoryOperationStatus.Success,
+            service.TryValidateDirectorProposals(
+                account.Id,
+                new[] { proposal },
+                out AiSelfMemoryProposalValidationResult validation,
+                out string validationError));
+        Assert.Equal(string.Empty, validationError);
+        Assert.Single(validation.AcceptedProposals);
+
+        (PrivateChat chat, PrivateMessage message) =
+            CreatePersistedAiMessage(
+                account,
+                "今晚在星渊茶室听过潮汐歌会");
+        AiSelfMemoryProposalApplicationResult result =
+            service.ApplyDirectorProposals(
+                account.Id,
+                chat.Id,
+                validation.AcceptedProposals,
+                CreateJudgment(validation.AcceptedProposals),
+                new[]
+                {
+                    new AiPersistedMessageEvidence(
+                        message.Id,
+                        message.Content,
+                        message.SentAt)
+                });
+
+        Assert.Equal(
+            AiSelfMemoryProposalApplicationStatus.Success,
+            result.Status);
+        service.TryGetActiveContextMemories(
+            account.Id,
+            10,
+            out IReadOnlyList<AiSelfMemory> memories,
+            out _);
+        AiSelfMemory memory = Assert.Single(memories);
+        Assert.Equal(world.Id, memory.CharacterWorldId);
+        Assert.Equal(
+            AiSelfMemoryTrustLevel.NarrativeCandidate,
+            memory.TrustLevel);
+        Assert.Equal(AiSelfMemoryFactNature.Narrative, memory.FactNature);
+    }
+
+    [Fact]
+    public void DirectorProposal_CannotUpdateMemoryFromAccountsPreviousWorld()
+    {
+        VocaChat.Data.VocaChatDbContextFactory factory =
+            _database.CreateDbContextFactory();
+        CharacterWorldService worldService = new(factory);
+        worldService.TryCreate(
+            "旧世界",
+            "角色曾经使用的世界设定。",
+            out CharacterWorld? oldWorld,
+            out _);
+        AiAccount account = CreateAccount("WorldSwitch", oldWorld!.Id);
+        (PrivateChat chat, PrivateMessage message) =
+            CreatePersistedAiMessage(account, "在旧世界记录过潮汐列车");
+        AiSelfMemoryService service = CreateService();
+        AiSelfMemoryProposal add = CreateProposal(
+            account,
+            AiSelfMemoryProposalOperation.Add,
+            AiSelfMemoryType.Experience,
+            "experience:tide-train",
+            AiSelfMemoryFactNature.Narrative,
+            AiSelfMemoryMutability.Mutable,
+            "在旧世界记录过潮汐列车",
+            "保存旧世界经历");
+        AiSelfMemoryProposalApplicationResult addResult =
+            service.ApplyDirectorProposals(
+                account.Id,
+                chat.Id,
+                new[] { add },
+                CreateJudgment(new[] { add }),
+                new[]
+                {
+                    new AiPersistedMessageEvidence(
+                        message.Id,
+                        message.Content,
+                        message.SentAt)
+                });
+        Assert.Equal(
+            AiSelfMemoryProposalApplicationStatus.Success,
+            addResult.Status);
+        service.TryGetActiveContextMemories(
+            account.Id,
+            10,
+            out IReadOnlyList<AiSelfMemory> oldWorldMemories,
+            out _);
+        AiSelfMemory oldMemory = Assert.Single(oldWorldMemories);
+
+        AiAccountUpdateStatus updateStatus =
+            new AiAccountService(factory).TryUpdateAiAccount(
+                account.Id,
+                new AiAccountUpdateData
+                {
+                    Nickname = account.Nickname,
+                    VcNumber = account.VcNumber,
+                    IdentityDescription = account.IdentityDescription,
+                    Personality = account.Personality,
+                    SpeakingStyle = account.SpeakingStyle,
+                    Signature = account.Signature,
+                    Birthday = account.Birthday,
+                    Gender = account.Gender,
+                    Location = account.Location,
+                    Occupation = account.Occupation,
+                    Hometown = account.Hometown,
+                    OnlineStatus = account.OnlineStatus,
+                    CharacterWorldId = CharacterWorld.DefaultWorldId,
+                    InterestTags = account.Tags
+                        .Where(tag => tag.Type == AiAccountTagType.Interest)
+                        .Select(tag => tag.Value)
+                        .ToArray(),
+                    PersonalityTags = account.Tags
+                        .Where(tag =>
+                            tag.Type == AiAccountTagType.Personality)
+                        .Select(tag => tag.Value)
+                        .ToArray()
+                },
+                out _,
+                out string updateError);
+        Assert.Equal(AiAccountUpdateStatus.Success, updateStatus);
+        Assert.Equal(string.Empty, updateError);
+
+        AiSelfMemoryProposal update = new(
+            AiSelfMemoryProposalOperation.Update,
+            oldMemory.Id,
+            account.Id,
+            CharacterWorld.DefaultWorldId,
+            AiSelfMemoryType.Experience,
+            oldMemory.FactKey,
+            AiSelfMemoryFactNature.Narrative,
+            AiSelfMemoryMutability.Mutable,
+            "在现实世界乘过潮汐列车",
+            "尝试跨世界修改旧记忆");
+        service.TryValidateDirectorProposals(
+            account.Id,
+            new[] { update },
+            out AiSelfMemoryProposalValidationResult validation,
+            out _);
+
+        AiSelfMemoryProposalDecision decision =
+            Assert.Single(validation.Decisions);
+        Assert.False(decision.IsAccepted);
+        Assert.Contains("其他角色世界", decision.Reason);
+    }
+
+    [Fact]
     public void DirectorUpdate_SupersedesOldMemoryAndRejectsOtherAccountEvidence()
     {
         AiAccount owner = CreateAccount("DirectorUpdateOwner");
         AiAccount other = CreateAccount("DirectorUpdateOther");
         (PrivateChat firstChat, PrivateMessage firstMessage) =
             CreatePersistedAiMessage(owner, "正在准备秋季插画展");
-        AiSelfMemoryProposal add = new(
+        AiSelfMemoryProposal add = CreateProposal(
+            owner,
             AiSelfMemoryProposalOperation.Add,
-            null,
             AiSelfMemoryType.OngoingActivity,
+            "ongoing:autumn-art-exhibition",
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Evolving,
             "正在准备秋季插画展",
             "持续事项");
         AiSelfMemoryService service = CreateService();
@@ -376,6 +818,7 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
             owner.Id,
             firstChat.Id,
             new[] { add },
+            CreateJudgment(new[] { add }),
             new[]
             {
                 new AiPersistedMessageEvidence(
@@ -392,12 +835,16 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
 
         (PrivateChat secondChat, PrivateMessage secondMessage) =
             CreatePersistedAiMessage(owner, "已经完成秋季插画展的准备");
-        AiSelfMemoryProposal update = new(
+        AiSelfMemoryProposal update = CreateProposal(
+            owner,
             AiSelfMemoryProposalOperation.Update,
-            oldMemory.Id,
             AiSelfMemoryType.Experience,
+            oldMemory.FactKey,
+            AiSelfMemoryFactNature.Objective,
+            AiSelfMemoryMutability.Evolving,
             "已经完成秋季插画展的准备",
-            "持续事项已经完成");
+            "持续事项已经完成",
+            oldMemory.Id);
         service.TryValidateDirectorProposals(
             owner.Id,
             new[] { update },
@@ -408,6 +855,7 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
                 owner.Id,
                 secondChat.Id,
                 validation.AcceptedProposals,
+                CreateJudgment(validation.AcceptedProposals),
                 new[]
                 {
                     new AiPersistedMessageEvidence(
@@ -435,6 +883,7 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
                 other.Id,
                 secondChat.Id,
                 new[] { add },
+                CreateJudgment(new[] { add }),
                 new[]
                 {
                     new AiPersistedMessageEvidence(
@@ -491,14 +940,17 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
                 out _));
     }
 
-    private AiAccount CreateAccount(string nickname)
+    private AiAccount CreateAccount(
+        string nickname,
+        Guid? characterWorldId = null)
     {
         AiAccountService service = new(_database.CreateDbContextFactory());
         Assert.True(service.TryCreateAiAccount(
-            $"{nickname}-{Guid.NewGuid().ToString("N")[..8]}",
-            string.Empty,
-            string.Empty,
-            string.Empty,
+            new AiAccountCreationData
+            {
+                Nickname = $"{nickname}-{Guid.NewGuid().ToString("N")[..8]}",
+                CharacterWorldId = characterWorldId
+            },
             out AiAccount? account,
             out string errorMessage), errorMessage);
         return Assert.IsType<AiAccount>(account);
@@ -532,6 +984,60 @@ public sealed class AiSelfMemoryServiceTests : IDisposable
     private AiSelfMemoryService CreateService()
     {
         return new AiSelfMemoryService(_database.CreateDbContextFactory());
+    }
+
+    private static AiSelfMemoryProposal CreateProposal(
+        AiAccount account,
+        AiSelfMemoryProposalOperation operation,
+        AiSelfMemoryType type,
+        string factKey,
+        AiSelfMemoryFactNature factNature,
+        AiSelfMemoryMutability mutability,
+        string summary,
+        string reason,
+        Guid? targetMemoryId = null)
+    {
+        return new AiSelfMemoryProposal(
+            operation,
+            targetMemoryId,
+            account.Id,
+            account.CharacterWorldId,
+            type,
+            factKey,
+            factNature,
+            mutability,
+            summary,
+            reason);
+    }
+
+    private static AiSelfMemorySemanticJudgmentResult CreateJudgment(
+        IReadOnlyList<AiSelfMemoryProposal> proposals)
+    {
+        IReadOnlyList<AiSelfMemorySemanticDecision> decisions = proposals
+            .Select((proposal, index) => new AiSelfMemorySemanticDecision(
+                index,
+                proposal.Operation switch
+                {
+                    AiSelfMemoryProposalOperation.Add
+                        => AiSelfMemorySemanticOutcome.Accept,
+                    AiSelfMemoryProposalOperation.Update
+                        => AiSelfMemorySemanticOutcome.Supersede,
+                    AiSelfMemoryProposalOperation.Archive
+                        => AiSelfMemorySemanticOutcome.Archive,
+                    _ => AiSelfMemorySemanticOutcome.Reject
+                },
+                proposal.TargetMemoryId,
+                proposal.FactKey,
+                proposal.FactNature,
+                proposal.Mutability,
+                "测试语义判断"))
+            .ToList()
+            .AsReadOnly();
+
+        return new AiSelfMemorySemanticJudgmentResult(
+            decisions,
+            UsedFallback: false,
+            FallbackReason: string.Empty);
     }
 
     public void Dispose()

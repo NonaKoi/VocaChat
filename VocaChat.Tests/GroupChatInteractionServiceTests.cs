@@ -43,6 +43,33 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessUserMessage_WithParallelWorldInformation_InformsAllCurrentAiMembers()
+    {
+        TestContext context = CreateContext("Alpha", "Beta");
+
+        GroupChatInteractionResult result = await context.InteractionService
+            .ProcessUserMessageAsync(
+                context.GroupChat,
+                "确实存在平行世界，你们正在进行跨世界通信。");
+
+        Assert.Equal(GroupChatInteractionStatus.Succeeded, result.Status);
+        using VocaChat.Data.VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        Assert.Equal(
+            context.GroupChat.Members
+                .Select(member => member.Id)
+                .OrderBy(id => id),
+            dbContext.AiParallelWorldAwareness
+                .Select(item => item.AiAccountId)
+                .OrderBy(id => id));
+        Assert.All(
+            dbContext.AiParallelWorldAwareness,
+            item => Assert.Equal(
+                AiParallelWorldAwarenessState.Informed,
+                item.State));
+    }
+
+    [Fact]
     public async Task ProcessUserMessage_WithMemberMention_SelectsMentionedMember()
     {
         TestContext context = CreateContext("Alpha", "Beta");
@@ -181,6 +208,22 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
         Assert.Equal(firstMember.Id, followUpRequest.RelationshipTarget!.Id);
         Assert.Equal(84, followUpRequest.SpeakerToOtherRelationshipScore);
         Assert.Equal(24, followUpRequest.OtherToSpeakerRelationshipScore);
+        Assert.NotNull(primaryRequest.GroupWorldConversationContext);
+        Assert.NotNull(followUpRequest.GroupWorldConversationContext);
+        Assert.All(
+            primaryRequest.GroupWorldConversationContext!
+                .ParticipantContexts
+                .SelectMany(context => context.RelevantKnowledge),
+            knowledge => Assert.Equal(
+                primaryRequest.Speaker.Id,
+                knowledge.OwnerAiAccountId));
+        Assert.All(
+            followUpRequest.GroupWorldConversationContext!
+                .ParticipantContexts
+                .SelectMany(context => context.RelevantKnowledge),
+            knowledge => Assert.Equal(
+                followUpRequest.Speaker.Id,
+                knowledge.OwnerAiAccountId));
         Assert.Equal(
             result.UserMessage.Id,
             followUpRequest.ConversationAnchor!.MessageId);
@@ -203,6 +246,76 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             reply => Assert.Equal(
                 finalPrimaryReply.Id,
                 reply.ReplyToMessageId));
+    }
+
+    [Fact]
+    public async Task ProcessUserMessage_WhenFirstSpeakerFails_ContinuesWithRemainingSpeakers()
+    {
+        TestContext context = CreateContext("Alpha", "Beta", "Gamma");
+        VocaChat.Data.VocaChatDbContextFactory factory =
+            _database.CreateDbContextFactory();
+        AiAccount failedSpeaker = context.GroupChat.Members[0];
+        FailForSpeakerGenerator generator = new(failedSpeaker.Id);
+        ThreeSpeakerGroupConversationDirector groupDirector = new();
+        GroupChatReplyPlanner replyPlanner = new(factory);
+        AiInteractionDiagnosticLogService diagnosticLogService = new(factory);
+        GroupChatInteractionService interactionService = new(
+            context.MessageService,
+            generator,
+            replyPlanner,
+            groupDirector,
+            new GroupConversationPlanValidator(),
+            new RuleBasedConversationDirector(
+                new ConversationActionPlanner(new ConstantRandom(0.5))),
+            CreateNoDelayScheduler(),
+            new AiReplyMessageCountSettingsResolver(factory),
+            new ConversationQuestionPolicyService(factory),
+            CreateIdentityContinuityService(),
+            CreateConversationContextService(),
+            new GroupConversationDensitySettingsResolver(factory),
+            new GroupConversationDiagnosticService(diagnosticLogService));
+
+        GroupChatInteractionResult result = await interactionService
+            .ProcessUserMessageAsync(
+                context.GroupChat,
+                "@Alpha @Beta @Gamma 说说你们各自的判断");
+
+        Assert.Equal(
+            GroupChatInteractionStatus.PartiallySucceeded,
+            result.Status);
+        Assert.Equal(3, generator.Requests.Count);
+        Assert.DoesNotContain(
+            result.AiReplies,
+            message => message.SenderAiAccountId == failedSpeaker.Id);
+        Assert.Contains(
+            result.AiReplies,
+            message => message.SenderAiAccountId ==
+                context.GroupChat.Members[1].Id);
+        Assert.Contains(
+            result.AiReplies,
+            message => message.SenderAiAccountId ==
+                context.GroupChat.Members[2].Id);
+
+        AiMessageGenerationRequest recoveredPrimaryRequest =
+            generator.Requests[1];
+        Assert.Equal(
+            AiMessageGenerationScenario.GroupPrimaryReply,
+            recoveredPrimaryRequest.Scenario);
+        Assert.Equal(
+            result.UserMessage!.Id,
+            recoveredPrimaryRequest.ReplyTarget!.Message!.MessageId);
+        Assert.Equal(
+            GroupConversationAudience.LocalUser,
+            recoveredPrimaryRequest.GroupConversationPlan!.Audience);
+        Assert.Null(
+            recoveredPrimaryRequest.GroupConversationPlan.TargetAiAccountId);
+
+        AiInteractionDiagnosticLog failureLog = Assert.Single(
+            diagnosticLogService.GetRecent(),
+            log => log.Code ==
+                AiInteractionDiagnosticCode.GroupConversationExecutionFailed);
+        Assert.Equal(failedSpeaker.Id, failureLog.AiAccountId);
+        Assert.True(failureLog.WasRecovered);
     }
 
     [Fact]
@@ -303,7 +416,8 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             CreateConversationContextService(),
             new GroupConversationDensitySettingsResolver(dbContextFactory),
             new GroupConversationDiagnosticService(
-                new AiInteractionDiagnosticLogService(dbContextFactory)));
+                new AiInteractionDiagnosticLogService(dbContextFactory)),
+            CreateWorldKnowledgeProcessor(dbContextFactory));
 
         GroupChatInteractionResult result = await interactionService
             .ProcessUserMessageAsync(storedGroupChat, content);
@@ -369,7 +483,8 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             CreateConversationContextService(),
             new GroupConversationDensitySettingsResolver(dbContextFactory),
             new GroupConversationDiagnosticService(
-                new AiInteractionDiagnosticLogService(dbContextFactory)));
+                new AiInteractionDiagnosticLogService(dbContextFactory)),
+            CreateWorldKnowledgeProcessor(dbContextFactory));
 
         return new TestContext(
             Assert.IsType<GroupChat>(groupChat),
@@ -406,7 +521,23 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
             factory,
             new AiIdentityContinuityService(
                 new AiSelfMemoryService(factory),
-                new AiInteractionDiagnosticLogService(factory)));
+                new AiInteractionDiagnosticLogService(factory)),
+            new AiWorldConversationContextService(
+                factory,
+                new AiWorldAwarenessService(factory),
+                new AiWorldKnowledgeService(factory),
+                new AiWorldKnowledgeCandidateExtractor()));
+    }
+
+    private static AiWorldKnowledgeMessageProcessor
+        CreateWorldKnowledgeProcessor(
+            VocaChat.Data.VocaChatDbContextFactory factory)
+    {
+        return new AiWorldKnowledgeMessageProcessor(
+            factory,
+            new AiWorldKnowledgeCandidateExtractor(),
+            new AiWorldKnowledgeService(factory),
+            new AiWorldAwarenessService(factory));
     }
 
     private sealed class TestContext
@@ -483,6 +614,97 @@ public sealed class GroupChatInteractionServiceTests : IDisposable
                 SelectionStatus = AiSpeakerSelectionStatus.MentionMatched
             };
             return Task.FromResult(plan);
+        }
+    }
+
+    private sealed class ThreeSpeakerGroupConversationDirector
+        : IGroupConversationDirector
+    {
+        public Task<GroupConversationTurnPlan> CreatePlanAsync(
+            GroupConversationPlanningRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            GroupMessage anchor = request.AnchorMessage!;
+            IReadOnlyList<AiAccount> members = request.GroupChat.Members;
+            return Task.FromResult(new GroupConversationTurnPlan
+            {
+                AnchorMessageId = anchor.Id,
+                TopicFocus = anchor.Content,
+                TurnGoal = "让三位成员依次提供不同判断",
+                Speakers = new[]
+                {
+                    CreateSpeaker(
+                        members[0].Id,
+                        anchor.Id,
+                        null,
+                        GroupConversationAudience.LocalUser,
+                        "给出第一项判断"),
+                    CreateSpeaker(
+                        members[1].Id,
+                        anchor.Id,
+                        members[0].Id,
+                        GroupConversationAudience.SpecificAiAccount,
+                        "补充第二项不同判断"),
+                    CreateSpeaker(
+                        members[2].Id,
+                        anchor.Id,
+                        members[1].Id,
+                        GroupConversationAudience.SpecificAiAccount,
+                        "补充第三项不同判断")
+                },
+                SelectionStatus = AiSpeakerSelectionStatus.MentionMatched
+            });
+        }
+
+        private static GroupConversationSpeakerPlan CreateSpeaker(
+            Guid speakerId,
+            Guid anchorId,
+            Guid? targetAiAccountId,
+            GroupConversationAudience audience,
+            string contribution) => new()
+            {
+                SpeakerAiAccountId = speakerId,
+                ReplyTargetMessageId = anchorId,
+                TargetAiAccountId = targetAiAccountId,
+                Audience = audience,
+                Role = targetAiAccountId is null
+                    ? GroupConversationRole.DirectAnswer
+                    : GroupConversationRole.Complement,
+                ResponseGoal = "回应当前群聊并提供新增内容",
+                NewContribution = contribution
+            };
+    }
+
+    private sealed class FailForSpeakerGenerator : IAiMessageGenerator
+    {
+        private readonly Guid _failedSpeakerId;
+
+        public List<AiMessageGenerationRequest> Requests { get; } = new();
+
+        public FailForSpeakerGenerator(Guid failedSpeakerId)
+        {
+            _failedSpeakerId = failedSpeakerId;
+        }
+
+        public Task<IReadOnlyList<string>> GenerateMessagesAsync(
+            AiMessageGenerationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests.Add(request);
+            if (request.Speaker.Id == _failedSpeakerId)
+            {
+                throw new InvalidOperationException("受控单成员生成失败。");
+            }
+
+            IReadOnlyList<string> messages = Enumerable
+                .Range(1, request.ExpectedMessageCount)
+                .Select(index =>
+                    $"{request.Speaker.Nickname}-局部恢复-{index}")
+                .ToList()
+                .AsReadOnly();
+            return Task.FromResult(messages);
         }
     }
 }

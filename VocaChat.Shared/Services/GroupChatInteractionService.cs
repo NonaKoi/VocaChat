@@ -22,6 +22,8 @@ public sealed class GroupChatInteractionService
     private readonly GroupConversationContextService _conversationContextService;
     private readonly GroupConversationDensitySettingsResolver _densityResolver;
     private readonly GroupConversationDiagnosticService _groupDiagnosticService;
+    private readonly AiWorldKnowledgeMessageProcessor?
+        _worldKnowledgeProcessor;
 
     public GroupChatInteractionService(
         GroupMessageService groupMessageService,
@@ -36,7 +38,8 @@ public sealed class GroupChatInteractionService
         AiIdentityContinuityService identityContinuityService,
         GroupConversationContextService conversationContextService,
         GroupConversationDensitySettingsResolver densityResolver,
-        GroupConversationDiagnosticService groupDiagnosticService)
+        GroupConversationDiagnosticService groupDiagnosticService,
+        AiWorldKnowledgeMessageProcessor? worldKnowledgeProcessor = null)
     {
         _groupMessageService = groupMessageService
             ?? throw new ArgumentNullException(nameof(groupMessageService));
@@ -67,6 +70,7 @@ public sealed class GroupChatInteractionService
             ?? throw new ArgumentNullException(nameof(densityResolver));
         _groupDiagnosticService = groupDiagnosticService
             ?? throw new ArgumentNullException(nameof(groupDiagnosticService));
+        _worldKnowledgeProcessor = worldKnowledgeProcessor;
     }
 
     /// <summary>
@@ -109,6 +113,13 @@ public sealed class GroupChatInteractionService
         {
             return GroupChatInteractionResult.UserMessageRejected(
                 userMessageError);
+        }
+
+        if (_worldKnowledgeProcessor is not null)
+        {
+            await _worldKnowledgeProcessor.ProcessGroupMessageAsync(
+                userMessage.Id,
+                cancellationToken);
         }
 
         if (groupChat.Members.Count == 0)
@@ -171,8 +182,9 @@ public sealed class GroupChatInteractionService
         }
 
         List<GroupMessage> savedAiReplies = new();
-        AiAccount primarySpeaker = groupChat.Members.Single(member =>
-            member.Id == turnPlan.Speakers[0].SpeakerAiAccountId);
+        List<GroupSpeakerFailure> speakerFailures = new();
+        HashSet<Guid> unavailableSpeakerIds = new();
+        AiAccount? actualPrimarySpeaker = null;
         AiDialogueMessage conversationAnchor = new(
             userMessage.SenderDisplayName,
             userMessage.Content,
@@ -192,8 +204,13 @@ public sealed class GroupChatInteractionService
             Guid aiResponseBatchId = Guid.NewGuid();
             IReadOnlyList<string> replyContents;
             Guid replyToMessageId = userMessage.Id;
+            AiMessageGenerationScenario generationScenario =
+                actualPrimarySpeaker is null
+                    ? AiMessageGenerationScenario.GroupPrimaryReply
+                    : AiMessageGenerationScenario.GroupFollowUpReply;
             AiMessageGenerationRequest? completedRequest = null;
             AiIdentityContinuityPlan? continuityPlan = null;
+            GroupConversationSpeakerPlan executableSpeakerPlan = speakerPlan;
 
             try
             {
@@ -201,8 +218,15 @@ public sealed class GroupChatInteractionService
                     _groupMessageService.GetOrderedChatHistory(groupChat)
                         .TakeLast(12)
                         .ToList();
-                GroupMessage targetMessage = ResolveTargetMessage(
+                executableSpeakerPlan = NormalizeSpeakerPlanForExecution(
                     speakerPlan,
+                    recentHistory,
+                    savedAiReplies,
+                    unavailableSpeakerIds,
+                    userMessage,
+                    GroupConversationAudience.LocalUser);
+                GroupMessage targetMessage = ResolveTargetMessage(
+                    executableSpeakerPlan,
                     recentHistory,
                     savedAiReplies,
                     userMessage);
@@ -226,14 +250,11 @@ public sealed class GroupChatInteractionService
                     targetMessage.SentAt);
                 AiAccount? relationshipTarget = ResolveRelationshipTarget(
                     groupChat,
-                    speakerPlan,
+                    executableSpeakerPlan,
                     targetMessage);
                 AiMessageGenerationRequest generationRequest = new()
                 {
-                    Scenario = speakerPlan.SpeakerAiAccountId ==
-                            primarySpeaker.Id
-                        ? AiMessageGenerationScenario.GroupPrimaryReply
-                        : AiMessageGenerationScenario.GroupFollowUpReply,
+                    Scenario = generationScenario,
                     UsageCorrelation = new AiModelUsageCorrelation
                     {
                         GroupChatId = groupChat.Id,
@@ -245,7 +266,7 @@ public sealed class GroupChatInteractionService
                         .Where(member => member.Id != speaker.Id)
                         .ToList()
                         .AsReadOnly(),
-                    PrimarySpeaker = primarySpeaker,
+                    PrimarySpeaker = actualPrimarySpeaker ?? speaker,
                     Topic = turnPlan.TopicFocus,
                     FocusContent = replyTarget.Content,
                     ReplyTarget = AiDialogueReplyTarget.ReplyTo(replyTarget),
@@ -260,7 +281,7 @@ public sealed class GroupChatInteractionService
                         savedAiReplies.Count,
                         turnPlan.Speakers.Count - speakerIndex - 1),
                     ExpectedMessageCount = 1,
-                    GroupConversationPlan = speakerPlan
+                    GroupConversationPlan = executableSpeakerPlan
                 };
                 generationRequest = _conversationContextService
                     .PrepareGenerationRequest(
@@ -287,58 +308,31 @@ public sealed class GroupChatInteractionService
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                IReadOnlyList<GroupMessage> savedReplies =
-                    savedAiReplies.AsReadOnly();
-                _groupDiagnosticService.RecordFailure(
-                    speakerPlan.SpeakerAiAccountId == primarySpeaker.Id
-                        ? AiMessageGenerationScenario.GroupPrimaryReply
-                        : AiMessageGenerationScenario.GroupFollowUpReply,
-                    groupChat.Id,
+                speakerFailures.Add(new GroupSpeakerFailure(
                     speaker.Id,
                     "消息生成",
                     exception.Message,
-                    savedAiReplies.Count > 0);
-                return savedAiReplies.Count == 0
-                    ? GroupChatInteractionResult.AiReplyFailed(
-                        userMessage,
-                        savedReplies,
-                        turnPlan.SelectionStatus,
-                        exception.Message)
-                    : GroupChatInteractionResult.PartiallySucceeded(
-                        userMessage,
-                        savedReplies,
-                        turnPlan.SelectionStatus,
-                        exception.Message);
+                    generationScenario));
+                unavailableSpeakerIds.Add(speaker.Id);
+                continue;
             }
 
             if (savedAiReplies.Count + replyContents.Count
                 > planningRequest.MaximumTotalMessageCount)
             {
-                IReadOnlyList<GroupMessage> savedReplies =
-                    savedAiReplies.AsReadOnly();
                 const string errorMessage =
                     "群聊回复超过本轮允许的 AI 消息总数。";
-                _groupDiagnosticService.RecordFailure(
-                    AiMessageGenerationScenario.GroupFollowUpReply,
-                    groupChat.Id,
+                speakerFailures.Add(new GroupSpeakerFailure(
                     speaker.Id,
                     "消息数量控制",
                     errorMessage,
-                    savedAiReplies.Count > 0);
-                return savedAiReplies.Count == 0
-                    ? GroupChatInteractionResult.AiReplyFailed(
-                        userMessage,
-                        savedReplies,
-                        turnPlan.SelectionStatus,
-                        errorMessage)
-                    : GroupChatInteractionResult.PartiallySucceeded(
-                        userMessage,
-                        savedReplies,
-                        turnPlan.SelectionStatus,
-                        errorMessage);
+                    generationScenario));
+                unavailableSpeakerIds.Add(speaker.Id);
+                continue;
             }
 
             List<GroupMessage> candidateReplies = new();
+            GroupSpeakerFailure? speakerFailure = null;
             for (int replyIndex = 0;
                  replyIndex < replyContents.Count;
                  replyIndex++)
@@ -365,33 +359,12 @@ public sealed class GroupChatInteractionService
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    ApplyIdentityContinuity(
-                        groupChat.Id,
-                        completedRequest,
-                        continuityPlan,
-                        candidateReplies);
-                    IReadOnlyList<GroupMessage> savedReplies =
-                        savedAiReplies.AsReadOnly();
-                    _groupDiagnosticService.RecordFailure(
-                        speakerPlan.SpeakerAiAccountId == primarySpeaker.Id
-                            ? AiMessageGenerationScenario.GroupPrimaryReply
-                            : AiMessageGenerationScenario.GroupFollowUpReply,
-                        groupChat.Id,
+                    speakerFailure = new GroupSpeakerFailure(
                         speaker.Id,
                         "回复等待",
                         exception.Message,
-                        savedAiReplies.Count > 0);
-                    return savedAiReplies.Count == 0
-                        ? GroupChatInteractionResult.AiReplyFailed(
-                            userMessage,
-                            savedReplies,
-                            turnPlan.SelectionStatus,
-                            exception.Message)
-                        : GroupChatInteractionResult.PartiallySucceeded(
-                            userMessage,
-                            savedReplies,
-                            turnPlan.SelectionStatus,
-                            exception.Message);
+                        generationScenario);
+                    break;
                 }
 
                 bool aiMessageSaved =
@@ -407,47 +380,80 @@ public sealed class GroupChatInteractionService
 
                 if (!aiMessageSaved || aiMessage is null)
                 {
-                    ApplyIdentityContinuity(
-                        groupChat.Id,
-                        completedRequest,
-                        continuityPlan,
-                        candidateReplies);
-                    IReadOnlyList<GroupMessage> savedReplies =
-                        savedAiReplies.AsReadOnly();
-                    _groupDiagnosticService.RecordFailure(
-                        speakerPlan.SpeakerAiAccountId == primarySpeaker.Id
-                            ? AiMessageGenerationScenario.GroupPrimaryReply
-                            : AiMessageGenerationScenario.GroupFollowUpReply,
-                        groupChat.Id,
+                    speakerFailure = new GroupSpeakerFailure(
                         speaker.Id,
                         "消息保存",
                         aiMessageError,
-                        savedAiReplies.Count > 0);
-                    return savedAiReplies.Count == 0
-                        ? GroupChatInteractionResult.AiReplyFailed(
-                            userMessage,
-                            savedReplies,
-                            turnPlan.SelectionStatus,
-                            aiMessageError)
-                        : GroupChatInteractionResult.PartiallySucceeded(
-                            userMessage,
-                            savedReplies,
-                            turnPlan.SelectionStatus,
-                            aiMessageError);
+                        generationScenario);
+                    break;
                 }
 
                 savedAiReplies.Add(aiMessage);
                 candidateReplies.Add(aiMessage);
+                if (_worldKnowledgeProcessor is not null)
+                {
+                    await _worldKnowledgeProcessor.ProcessGroupMessageAsync(
+                        aiMessage.Id,
+                        cancellationToken);
+                }
+                actualPrimarySpeaker ??= speaker;
             }
 
             if (completedRequest is not null && continuityPlan is not null)
             {
-                ApplyIdentityContinuity(
+                await ApplyIdentityContinuityAsync(
                     groupChat.Id,
                     completedRequest,
                     continuityPlan,
-                    candidateReplies);
+                    candidateReplies,
+                    cancellationToken);
             }
+
+            if (speakerFailure is not null)
+            {
+                speakerFailures.Add(speakerFailure);
+                if (candidateReplies.Count == 0)
+                {
+                    unavailableSpeakerIds.Add(speaker.Id);
+                }
+            }
+        }
+
+        if (speakerFailures.Count > 0)
+        {
+            bool wasRecovered = savedAiReplies.Count > 0;
+            foreach (GroupSpeakerFailure failure in speakerFailures)
+            {
+                _groupDiagnosticService.RecordFailure(
+                    failure.Scenario,
+                    groupChat.Id,
+                    failure.SpeakerAiAccountId,
+                    failure.Stage,
+                    failure.ErrorMessage,
+                    wasRecovered);
+            }
+
+            string combinedError = string.Join(
+                "；",
+                speakerFailures.Select(failure =>
+                {
+                    string speakerName = groupChat.Members
+                        .Single(member =>
+                            member.Id == failure.SpeakerAiAccountId)
+                        .Nickname;
+                    return $"{speakerName}：{failure.ErrorMessage}";
+                }));
+            return savedAiReplies.Count == 0
+                ? GroupChatInteractionResult.AiReplyFailed(
+                    userMessage,
+                    savedAiReplies.AsReadOnly(),
+                    turnPlan.SelectionStatus,
+                    combinedError)
+                : GroupChatInteractionResult.PartiallySucceeded(
+                    userMessage,
+                    savedAiReplies.AsReadOnly(),
+                    turnPlan.SelectionStatus,
+                    combinedError);
         }
 
         return GroupChatInteractionResult.Succeeded(
@@ -487,7 +493,10 @@ public sealed class GroupChatInteractionService
                 plan,
                 out string modelPlanError))
         {
-            _groupDiagnosticService.RecordPlan(request, plan!);
+            _groupDiagnosticService.RecordPlan(
+                request,
+                plan!,
+                plan!.ModelPlanRejectionReason);
             return plan!;
         }
 
@@ -597,6 +606,54 @@ public sealed class GroupChatInteractionService
     }
 
     /// <summary>
+    /// 计划指向的成员没有实际发言或消息目标已失效时，
+    /// 只回退到当前群聊的真实锚点，不虚构一条成员回复。
+    /// </summary>
+    private static GroupConversationSpeakerPlan
+        NormalizeSpeakerPlanForExecution(
+        GroupConversationSpeakerPlan speakerPlan,
+        IReadOnlyList<GroupMessage> recentHistory,
+        IReadOnlyList<GroupMessage> savedAiReplies,
+        IReadOnlySet<Guid> unavailableSpeakerIds,
+        GroupMessage? fallbackAnchor,
+        GroupConversationAudience fallbackAudience)
+    {
+        IReadOnlyList<GroupMessage> availableMessages = recentHistory
+            .Concat(savedAiReplies)
+            .DistinctBy(message => message.Id)
+            .ToList()
+            .AsReadOnly();
+        bool targetSpeakerUnavailable =
+            speakerPlan.TargetAiAccountId is Guid targetAiAccountId
+            && (unavailableSpeakerIds.Contains(targetAiAccountId)
+                || !availableMessages.Any(message =>
+                    message.SenderAiAccountId == targetAiAccountId));
+
+        if (speakerPlan.Audience ==
+                GroupConversationAudience.SpecificAiAccount
+            && targetSpeakerUnavailable)
+        {
+            return speakerPlan with
+            {
+                ReplyTargetMessageId = fallbackAnchor?.Id,
+                TargetAiAccountId = null,
+                Audience = fallbackAudience
+            };
+        }
+
+        bool replyTargetExists =
+            speakerPlan.ReplyTargetMessageId is Guid replyTargetMessageId
+            && availableMessages.Any(message =>
+                message.Id == replyTargetMessageId);
+        return replyTargetExists
+            ? speakerPlan
+            : speakerPlan with
+            {
+                ReplyTargetMessageId = fallbackAnchor?.Id
+            };
+    }
+
+    /// <summary>
     /// 只在计划或实际目标消息明确指向群内 AI 时建立关系上下文；
     /// 回应本地用户和泛指全群时不会任意挑选一个成员。
     /// </summary>
@@ -620,18 +677,19 @@ public sealed class GroupChatInteractionService
                 && member.Id != speakerPlan.SpeakerAiAccountId);
     }
 
-    private void ApplyIdentityContinuity(
+    private async Task ApplyIdentityContinuityAsync(
         Guid groupChatId,
         AiMessageGenerationRequest? request,
         AiIdentityContinuityPlan? continuityPlan,
-        IReadOnlyList<GroupMessage> messages)
+        IReadOnlyList<GroupMessage> messages,
+        CancellationToken cancellationToken)
     {
         if (request is null || continuityPlan is null || messages.Count == 0)
         {
             return;
         }
 
-        _identityContinuityService.ApplyAfterMessagesSaved(
+        await _identityContinuityService.ApplyAfterMessagesSavedAsync(
             request,
             continuityPlan,
             groupChatId,
@@ -640,6 +698,13 @@ public sealed class GroupChatInteractionService
                     message.Content,
                     message.SentAt))
                 .ToList()
-                .AsReadOnly());
+                .AsReadOnly(),
+            cancellationToken);
     }
+
+    private sealed record GroupSpeakerFailure(
+        Guid SpeakerAiAccountId,
+        string Stage,
+        string ErrorMessage,
+        AiMessageGenerationScenario Scenario);
 }

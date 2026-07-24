@@ -16,13 +16,19 @@ public sealed class AiModelStageTokenUsageResponse
 }
 
 /// <summary>
-/// 表示一条 AI 消息关联的群级导演、单人导演和回复生成用量。
+/// 表示一条 AI 消息关联的导演、回复生成和记忆判断用量。
 /// </summary>
 public sealed class AiMessageTokenUsageResponse
 {
     public AiModelStageTokenUsageResponse? GroupDirector { get; init; }
     public AiModelStageTokenUsageResponse? ConversationDirector { get; init; }
     public AiModelStageTokenUsageResponse? ReplyGeneration { get; init; }
+    public AiModelStageTokenUsageResponse? SelfMemoryJudgment { get; init; }
+    public AiModelStageTokenUsageResponse? WorldKnowledgeExtraction
+    {
+        get;
+        init;
+    }
     public bool UsageComplete { get; init; }
     public int TotalTokens { get; init; }
     public int InteractionSharedMessageCount { get; init; }

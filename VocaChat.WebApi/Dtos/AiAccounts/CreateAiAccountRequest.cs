@@ -17,6 +17,7 @@ public sealed class CreateAiAccountRequest
     public string? Occupation { get; set; }
     public string? Hometown { get; set; }
     public string? OnlineStatus { get; set; }
+    public Guid? CharacterWorldId { get; set; }
     public IReadOnlyList<string> InterestTags { get; set; } = Array.Empty<string>();
     public IReadOnlyList<string> PersonalityTags { get; set; } = Array.Empty<string>();
 }

@@ -63,6 +63,33 @@ public sealed class AutonomousPrivateChatConversationRuleTests
     }
 
     [Fact]
+    public void ContinuationProbability_IsReducedAfterRepeatedLowInformation()
+    {
+        AutonomousPrivateChatContinuationDecider decider = new();
+        AutonomousPrivateChatPlan plan = CreatePlan(70, 80);
+        AutonomousPrivateChatRoundPlan previousRound =
+            CreatePreviousRound(
+                AutonomousPrivateChatMessageMode.Single,
+                recipientMessageCount: 1);
+
+        double normalProbability = decider.Decide(
+            plan,
+            1,
+            previousRound,
+            previousRoundNaturallyClosed: false,
+            randomRoll: 0.99).OccurrenceProbability;
+        double lowInformationProbability = decider.Decide(
+            plan,
+            1,
+            previousRound,
+            previousRoundNaturallyClosed: false,
+            randomRoll: 0.99,
+            consecutiveLowInformationRounds: 2).OccurrenceProbability;
+
+        Assert.True(lowInformationProbability < normalProbability);
+    }
+
+    [Fact]
     public void ContinuationProbability_IsZeroAfterNaturalClosingMessage()
     {
         AutonomousPrivateChatContinuationDecision decision =

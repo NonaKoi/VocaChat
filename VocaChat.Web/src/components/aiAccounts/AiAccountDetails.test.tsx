@@ -19,6 +19,7 @@ describe('AiAccountDetails', () => {
     expect(screen.getByText('狮子座')).toBeInTheDocument()
     expect(screen.getByText('中国 上海')).toBeInTheDocument()
     expect(screen.getByText('自由插画师')).toBeInTheDocument()
+    expect(screen.getByText('现实世界')).toBeInTheDocument()
     expect(screen.getByText('绘画')).toBeInTheDocument()
     expect(screen.getByText('理性')).toBeInTheDocument()
     expect(screen.getByText('在自己的节奏里前进。')).toBeInTheDocument()
@@ -64,6 +65,14 @@ function createAccount(): AiAccountResponse {
     onlineStatus: 'Online',
     avatarUrl: null,
     coverUrl: null,
+    characterWorldId: 'world-default',
+    characterWorld: {
+      id: 'world-default',
+      name: '现实世界',
+      description: '采用现代现实社会的基本规则。',
+      createdAt: '2026-07-17T10:00:00Z',
+      updatedAt: '2026-07-17T10:00:00Z',
+    },
     interestTags: ['绘画', '阅读'],
     personalityTags: ['冷静', '理性'],
     createdAt: '2026-07-17T12:00:00',

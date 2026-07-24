@@ -8,5 +8,7 @@ public enum AiModelInvocationStage
     GroupDirector,
     ConversationDirector,
     ReplyGeneration,
-    SessionInsight
+    SelfMemoryJudgment,
+    SessionInsight,
+    WorldKnowledgeExtraction
 }

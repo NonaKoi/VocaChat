@@ -42,6 +42,34 @@ public sealed class ConversationDirectorTests
     }
 
     [Fact]
+    public async Task CreatePlanAsync_WhenContributionRepeatsCoveredPoint_UsesRuleFallback()
+    {
+        AiMessageGenerationRequest request = CreateTargetedRequest();
+        string directorJson = JsonSerializer.Serialize(new
+        {
+            action = "Answer",
+            questionMode = "Optional",
+            beat = "Clarify",
+            topicFocus = "回家时间",
+            responseGoal = "明确告诉对方预计几点回来",
+            messageCount = 1,
+            targetMessageId = request.ReplyTarget!.Message!.MessageId,
+            coveredPoints = new[] { "已经说明预计七点回来" },
+            unresolvedGoals = new[] { "确认是否需要留晚饭" },
+            newContribution = "已经说明预计七点回来",
+            avoidedTopics = Array.Empty<string>(),
+            forbiddenClaims = Array.Empty<string>()
+        });
+        OpenAiCompatibleConversationDirector director = CreateDirector(
+            new RecordingHandler(CreateResponse(directorJson)));
+
+        ConversationDirectionPlan plan = await director
+            .CreatePlanAsync(request);
+
+        Assert.True(plan.UsedRuleFallback);
+    }
+
+    [Fact]
     public async Task CreatePlanAsync_WhenTargetIsChanged_UsesRuleFallback()
     {
         AiMessageGenerationRequest request = CreateTargetedRequest();
@@ -213,6 +241,11 @@ public sealed class ConversationDirectorTests
                     baseRequest.Speaker.Id,
                     AiSelfMemoryType.OngoingActivity,
                     "最近正在准备秋季插画展",
+                    "current.project",
+                    AiSelfMemoryFactNature.Objective,
+                    AiSelfMemoryMutability.Mutable,
+                    AiSelfMemoryTrustLevel.UserCanon,
+                    CharacterWorld.DefaultWorldId,
                     AiSelfMemorySource.User,
                     90,
                     true,
@@ -241,7 +274,13 @@ public sealed class ConversationDirectorTests
                 {
                     operation = "Add",
                     targetMemoryId = (string?)null,
+                    subjectAiAccountId = baseRequest.Speaker.Id,
+                    characterWorldId =
+                        baseRequest.Speaker.CharacterWorldId,
                     type = "OngoingActivity",
+                    factKey = "current.project",
+                    factNature = "Objective",
+                    mutability = "Evolving",
                     summary = "正在为插画展整理最后一批作品",
                     reason = "本轮准备明确表达当前进度"
                 }
@@ -256,6 +295,13 @@ public sealed class ConversationDirectorTests
         AiSelfMemoryProposal proposal = Assert.Single(plan.SelfMemoryProposals);
         Assert.Equal(AiSelfMemoryProposalOperation.Add, proposal.Operation);
         Assert.Equal(AiSelfMemoryType.OngoingActivity, proposal.Type);
+        Assert.Equal(baseRequest.Speaker.Id, proposal.SubjectAiAccountId);
+        Assert.Equal(
+            baseRequest.Speaker.CharacterWorldId,
+            proposal.CharacterWorldId);
+        Assert.Equal("current.project", proposal.FactKey);
+        Assert.Equal(AiSelfMemoryFactNature.Objective, proposal.FactNature);
+        Assert.Equal(AiSelfMemoryMutability.Evolving, proposal.Mutability);
         using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
         string userPrompt = body.RootElement.GetProperty("messages")[1]
             .GetProperty("content")
@@ -289,6 +335,8 @@ public sealed class ConversationDirectorTests
         Assert.Contains("一对一私信", userPrompt);
         Assert.Contains("当前频道不是群聊", userPrompt);
         Assert.Contains("1 到 3 条", userPrompt);
+        Assert.Contains("所属角色世界：现实世界", userPrompt);
+        Assert.Contains("新名称本身不构成违规", userPrompt);
     }
 
     [Fact]
@@ -403,6 +451,64 @@ public sealed class ConversationDirectorTests
         Assert.Equal("提出改到室内拍摄", plan.NewContribution);
     }
 
+    [Fact]
+    public async Task CreatePlanAsync_WithWorldContext_UsesSpeakerKnowledgeBoundary()
+    {
+        AiMessageGenerationRequest baseRequest = CreateTargetedRequest();
+        CharacterWorld targetWorld = new(
+            "基沃托斯",
+            "由多个学院自治区组成的学园都市。");
+        AiAccount target = new(
+            "7654321",
+            "小白",
+            "阿拜多斯高中的学生",
+            "冷静",
+            "简短");
+        target.AssignCharacterWorld(targetWorld);
+        AiConversationWorldKnowledge knowledge = new(
+            Guid.NewGuid(),
+            baseRequest.Speaker.Id,
+            targetWorld.Id,
+            target.Id,
+            "小白提到：阿拜多斯是一所受到沙漠化影响的高中。",
+            AiWorldKnowledgeTrustLevel.DirectStatement,
+            80,
+            DateTime.Now);
+        AiMessageGenerationRequest request = baseRequest with
+        {
+            Scenario = AiMessageGenerationScenario.AutonomousPrivateChat,
+            OtherParticipants = new[] { target },
+            RelationshipTarget = target,
+            WorldConversationContext = new AiWorldConversationContext(
+                AiParallelWorldAwarenessState.Unaware,
+                AiWorldAwarenessState.AnomalyObserved,
+                target.Id,
+                targetWorld.Id,
+                VisibleSubjectWorldName: null,
+                IsNewlyInformedByCurrentMessage: false,
+                AiWorldInquiryMode.ExploreBackgroundDifference,
+                new[] { knowledge })
+        };
+        RecordingHandler handler = new(CreateResponse(CreateDirectorJson(
+            "Answer",
+            request.ReplyTarget!.Message!.MessageId,
+            "对方提到的学校",
+            "回应已经听到的沙漠化情况")));
+
+        await CreateDirector(handler).CreatePlanAsync(request);
+
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        string userPrompt = body.RootElement
+            .GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        Assert.Contains("AnomalyObserved", userPrompt);
+        Assert.Contains("阿拜多斯是一所受到沙漠化影响的高中", userPrompt);
+        Assert.Contains("尚不能断言双方来自不同世界", userPrompt);
+        Assert.DoesNotContain("跨世界远程通信对象：小白", userPrompt);
+        Assert.DoesNotContain("当前对象所在世界可称为“基沃托斯”", userPrompt);
+    }
+
     private static OpenAiCompatibleConversationDirector CreateDirector(
         HttpMessageHandler handler)
     {
@@ -412,6 +518,7 @@ public sealed class ConversationDirectorTests
         };
         AiMessageGenerationOptions options = new()
         {
+            BaseUrl = "https://api.example.test/v1/",
             Model = "director-test-model",
             OutputValidationRetryCount = 0
         };

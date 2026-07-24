@@ -36,6 +36,8 @@ public class AiAccount
     public OnlineStatus OnlineStatus { get; private set; }
     public string? AvatarMediaId { get; private set; }
     public string? ProfileCoverMediaId { get; private set; }
+    public Guid CharacterWorldId { get; private set; }
+    public CharacterWorld? CharacterWorld { get; private set; }
     public IReadOnlyList<AiAccountTag> Tags => _tags.AsReadOnly();
     public DateTime CreatedAt { get; private set; }
 
@@ -53,6 +55,8 @@ public class AiAccount
         Location = string.Empty;
         Occupation = string.Empty;
         Hometown = string.Empty;
+        CharacterWorldId =
+            global::VocaChat.Models.CharacterWorld.DefaultWorldId;
     }
 
     /// <summary>
@@ -77,6 +81,8 @@ public class AiAccount
         Hometown = string.Empty;
         Gender = AiAccountGender.Unspecified;
         OnlineStatus = OnlineStatus.Offline;
+        CharacterWorldId =
+            global::VocaChat.Models.CharacterWorld.DefaultWorldId;
         CreatedAt = DateTime.Now;
     }
 
@@ -165,6 +171,16 @@ public class AiAccount
     internal void ChangeProfileCoverMediaId(string mediaId)
     {
         ProfileCoverMediaId = mediaId;
+    }
+
+    /// <summary>
+    /// 将账号关联到一个已经持久化的角色世界，不复制世界设定。
+    /// </summary>
+    internal void AssignCharacterWorld(CharacterWorld characterWorld)
+    {
+        CharacterWorld = characterWorld
+            ?? throw new ArgumentNullException(nameof(characterWorld));
+        CharacterWorldId = characterWorld.Id;
     }
 
     /// <summary>

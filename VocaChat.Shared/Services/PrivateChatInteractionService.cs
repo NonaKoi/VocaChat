@@ -15,6 +15,10 @@ public sealed class PrivateChatInteractionService
         _replyMessageCountSettingsResolver;
     private readonly ConversationQuestionPolicyService _questionPolicyService;
     private readonly AiIdentityContinuityService _identityContinuityService;
+    private readonly AiWorldKnowledgeMessageProcessor?
+        _worldKnowledgeProcessor;
+    private readonly AiWorldConversationContextService?
+        _worldConversationContextService;
 
     public PrivateChatInteractionService(
         PrivateChatService privateChatService,
@@ -23,7 +27,10 @@ public sealed class PrivateChatInteractionService
         AiReplyTimingScheduler replyTimingScheduler,
         AiReplyMessageCountSettingsResolver replyMessageCountSettingsResolver,
         ConversationQuestionPolicyService questionPolicyService,
-        AiIdentityContinuityService identityContinuityService)
+        AiIdentityContinuityService identityContinuityService,
+        AiWorldKnowledgeMessageProcessor? worldKnowledgeProcessor = null,
+        AiWorldConversationContextService?
+            worldConversationContextService = null)
     {
         _privateChatService = privateChatService;
         _messageGenerator = messageGenerator;
@@ -36,6 +43,9 @@ public sealed class PrivateChatInteractionService
             ?? throw new ArgumentNullException(nameof(questionPolicyService));
         _identityContinuityService = identityContinuityService
             ?? throw new ArgumentNullException(nameof(identityContinuityService));
+        _worldKnowledgeProcessor = worldKnowledgeProcessor;
+        _worldConversationContextService =
+            worldConversationContextService;
     }
 
     public async Task<PrivateChatInteractionResult> ProcessUserMessageAsync(
@@ -72,6 +82,18 @@ public sealed class PrivateChatInteractionService
 
         AiAccount aiAccount = privateChat.Contact!.AiAccount;
         Guid aiResponseBatchId = Guid.NewGuid();
+        if (_worldKnowledgeProcessor is not null)
+        {
+            await _worldKnowledgeProcessor.ProcessPrivateMessageAsync(
+                userMessage!.Id,
+                new AiModelUsageCorrelation
+                {
+                    PrivateChatId = privateChat.Id,
+                    AiResponseBatchId = aiResponseBatchId
+                },
+                cancellationToken);
+        }
+
         IReadOnlyList<string> replyContents;
         AiMessageGenerationRequest? completedRequest = null;
         AiIdentityContinuityPlan? continuityPlan = null;
@@ -120,6 +142,9 @@ public sealed class PrivateChatInteractionService
             };
             generationRequest = _identityContinuityService
                 .PrepareGenerationRequest(generationRequest);
+            generationRequest = _worldConversationContextService?
+                .PrepareGenerationRequest(generationRequest)
+                ?? generationRequest;
             ConversationDirectionPlan directionPlan =
                 await _conversationDirector.CreatePlanAsync(
                     generationRequest,
@@ -172,11 +197,12 @@ public sealed class PrivateChatInteractionService
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                ApplyIdentityContinuity(
+                await ApplyIdentityContinuityAsync(
                     privateChat.Id,
                     completedRequest,
                     continuityPlan,
-                    savedAiReplies);
+                    savedAiReplies,
+                    cancellationToken);
                 return savedAiReplies.Count == 0
                     ? PrivateChatInteractionResult.AiReplyFailed(
                         userMessage!,
@@ -197,11 +223,12 @@ public sealed class PrivateChatInteractionService
                     out string aiReplyError)
                 || aiReply is null)
             {
-                ApplyIdentityContinuity(
+                await ApplyIdentityContinuityAsync(
                     privateChat.Id,
                     completedRequest,
                     continuityPlan,
-                    savedAiReplies);
+                    savedAiReplies,
+                    cancellationToken);
                 return savedAiReplies.Count == 0
                     ? PrivateChatInteractionResult.AiReplyFailed(
                         userMessage!,
@@ -214,31 +241,39 @@ public sealed class PrivateChatInteractionService
             }
 
             savedAiReplies.Add(aiReply);
+            if (_worldKnowledgeProcessor is not null)
+            {
+                await _worldKnowledgeProcessor.ProcessPrivateMessageAsync(
+                    aiReply.Id,
+                    cancellationToken);
+            }
         }
 
-        ApplyIdentityContinuity(
+        await ApplyIdentityContinuityAsync(
             privateChat.Id,
             completedRequest,
             continuityPlan,
-            savedAiReplies);
+            savedAiReplies,
+            cancellationToken);
 
         return PrivateChatInteractionResult.Succeeded(
             userMessage!,
             savedAiReplies.AsReadOnly());
     }
 
-    private void ApplyIdentityContinuity(
+    private async Task ApplyIdentityContinuityAsync(
         Guid privateChatId,
         AiMessageGenerationRequest? request,
         AiIdentityContinuityPlan? continuityPlan,
-        IReadOnlyList<PrivateMessage> messages)
+        IReadOnlyList<PrivateMessage> messages,
+        CancellationToken cancellationToken)
     {
         if (request is null || continuityPlan is null || messages.Count == 0)
         {
             return;
         }
 
-        _identityContinuityService.ApplyAfterMessagesSaved(
+        await _identityContinuityService.ApplyAfterMessagesSavedAsync(
             request,
             continuityPlan,
             privateChatId,
@@ -247,7 +282,8 @@ public sealed class PrivateChatInteractionService
                     message.Content,
                     message.SentAt))
                 .ToList()
-                .AsReadOnly());
+                .AsReadOnly(),
+            cancellationToken);
     }
 }
 

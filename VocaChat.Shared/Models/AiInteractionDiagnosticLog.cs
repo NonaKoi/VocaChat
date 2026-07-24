@@ -14,6 +14,7 @@ public enum AiInteractionDiagnosticCode
     ReplyTimingFailed,
     SelfMemoryDecision,
     SelfMemoryPersistenceFailed,
+    WorldKnowledgeProcessingFailed,
     GroupConversationPlanCreated,
     GroupConversationPlanFallback,
     GroupConversationExecutionFailed

@@ -74,11 +74,28 @@ public sealed record AiConversationSelfMemory(
     Guid AiAccountId,
     AiSelfMemoryType Type,
     string Summary,
+    string FactKey,
+    AiSelfMemoryFactNature FactNature,
+    AiSelfMemoryMutability Mutability,
+    AiSelfMemoryTrustLevel TrustLevel,
+    Guid CharacterWorldId,
     AiSelfMemorySource Source,
     int Salience,
     bool IsUserLocked,
     DateTime? OccurredAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt)
+{
+    /// <summary>
+    /// 表示这条事实在生成时不能被近期消息或导演叙事覆盖。
+    /// 用户锁定、用户正典，以及已经确认的恒定客观事实都属于受保护事实。
+    /// </summary>
+    public bool IsProtectedFact =>
+        IsUserLocked
+        || TrustLevel == AiSelfMemoryTrustLevel.UserCanon
+        || FactNature == AiSelfMemoryFactNature.Objective
+            && Mutability == AiSelfMemoryMutability.Immutable
+            && TrustLevel == AiSelfMemoryTrustLevel.EstablishedCanon;
+}
 
 /// <summary>
 /// 区分当前生成是在回应一条具体消息、开启话题，还是收束对话。
@@ -152,6 +169,17 @@ public sealed record AiMessageGenerationRequest
     /// </summary>
     public IReadOnlyList<AiConversationSelfMemory> RelevantSelfMemories { get; init; } =
         Array.Empty<AiConversationSelfMemory>();
+    /// <summary>
+    /// 保存业务层按当前发言者的认知状态准备的世界知识上下文。
+    /// 为空表示该调用链尚未接入认知隔离，不能从账号真实世界关系自行补全。
+    /// </summary>
+    public AiWorldConversationContext? WorldConversationContext { get; init; }
+    /// <summary>
+    /// 保存群聊中当前发言者分别面向相关成员的世界认知。
+    /// 每个成员的状态和知识必须独立验证，不能由其他成员的上下文补全。
+    /// </summary>
+    public AiGroupWorldConversationContext? GroupWorldConversationContext
+        { get; init; }
     /// <summary>
     /// 未设置时，业务层通过 ExpectedMessageCount 精确指定数量；设置后，导演可在范围内选择。
     /// </summary>

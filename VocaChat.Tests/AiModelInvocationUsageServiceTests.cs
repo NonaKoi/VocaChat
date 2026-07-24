@@ -66,6 +66,53 @@ public sealed class AiModelInvocationUsageServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ChatClient_WithOllamaUsage_PersistsNativeTokenCounts()
+    {
+        OllamaTokenUsageResponseHandler handler = new();
+        using HttpClient httpClient = new(handler);
+        AiModelInvocationUsageService usageService = new(
+            _database.CreateDbContextFactory());
+        OpenAiCompatibleChatClient client = new(
+            httpClient,
+            new AiMessageGenerationOptions
+            {
+                BaseUrl = "http://127.0.0.1:11434/api/",
+                Model = "vocachat-qwen3.5-4b"
+            },
+            connectionSettingsService: null,
+            usageService);
+
+        string? content = await client.CompleteJsonAsync(
+            "system",
+            "user",
+            temperature: 0.2,
+            topP: 0.8,
+            maximumCompletionTokens: 64,
+            invocationContext: new AiModelInvocationContext
+            {
+                Stage = AiModelInvocationStage.GroupDirector,
+                AttemptNumber = 1,
+                InteractionBatchId = Guid.NewGuid()
+            });
+
+        Assert.Equal("{}", content);
+        using VocaChat.Data.VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        AiModelInvocationUsage usage = dbContext
+            .AiModelInvocationUsages
+            .AsNoTracking()
+            .Single();
+        Assert.Equal("vocachat-qwen3.5-4b", usage.ModelName);
+        Assert.True(usage.UsageReported);
+        Assert.Equal(90, usage.PromptTokens);
+        Assert.Equal(18, usage.CompletionTokens);
+        Assert.Equal(108, usage.TotalTokens);
+        Assert.Null(usage.PromptCacheHitTokens);
+        Assert.Null(usage.PromptCacheMissTokens);
+        Assert.Null(usage.ReasoningTokens);
+    }
+
+    [Fact]
     public void GroupMessages_SharedBatchesReuseActualUsageWithoutDuplicatingIt()
     {
         AiModelInvocationUsageService usageService = new(
@@ -101,6 +148,20 @@ public sealed class AiModelInvocationUsageServiceTests : IDisposable
                 aiAccountId),
             "reply-model",
             new AiModelTokenUsage(80, 30, 110, null, null, null)));
+        Assert.True(usageService.TryRecord(
+            correlation.CreateInvocationContext(
+                AiModelInvocationStage.SelfMemoryJudgment,
+                attemptNumber: 1,
+                aiAccountId),
+            "memory-judge-model",
+            new AiModelTokenUsage(40, 10, 50, null, null, null)));
+        Assert.True(usageService.TryRecord(
+            correlation.CreateInvocationContext(
+                AiModelInvocationStage.WorldKnowledgeExtraction,
+                attemptNumber: 1,
+                aiAccountId),
+            "knowledge-extractor-model",
+            new AiModelTokenUsage(20, 5, 25, null, null, null)));
 
         GroupMessage firstMessage = CreateAiMessage(
             groupChatId,
@@ -122,7 +183,13 @@ public sealed class AiModelInvocationUsageServiceTests : IDisposable
         Assert.Equal(2, summaries.Count);
         foreach (AiMessageTokenUsageSummary summary in summaries.Values)
         {
-            Assert.Equal(300, summary.TotalTokens);
+            Assert.Equal(375, summary.TotalTokens);
+            Assert.NotNull(summary.SelfMemoryJudgment);
+            Assert.Equal(50, summary.SelfMemoryJudgment.TotalTokens);
+            Assert.NotNull(summary.WorldKnowledgeExtraction);
+            Assert.Equal(
+                25,
+                summary.WorldKnowledgeExtraction.TotalTokens);
             Assert.Equal(2, summary.InteractionSharedMessageCount);
             Assert.Equal(2, summary.ResponseSharedMessageCount);
             Assert.True(summary.UsageComplete);
@@ -130,7 +197,7 @@ public sealed class AiModelInvocationUsageServiceTests : IDisposable
 
         using VocaChat.Data.VocaChatDbContext dbContext =
             _database.CreateDbContextFactory().CreateDbContext();
-        Assert.Equal(3, dbContext.AiModelInvocationUsages.Count());
+        Assert.Equal(5, dbContext.AiModelInvocationUsages.Count());
     }
 
     private static GroupMessage CreateAiMessage(
@@ -179,6 +246,33 @@ public sealed class AiModelInvocationUsageServiceTests : IDisposable
                       "reasoning_tokens": 12
                     }
                   }
+                }
+                """;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    responseJson,
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        }
+    }
+
+    private sealed class OllamaTokenUsageResponseHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            const string responseJson = """
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{}"
+                  },
+                  "prompt_eval_count": 90,
+                  "eval_count": 18
                 }
                 """;
 

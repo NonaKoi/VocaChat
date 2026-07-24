@@ -59,6 +59,11 @@ namespace VocaChat.Migrations
                     b.Property<DateOnly?>("Birthday")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("CharacterWorldId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue(new Guid("2d215860-2e59-4b55-916c-fc5cb6e96c27"));
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -120,6 +125,8 @@ namespace VocaChat.Migrations
                         .UseCollation("NOCASE");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CharacterWorldId");
 
                     b.HasIndex("Nickname")
                         .IsUnique();
@@ -539,6 +546,57 @@ namespace VocaChat.Migrations
                         });
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiParallelWorldAwareness", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AcceptedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FirstInformedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsUserLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("LastSourceGroupMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LastSourcePrivateMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AiAccountId")
+                        .IsUnique();
+
+                    b.HasIndex("LastSourceGroupMessageId");
+
+                    b.HasIndex("LastSourcePrivateMessageId");
+
+                    b.ToTable("AiParallelWorldAwareness", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiParallelWorldAwareness_Source", "\"LastSourcePrivateMessageId\" IS NULL OR \"LastSourceGroupMessageId\" IS NULL");
+
+                            t.HasCheckConstraint("CK_AiParallelWorldAwareness_State", "\"State\" BETWEEN 0 AND 2");
+
+                            t.HasCheckConstraint("CK_AiParallelWorldAwareness_Timestamps", "(\"State\" = 0 AND \"FirstInformedAt\" IS NULL AND \"AcceptedAt\" IS NULL) OR (\"State\" = 1 AND \"FirstInformedAt\" IS NOT NULL AND \"AcceptedAt\" IS NULL) OR (\"State\" = 2 AND \"FirstInformedAt\" IS NOT NULL AND \"AcceptedAt\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("VocaChat.Models.AiRelationship", b =>
                 {
                     b.Property<Guid>("FromAiAccountId")
@@ -643,10 +701,25 @@ namespace VocaChat.Migrations
                     b.Property<Guid>("AiAccountId")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("CharacterWorldId")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("FactKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<int>("FactNature")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsUserLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Mutability")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("OccurredAt")
@@ -673,6 +746,12 @@ namespace VocaChat.Migrations
                         .HasColumnType("TEXT")
                         .UseCollation("NOCASE");
 
+                    b.Property<Guid?>("SupersedesMemoryId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TrustLevel")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Type")
                         .HasColumnType("INTEGER");
 
@@ -687,11 +766,21 @@ namespace VocaChat.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CharacterWorldId");
+
                     b.HasIndex("SourceConversationId");
 
                     b.HasIndex("SourceMessageId");
 
-                    b.HasIndex("AiAccountId", "Type", "Summary")
+                    b.HasIndex("SupersedesMemoryId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesMemoryId\" IS NOT NULL");
+
+                    b.HasIndex("AiAccountId", "CharacterWorldId", "FactKey")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0");
+
+                    b.HasIndex("AiAccountId", "CharacterWorldId", "Type", "Summary")
                         .IsUnique()
                         .HasFilter("\"Status\" = 0");
 
@@ -699,10 +788,18 @@ namespace VocaChat.Migrations
                         .IsUnique()
                         .HasFilter("\"Source\" = 1 AND \"SourceMessageId\" IS NOT NULL");
 
-                    b.HasIndex("AiAccountId", "Status", "Salience", "UpdatedAt");
+                    b.HasIndex("AiAccountId", "CharacterWorldId", "Status", "Salience", "UpdatedAt");
 
                     b.ToTable("AiSelfMemories", null, t =>
                         {
+                            t.HasCheckConstraint("CK_AiSelfMemories_FactKey", "length(trim(\"FactKey\")) > 0");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_FactKey_MaxLength", "length(\"FactKey\") <= 100");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_FactNature", "\"FactNature\" BETWEEN 0 AND 2");
+
+                            t.HasCheckConstraint("CK_AiSelfMemories_Mutability", "\"Mutability\" BETWEEN 0 AND 3");
+
                             t.HasCheckConstraint("CK_AiSelfMemories_Salience", "\"Salience\" BETWEEN 1 AND 100");
 
                             t.HasCheckConstraint("CK_AiSelfMemories_Source", "\"Source\" BETWEEN 0 AND 1");
@@ -711,9 +808,226 @@ namespace VocaChat.Migrations
 
                             t.HasCheckConstraint("CK_AiSelfMemories_Summary", "length(trim(\"Summary\")) > 0");
 
+                            t.HasCheckConstraint("CK_AiSelfMemories_TrustLevel", "\"TrustLevel\" BETWEEN 0 AND 3");
+
                             t.HasCheckConstraint("CK_AiSelfMemories_Type", "\"Type\" BETWEEN 0 AND 4");
 
                             t.HasCheckConstraint("CK_AiSelfMemories_Validity", "\"ValidFrom\" IS NULL OR \"ValidUntil\" IS NULL OR \"ValidUntil\" >= \"ValidFrom\"");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiWorldAwareness", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DistinctConversationCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("EvidenceCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("FirstEvidenceAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsUserLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastEvidenceAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LastSourceGroupMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LastSourcePrivateMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ObserverAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("SubjectAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SubjectCharacterWorldId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastSourceGroupMessageId");
+
+                    b.HasIndex("LastSourcePrivateMessageId");
+
+                    b.HasIndex("SubjectAiAccountId");
+
+                    b.HasIndex("SubjectCharacterWorldId");
+
+                    b.HasIndex("ObserverAiAccountId", "SubjectAiAccountId")
+                        .IsUnique();
+
+                    b.ToTable("AiWorldAwareness", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiWorldAwareness_ConfirmedAt", "\"ConfirmedAt\" IS NULL OR \"State\" = 3");
+
+                            t.HasCheckConstraint("CK_AiWorldAwareness_ConversationCount", "\"DistinctConversationCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_AiWorldAwareness_DifferentAccounts", "\"ObserverAiAccountId\" <> \"SubjectAiAccountId\"");
+
+                            t.HasCheckConstraint("CK_AiWorldAwareness_EvidenceCount", "\"EvidenceCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_AiWorldAwareness_EvidenceTimes", "(\"FirstEvidenceAt\" IS NULL AND \"LastEvidenceAt\" IS NULL) OR (\"FirstEvidenceAt\" IS NOT NULL AND \"LastEvidenceAt\" IS NOT NULL AND \"LastEvidenceAt\" >= \"FirstEvidenceAt\")");
+
+                            t.HasCheckConstraint("CK_AiWorldAwareness_Source", "\"LastSourcePrivateMessageId\" IS NULL OR \"LastSourceGroupMessageId\" IS NULL");
+
+                            t.HasCheckConstraint("CK_AiWorldAwareness_State", "\"State\" BETWEEN 0 AND 3");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiWorldKnowledge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FactNature")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FirstLearnedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsUserLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("KnowledgeKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<int>("Mutability")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("OwnerAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Salience")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("SubjectAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SubjectCharacterWorldId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TrustLevel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubjectAiAccountId");
+
+                    b.HasIndex("SubjectCharacterWorldId");
+
+                    b.HasIndex("OwnerAiAccountId", "SubjectCharacterWorldId", "KnowledgeKey")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0 AND \"SubjectAiAccountId\" IS NULL");
+
+                    b.HasIndex("OwnerAiAccountId", "SubjectCharacterWorldId", "SubjectAiAccountId", "KnowledgeKey")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 0 AND \"SubjectAiAccountId\" IS NOT NULL");
+
+                    b.HasIndex("OwnerAiAccountId", "SubjectCharacterWorldId", "Status", "Salience", "UpdatedAt");
+
+                    b.ToTable("AiWorldKnowledge", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_FactNature", "\"FactNature\" BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_KnowledgeKey_NotBlank", "length(trim(\"KnowledgeKey\")) > 0");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_Mutability", "\"Mutability\" BETWEEN 0 AND 2");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_Salience", "\"Salience\" BETWEEN 1 AND 100");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_Status", "\"Status\" BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_Summary_NotBlank", "length(trim(\"Summary\")) > 0");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledge_TrustLevel", "\"TrustLevel\" BETWEEN 0 AND 3");
+                        });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiWorldKnowledgeEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AiWorldKnowledgeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EvidenceSummary")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ObservedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SourceAiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SourceGroupMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SourcePrivateMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SourceType")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceAiAccountId");
+
+                    b.HasIndex("SourceGroupMessageId");
+
+                    b.HasIndex("SourcePrivateMessageId");
+
+                    b.HasIndex("AiWorldKnowledgeId", "SourceGroupMessageId")
+                        .IsUnique()
+                        .HasFilter("\"SourceGroupMessageId\" IS NOT NULL");
+
+                    b.HasIndex("AiWorldKnowledgeId", "SourcePrivateMessageId")
+                        .IsUnique()
+                        .HasFilter("\"SourcePrivateMessageId\" IS NOT NULL");
+
+                    b.ToTable("AiWorldKnowledgeEvidence", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiWorldKnowledgeEvidence_SourceMessage", "(\"SourcePrivateMessageId\" IS NOT NULL AND \"SourceGroupMessageId\" IS NULL) OR (\"SourcePrivateMessageId\" IS NULL AND \"SourceGroupMessageId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledgeEvidence_SourceType", "(\"SourceType\" = 0 AND \"SourceAiAccountId\" IS NULL) OR (\"SourceType\" = 1 AND \"SourceAiAccountId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AiWorldKnowledgeEvidence_Summary_NotBlank", "length(trim(\"EvidenceSummary\")) > 0");
                         });
                 });
 
@@ -1124,6 +1438,53 @@ namespace VocaChat.Migrations
                         });
                 });
 
+            modelBuilder.Entity("VocaChat.Models.CharacterWorld", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("CharacterWorlds", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CharacterWorlds_Description_MaxLength", "length(\"Description\") <= 4000");
+
+                            t.HasCheckConstraint("CK_CharacterWorlds_Name_MaxLength", "length(\"Name\") <= 100");
+
+                            t.HasCheckConstraint("CK_CharacterWorlds_Name_NotBlank", "length(trim(\"Name\")) > 0");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("2d215860-2e59-4b55-916c-fc5cb6e96c27"),
+                            CreatedAt = new DateTime(2026, 7, 23, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Description = "采用现代现实社会的基本规则；未经用户或可靠来源确认的时效性外部信息不得作为确定事实。",
+                            Name = "现实世界",
+                            UpdatedAt = new DateTime(2026, 7, 23, 0, 0, 0, 0, DateTimeKind.Utc)
+                        });
+                });
+
             modelBuilder.Entity("VocaChat.Models.Contact", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1297,6 +1658,24 @@ namespace VocaChat.Migrations
 
                             t.HasCheckConstraint("CK_GroupMessages_SequenceNumber_Positive", "\"SequenceNumber\" > 0");
                         });
+                });
+
+            modelBuilder.Entity("VocaChat.Models.GroupMessageAudience", b =>
+                {
+                    b.Property<Guid>("GroupMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AiAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("VisibleAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("GroupMessageId", "AiAccountId");
+
+                    b.HasIndex("AiAccountId", "VisibleAt");
+
+                    b.ToTable("GroupMessageAudience", (string)null);
                 });
 
             modelBuilder.Entity("VocaChat.Models.Post", b =>
@@ -1566,6 +1945,17 @@ namespace VocaChat.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiAccount", b =>
+                {
+                    b.HasOne("VocaChat.Models.CharacterWorld", "CharacterWorld")
+                        .WithMany()
+                        .HasForeignKey("CharacterWorldId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CharacterWorld");
+                });
+
             modelBuilder.Entity("VocaChat.Models.AiAccountAutonomySettings", b =>
                 {
                     b.HasOne("VocaChat.Models.AiAccount", null)
@@ -1628,6 +2018,27 @@ namespace VocaChat.Migrations
                     b.Navigation("SubjectAiAccount");
                 });
 
+            modelBuilder.Entity("VocaChat.Models.AiParallelWorldAwareness", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", "AiAccount")
+                        .WithMany()
+                        .HasForeignKey("AiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.GroupMessage", null)
+                        .WithMany()
+                        .HasForeignKey("LastSourceGroupMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.PrivateMessage", null)
+                        .WithMany()
+                        .HasForeignKey("LastSourcePrivateMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AiAccount");
+                });
+
             modelBuilder.Entity("VocaChat.Models.AiRelationship", b =>
                 {
                     b.HasOne("VocaChat.Models.AiAccount", "FromAiAccount")
@@ -1682,7 +2093,113 @@ namespace VocaChat.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("VocaChat.Models.CharacterWorld", "CharacterWorld")
+                        .WithMany()
+                        .HasForeignKey("CharacterWorldId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiSelfMemory", "SupersedesMemory")
+                        .WithMany()
+                        .HasForeignKey("SupersedesMemoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("AiAccount");
+
+                    b.Navigation("CharacterWorld");
+
+                    b.Navigation("SupersedesMemory");
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiWorldAwareness", b =>
+                {
+                    b.HasOne("VocaChat.Models.GroupMessage", null)
+                        .WithMany()
+                        .HasForeignKey("LastSourceGroupMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.PrivateMessage", null)
+                        .WithMany()
+                        .HasForeignKey("LastSourcePrivateMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.AiAccount", "ObserverAiAccount")
+                        .WithMany()
+                        .HasForeignKey("ObserverAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiAccount", "SubjectAiAccount")
+                        .WithMany()
+                        .HasForeignKey("SubjectAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.CharacterWorld", "SubjectCharacterWorld")
+                        .WithMany()
+                        .HasForeignKey("SubjectCharacterWorldId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ObserverAiAccount");
+
+                    b.Navigation("SubjectAiAccount");
+
+                    b.Navigation("SubjectCharacterWorld");
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiWorldKnowledge", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", "OwnerAiAccount")
+                        .WithMany()
+                        .HasForeignKey("OwnerAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiAccount", "SubjectAiAccount")
+                        .WithMany()
+                        .HasForeignKey("SubjectAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.CharacterWorld", "SubjectCharacterWorld")
+                        .WithMany()
+                        .HasForeignKey("SubjectCharacterWorldId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("OwnerAiAccount");
+
+                    b.Navigation("SubjectAiAccount");
+
+                    b.Navigation("SubjectCharacterWorld");
+                });
+
+            modelBuilder.Entity("VocaChat.Models.AiWorldKnowledgeEvidence", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiWorldKnowledge", "AiWorldKnowledge")
+                        .WithMany()
+                        .HasForeignKey("AiWorldKnowledgeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.AiAccount", "SourceAiAccount")
+                        .WithMany()
+                        .HasForeignKey("SourceAiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.GroupMessage", null)
+                        .WithMany()
+                        .HasForeignKey("SourceGroupMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VocaChat.Models.PrivateMessage", null)
+                        .WithMany()
+                        .HasForeignKey("SourcePrivateMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AiWorldKnowledge");
+
+                    b.Navigation("SourceAiAccount");
                 });
 
             modelBuilder.Entity("VocaChat.Models.AutonomousGroupChatRound", b =>
@@ -1785,6 +2302,25 @@ namespace VocaChat.Migrations
                         .WithMany()
                         .HasForeignKey("SenderAiAccountId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("VocaChat.Models.GroupMessageAudience", b =>
+                {
+                    b.HasOne("VocaChat.Models.AiAccount", "AiAccount")
+                        .WithMany()
+                        .HasForeignKey("AiAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VocaChat.Models.GroupMessage", "GroupMessage")
+                        .WithMany()
+                        .HasForeignKey("GroupMessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AiAccount");
+
+                    b.Navigation("GroupMessage");
                 });
 
             modelBuilder.Entity("VocaChat.Models.Post", b =>

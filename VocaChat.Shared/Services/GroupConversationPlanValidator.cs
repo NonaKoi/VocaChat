@@ -128,7 +128,7 @@ public sealed class GroupConversationPlanValidator
             availableMessageIds.Add(anchorMessage.Id);
         }
         HashSet<Guid> speakerIds = new();
-        HashSet<string> contributions = new(StringComparer.OrdinalIgnoreCase);
+        List<string> contributions = new();
 
         for (int index = 0; index < plan.Speakers.Count; index++)
         {
@@ -208,11 +208,34 @@ public sealed class GroupConversationPlanValidator
 
             string normalizedContribution =
                 speakerPlan.NewContribution.Trim();
-            if (!contributions.Add(normalizedContribution))
+            if (contributions.Any(existing =>
+                    string.Equals(
+                        normalizedContribution,
+                        existing,
+                        StringComparison.OrdinalIgnoreCase)
+                    || (!plan.UsedRuleFallback
+                        && ConversationInformationGainEvaluator
+                            .RepeatsPlanPoint(
+                                normalizedContribution,
+                                existing))))
             {
-                errorMessage = "多位发言者不能承担完全相同的新增内容。";
+                errorMessage =
+                    "多位发言者不能换词重复相同的新增内容。";
                 return false;
             }
+
+            if (!plan.UsedRuleFallback
+                && plan.CoveredPoints.Any(coveredPoint =>
+                    ConversationInformationGainEvaluator
+                        .RepeatsPlanPoint(
+                            normalizedContribution,
+                            coveredPoint)))
+            {
+                errorMessage =
+                    "群聊发言计划不能复述已经覆盖的内容。";
+                return false;
+            }
+            contributions.Add(normalizedContribution);
 
             if (!TryValidateAudience(
                     speakerPlan,

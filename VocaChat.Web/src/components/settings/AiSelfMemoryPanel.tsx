@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { Archive, Brain, LockKeyhole, Pencil, Plus, RotateCcw } from 'lucide-react'
 import type {
+  AiSelfMemoryFactNature,
+  AiSelfMemoryMutability,
   AiSelfMemoryResponse,
   AiSelfMemoryStatus,
+  AiSelfMemoryTrustLevel,
   AiSelfMemoryType,
+  CharacterWorldResponse,
   SaveAiSelfMemoryRequest,
 } from '@/api/types'
 import { AiSelfMemoryEditor } from '@/components/settings/AiSelfMemoryEditor'
@@ -18,6 +22,8 @@ import { formatDateTime } from '@/utils/dateTime'
 
 interface AiSelfMemoryPanelProps {
   aiAccountId: string
+  characterWorlds?: CharacterWorldResponse[]
+  defaultCharacterWorldId?: string
   onDirtyChange: (isDirty: boolean) => void
 }
 
@@ -35,8 +41,33 @@ const typeLabels: Record<AiSelfMemoryType, string> = {
   Preference: '偏好',
 }
 
+const factNatureLabels: Record<AiSelfMemoryFactNature, string> = {
+  Objective: '客观',
+  Subjective: '主观',
+  Narrative: '叙事',
+}
+
+const mutabilityLabels: Record<AiSelfMemoryMutability, string> = {
+  Immutable: '恒定',
+  Mutable: '可变化',
+  Evolving: '持续演化',
+  Ephemeral: '短期',
+}
+
+const trustLevelLabels: Record<AiSelfMemoryTrustLevel, string> = {
+  UserCanon: '用户正典',
+  EstablishedCanon: '已建立事实',
+  NarrativeCandidate: '叙事候选',
+  SubjectiveState: '主观状态',
+}
+
 /** 查询并管理当前账号的个人记忆，不把它与聊天记录或关系记忆混用。 */
-export function AiSelfMemoryPanel({ aiAccountId, onDirtyChange }: AiSelfMemoryPanelProps) {
+export function AiSelfMemoryPanel({
+  aiAccountId,
+  characterWorlds = [],
+  defaultCharacterWorldId,
+  onDirtyChange,
+}: AiSelfMemoryPanelProps) {
   const [statusFilter, setStatusFilter] = useState<AiSelfMemoryStatus>('Active')
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>()
   const [editingMemoryId, setEditingMemoryId] = useState<string>()
@@ -147,6 +178,8 @@ export function AiSelfMemoryPanel({ aiAccountId, onDirtyChange }: AiSelfMemoryPa
       {editorMode && (
         <AiSelfMemoryEditor
           memory={editorMode === 'edit' ? editingMemory : undefined}
+          characterWorlds={characterWorlds}
+          defaultCharacterWorldId={defaultCharacterWorldId}
           isSaving={Boolean(memories.operation)}
           errorMessage={memories.operationErrorMessage}
           onSave={saveMemory}
@@ -178,6 +211,12 @@ export function AiSelfMemoryPanel({ aiAccountId, onDirtyChange }: AiSelfMemoryPa
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="secondary">{typeLabels[memory.type]}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {factNatureLabels[memory.factNature]} · {mutabilityLabels[memory.mutability]}
+                    </span>
+                    <span className="text-xs font-medium text-foreground">
+                      {trustLevelLabels[memory.trustLevel]}
+                    </span>
                     <span className="text-xs text-muted-foreground">{memory.source === 'User' ? '用户记录' : '导演建议'}</span>
                     {memory.isUserLocked && (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
@@ -187,22 +226,37 @@ export function AiSelfMemoryPanel({ aiAccountId, onDirtyChange }: AiSelfMemoryPa
                     )}
                   </div>
                   <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{memory.summary}</p>
-                  <p className="mt-3 text-xs text-muted-foreground">重要度 {memory.salience} · 更新于 {formatDateTime(memory.updatedAt)}</p>
+                  <p className="mt-3 break-all text-xs leading-5 text-muted-foreground">
+                    {getWorldName(memory.characterWorldId, characterWorlds)}
+                    {' · '}
+                    事实键 <span translate="no">{memory.factKey}</span>
+                    {' · '}
+                    重要度 {memory.salience}
+                    {' · '}
+                    更新于 {formatDateTime(memory.updatedAt)}
+                  </p>
+                  {memory.supersedesMemoryId && (
+                    <p className="mt-1 text-xs text-muted-foreground">此版本替代了先前记录。</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  <Button variant="ghost" size="icon" className="size-9" onClick={() => beginEdit(memory.id)} aria-label={`编辑记忆：${memory.summary}`}>
-                    <Pencil className="size-4" aria-hidden="true" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-9"
-                    disabled={Boolean(memories.operation)}
-                    onClick={() => void changeMemoryStatus(memory)}
-                    aria-label={memory.status === 'Archived' ? `恢复记忆：${memory.summary}` : `归档记忆：${memory.summary}`}
-                  >
-                    {memory.status === 'Archived' ? <RotateCcw className="size-4" aria-hidden="true" /> : <Archive className="size-4" aria-hidden="true" />}
-                  </Button>
+                  {memory.status === 'Active' && (
+                    <Button variant="ghost" size="icon" className="size-9" onClick={() => beginEdit(memory.id)} aria-label={`编辑记忆：${memory.summary}`}>
+                      <Pencil className="size-4" aria-hidden="true" />
+                    </Button>
+                  )}
+                  {memory.status !== 'Superseded' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-9"
+                      disabled={Boolean(memories.operation)}
+                      onClick={() => void changeMemoryStatus(memory)}
+                      aria-label={memory.status === 'Archived' ? `恢复记忆：${memory.summary}` : `归档记忆：${memory.summary}`}
+                    >
+                      {memory.status === 'Archived' ? <RotateCcw className="size-4" aria-hidden="true" /> : <Archive className="size-4" aria-hidden="true" />}
+                    </Button>
+                  )}
                 </div>
               </div>
             </li>
@@ -211,4 +265,12 @@ export function AiSelfMemoryPanel({ aiAccountId, onDirtyChange }: AiSelfMemoryPa
       )}
     </section>
   )
+}
+
+function getWorldName(
+  characterWorldId: string,
+  characterWorlds: CharacterWorldResponse[],
+): string {
+  return characterWorlds.find((world) => world.id === characterWorldId)?.name
+    ?? '未知角色世界'
 }

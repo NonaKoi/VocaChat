@@ -57,13 +57,32 @@ public class AutonomousGroupChatRound
 
     internal void UpdatePlannedMessageCount(int plannedMessageCount)
     {
+        UpdatePlan(PlannedSpeakerCount, plannedMessageCount);
+    }
+
+    /// <summary>
+    /// 局部失败后，以本轮实际能够完成发言的成员和消息数量修正最终计划规模。
+    /// </summary>
+    internal void UpdatePlan(
+        int plannedSpeakerCount,
+        int plannedMessageCount)
+    {
         if (CompletedAt is not null)
         {
             throw new InvalidOperationException(
                 "已经完成的自主好友群聊轮次不能再调整计划消息数。");
         }
 
-        if (plannedMessageCount < PlannedSpeakerCount
+        int minimumSpeakerCount = IsClosing ? 0 : 1;
+        if (plannedSpeakerCount < minimumSpeakerCount
+            || plannedSpeakerCount > MaximumPlannedSpeakerCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(plannedSpeakerCount),
+                $"计划发言者人数必须在 {minimumSpeakerCount} 与 {MaximumPlannedSpeakerCount} 之间。");
+        }
+
+        if (plannedMessageCount < plannedSpeakerCount
             || plannedMessageCount > MaximumPlannedMessageCount)
         {
             throw new ArgumentOutOfRangeException(
@@ -71,6 +90,7 @@ public class AutonomousGroupChatRound
                 $"计划消息数必须在发言者人数与 {MaximumPlannedMessageCount} 之间。");
         }
 
+        PlannedSpeakerCount = plannedSpeakerCount;
         PlannedMessageCount = plannedMessageCount;
     }
 }

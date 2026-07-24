@@ -155,6 +155,9 @@ public class GroupMessageService
             interactionBatchId: interactionBatchId);
 
         dbContext.GroupMessages.Add(userMessage);
+        GroupMessageAudienceSnapshotWriter.AddSnapshot(
+            dbContext,
+            userMessage);
         dbContext.SaveChanges();
 
         message = userMessage;
@@ -323,6 +326,9 @@ public class GroupMessageService
             replyToMessageId: replyToMessageId);
 
         dbContext.GroupMessages.Add(aiMessage);
+        GroupMessageAudienceSnapshotWriter.AddSnapshot(
+            dbContext,
+            aiMessage);
         dbContext.SaveChanges();
 
         message = aiMessage;

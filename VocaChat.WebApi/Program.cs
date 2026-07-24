@@ -42,11 +42,26 @@ public class Program
         {
             client.Timeout = Timeout.InfiniteTimeSpan;
         });
+        builder.Services
+            .AddHttpClient(
+                "OllamaNativeChatClient",
+                client =>
+                {
+                    client.Timeout = Timeout.InfiniteTimeSpan;
+                })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                new SocketsHttpHandler
+                {
+                    UseProxy = false
+                });
         builder.Services.AddScoped<OpenAiCompatibleChatClient>(services =>
             new OpenAiCompatibleChatClient(
                 services
                     .GetRequiredService<IHttpClientFactory>()
                     .CreateClient(nameof(OpenAiCompatibleChatClient)),
+                services
+                    .GetRequiredService<IHttpClientFactory>()
+                    .CreateClient("OllamaNativeChatClient"),
                 services.GetRequiredService<AiMessageGenerationOptions>(),
                 services.GetRequiredService<
                     AiModelConnectionSettingsService>(),
@@ -58,6 +73,7 @@ public class Program
 
         builder.Services.AddSingleton<VocaChatDbContextFactory>();
         builder.Services.AddScoped<AiAccountService>();
+        builder.Services.AddScoped<CharacterWorldService>();
         builder.Services.AddScoped<ContactService>();
         builder.Services.AddScoped<PrivateChatService>();
         builder.Services.AddScoped<ConversationActionPlanner>();
@@ -80,6 +96,17 @@ public class Program
         builder.Services.AddScoped<RelationshipEvolutionService>();
         builder.Services.AddScoped<AiMemoryService>();
         builder.Services.AddScoped<AiSelfMemoryService>();
+        builder.Services.AddScoped<AiWorldAwarenessService>();
+        builder.Services.AddScoped<AiWorldKnowledgeService>();
+        builder.Services.AddScoped<
+            IAiWorldKnowledgeSemanticExtractor,
+            OpenAiCompatibleAiWorldKnowledgeSemanticExtractor>();
+        builder.Services.AddScoped<AiWorldKnowledgeCandidateExtractor>();
+        builder.Services.AddScoped<AiWorldKnowledgeMessageProcessor>();
+        builder.Services.AddScoped<AiWorldConversationContextService>();
+        builder.Services.AddScoped<
+            IAiSelfMemorySemanticJudge,
+            OpenAiCompatibleAiSelfMemorySemanticJudge>();
         builder.Services.AddScoped<AiIdentityContinuityService>();
         builder.Services.AddScoped<GroupConversationContextService>();
         builder.Services.AddScoped<GroupConversationDensitySettingsResolver>();

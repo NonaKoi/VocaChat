@@ -8,6 +8,8 @@ import { ProfileMediaUploadButton } from '@/components/aiAccounts/ProfileMediaUp
 import { ProfileTagInput } from '@/components/aiAccounts/ProfileTagInput'
 import { EntityAvatar } from '@/components/common/EntityAvatar'
 import { Button } from '@/components/ui/button'
+import { CharacterWorldSection } from '@/components/settings/CharacterWorldSection'
+import type { CharacterWorldsState } from '@/hooks/useCharacterWorlds'
 
 interface AccountProfileEditorProps {
   account: AiAccountResponse
@@ -16,11 +18,14 @@ interface AccountProfileEditorProps {
   isUploadingCover: boolean
   saveErrorMessage?: string
   mediaErrorMessage?: string
+  characterWorlds: CharacterWorldsState
+  worldUsageCounts: ReadonlyMap<string, number>
   onSave: (
     request: UpdateAiAccountRequest,
   ) => Promise<AiAccountResponse | undefined>
   onUploadAvatar: (file: File) => Promise<unknown>
   onUploadCover: (file: File) => Promise<unknown>
+  onWorldChanged: () => void | Promise<void>
   onDirtyChange: (isDirty: boolean) => void
 }
 
@@ -32,13 +37,17 @@ export function AccountProfileEditor({
   isUploadingCover,
   saveErrorMessage,
   mediaErrorMessage,
+  characterWorlds,
+  worldUsageCounts,
   onSave,
   onUploadAvatar,
   onUploadCover,
+  onWorldChanged,
   onDirtyChange,
 }: AccountProfileEditorProps) {
   const [baseline, setBaseline] = useState<UpdateAiAccountRequest>(() => toDraft(account))
   const [draft, setDraft] = useState<UpdateAiAccountRequest>(() => toDraft(account))
+  const [hasWorldEditorChanges, setHasWorldEditorChanges] = useState(false)
   const isDirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(baseline),
     [baseline, draft],
@@ -46,8 +55,8 @@ export function AccountProfileEditor({
   const canSave = isDirty && !isSaving && draft.nickname.trim().length > 0
 
   useEffect(() => {
-    onDirtyChange(isDirty)
-  }, [isDirty, onDirtyChange])
+    onDirtyChange(isDirty || hasWorldEditorChanges)
+  }, [hasWorldEditorChanges, isDirty, onDirtyChange])
 
   function updateValue<Key extends keyof UpdateAiAccountRequest>(
     key: Key,
@@ -207,6 +216,35 @@ export function AccountProfileEditor({
           </div>
         </EditorSection>
 
+        <EditorSection
+          title="角色世界"
+          description="决定这位好友理解环境、经历和长期事实时采用的基础设定。"
+        >
+          <CharacterWorldSection
+            currentWorld={account.characterWorld}
+            selectedWorldId={
+              draft.characterWorldId ?? account.characterWorldId
+            }
+            worlds={characterWorlds.data}
+            worldUsageCounts={worldUsageCounts}
+            status={characterWorlds.status}
+            errorMessage={characterWorlds.errorMessage}
+            mutationErrorMessage={characterWorlds.mutationErrorMessage}
+            isCreating={characterWorlds.isCreating}
+            updatingWorldId={characterWorlds.updatingWorldId}
+            onSelectWorld={(worldId) => updateValue(
+              'characterWorldId',
+              worldId,
+            )}
+            onReload={characterWorlds.reload}
+            onCreate={characterWorlds.create}
+            onUpdate={characterWorlds.update}
+            onWorldChanged={onWorldChanged}
+            onClearMutationError={characterWorlds.clearMutationError}
+            onDirtyChange={setHasWorldEditorChanges}
+          />
+        </EditorSection>
+
         <EditorSection title="生活资料" description="用于好友资料中的基础信息展示。">
           <div className="grid gap-5 xl:grid-cols-3">
             <EditorField label="所在地" htmlFor="profile-location">
@@ -312,6 +350,7 @@ function toDraft(account: AiAccountResponse): UpdateAiAccountRequest {
     occupation: account.occupation,
     hometown: account.hometown,
     onlineStatus: account.onlineStatus,
+    characterWorldId: account.characterWorldId,
     interestTags: [...account.interestTags],
     personalityTags: [...account.personalityTags],
   }

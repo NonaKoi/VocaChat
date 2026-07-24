@@ -16,6 +16,8 @@ export interface AiAccountResponse {
   onlineStatus: OnlineStatus
   avatarUrl: string | null
   coverUrl: string | null
+  characterWorldId: string
+  characterWorld: CharacterWorldResponse
   interestTags: string[]
   personalityTags: string[]
   createdAt: string
@@ -38,6 +40,7 @@ export interface CreateAiAccountRequest {
   occupation: string
   hometown: string
   onlineStatus: OnlineStatus
+  characterWorldId?: string
   interestTags: string[]
   personalityTags: string[]
 }
@@ -55,8 +58,27 @@ export interface UpdateAiAccountRequest {
   occupation: string
   hometown: string
   onlineStatus: OnlineStatus
+  characterWorldId?: string
   interestTags: string[]
   personalityTags: string[]
+}
+
+export interface CharacterWorldResponse {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateCharacterWorldRequest {
+  name: string
+  description: string
+}
+
+export interface UpdateCharacterWorldRequest {
+  name: string
+  description: string
 }
 
 export type AiSelfMemoryType =
@@ -70,17 +92,40 @@ export type AiSelfMemorySource = 'User' | 'Director'
 
 export type AiSelfMemoryStatus = 'Active' | 'Superseded' | 'Archived'
 
+export type AiSelfMemoryFactNature =
+  | 'Objective'
+  | 'Subjective'
+  | 'Narrative'
+
+export type AiSelfMemoryMutability =
+  | 'Immutable'
+  | 'Mutable'
+  | 'Evolving'
+  | 'Ephemeral'
+
+export type AiSelfMemoryTrustLevel =
+  | 'UserCanon'
+  | 'EstablishedCanon'
+  | 'NarrativeCandidate'
+  | 'SubjectiveState'
+
 export interface AiSelfMemoryResponse {
   id: string
   aiAccountId: string
   type: AiSelfMemoryType
   summary: string
+  factKey: string
+  factNature: AiSelfMemoryFactNature
+  mutability: AiSelfMemoryMutability
+  trustLevel: AiSelfMemoryTrustLevel
+  characterWorldId: string
   source: AiSelfMemorySource
   status: AiSelfMemoryStatus
   salience: number
   isUserLocked: boolean
   sourceConversationId: string | null
   sourceMessageId: string | null
+  supersedesMemoryId: string | null
   occurredAt: string | null
   validFrom: string | null
   validUntil: string | null
@@ -91,6 +136,10 @@ export interface AiSelfMemoryResponse {
 export interface SaveAiSelfMemoryRequest {
   type: AiSelfMemoryType
   summary: string
+  factKey: string | null
+  factNature: AiSelfMemoryFactNature | null
+  mutability: AiSelfMemoryMutability | null
+  characterWorldId: string | null
   salience: number
   isUserLocked: boolean
   occurredAt: string | null
@@ -100,6 +149,111 @@ export interface SaveAiSelfMemoryRequest {
 
 export interface UpdateAiSelfMemoryStatusRequest {
   status: 'Active' | 'Archived'
+}
+
+export type AiParallelWorldAwarenessState = 'Unaware' | 'Informed' | 'Accepted'
+export type AiWorldAwarenessState =
+  | 'AssumedSharedWorld'
+  | 'AnomalyObserved'
+  | 'DifferentBackgroundRecognized'
+  | 'CrossWorldConfirmed'
+export type AiWorldFamiliarityLevel =
+  | 'Unfamiliar'
+  | 'FirstImpression'
+  | 'Learning'
+  | 'Familiar'
+export type AiWorldKnowledgeFactNature =
+  | 'ObjectiveStatement'
+  | 'SubjectiveView'
+  | 'Hearsay'
+  | 'Unconfirmed'
+export type AiWorldKnowledgeMutability = 'Constant' | 'Changeable' | 'Temporary'
+export type AiWorldKnowledgeTrustLevel =
+  | 'Unverified'
+  | 'DirectStatement'
+  | 'Corroborated'
+  | 'UserConfirmed'
+export type AiWorldKnowledgeStatus =
+  | 'Active'
+  | 'Superseded'
+  | 'Archived'
+  | 'ConflictCandidate'
+
+export interface ParallelWorldAwarenessResponse {
+  state: AiParallelWorldAwarenessState
+  isUserLocked: boolean
+  firstInformedAt: string | null
+  acceptedAt: string | null
+  updatedAt: string | null
+}
+
+export interface WorldAwarenessSubjectResponse {
+  aiAccountId: string
+  nickname: string
+  avatarUrl: string | null
+  characterWorldId: string
+  characterWorldName: string
+  awarenessState: AiWorldAwarenessState
+  isUserLocked: boolean
+  awarenessEvidenceCount: number
+  awarenessConversationCount: number
+  familiarityLevel: AiWorldFamiliarityLevel
+  activeKnowledgeCount: number
+  distinctTopicCount: number
+  knowledgeEvidenceCount: number
+  knowledgeConversationCount: number
+}
+
+export interface AiWorldAwarenessOverviewResponse {
+  aiAccountId: string
+  parallelWorld: ParallelWorldAwarenessResponse
+  subjects: WorldAwarenessSubjectResponse[]
+}
+
+export interface UpdateAiWorldAwarenessRequest {
+  state: AiParallelWorldAwarenessState | AiWorldAwarenessState
+  isUserLocked: boolean
+}
+
+export interface AiWorldKnowledgeResponse {
+  id: string
+  ownerAiAccountId: string
+  subjectCharacterWorldId: string
+  subjectAiAccountId: string | null
+  knowledgeKey: string
+  summary: string
+  factNature: AiWorldKnowledgeFactNature
+  mutability: AiWorldKnowledgeMutability
+  trustLevel: AiWorldKnowledgeTrustLevel
+  status: AiWorldKnowledgeStatus
+  salience: number
+  isUserLocked: boolean
+  evidenceCount: number
+  firstLearnedAt: string
+  updatedAt: string
+}
+
+export interface AiWorldKnowledgeEvidenceResponse {
+  evidenceId: string
+  sourceType: MessageSenderType
+  sourceAiAccountId: string | null
+  sourceDisplayName: string
+  conversationKind: 'PrivateChat' | 'GroupChat'
+  conversationId: string
+  conversationDisplayName: string
+  messageId: string
+  messageContent: string
+  sentAt: string
+  evidenceSummary: string
+}
+
+export interface UpdateAiWorldKnowledgeRequest {
+  summary: string
+  factNature: AiWorldKnowledgeFactNature
+  mutability: AiWorldKnowledgeMutability
+  salience: number
+  isUserLocked: boolean
+  isConfirmed: boolean
 }
 
 export interface GroupChatMemberResponse {
@@ -143,6 +297,8 @@ export interface AiMessageTokenUsageResponse {
   groupDirector: AiModelStageTokenUsageResponse | null
   conversationDirector: AiModelStageTokenUsageResponse | null
   replyGeneration: AiModelStageTokenUsageResponse | null
+  selfMemoryJudgment: AiModelStageTokenUsageResponse | null
+  worldKnowledgeExtraction: AiModelStageTokenUsageResponse | null
   usageComplete: boolean
   totalTokens: number
   interactionSharedMessageCount: number

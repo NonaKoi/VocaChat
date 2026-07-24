@@ -10,7 +10,8 @@ public sealed class AutonomousGroupChatContinuationDecider
         double previousOccurrenceProbability,
         AutonomousGroupChatRoundPlan previousRound,
         bool previousRoundNaturallyClosed,
-        double randomRoll)
+        double randomRoll,
+        int consecutiveLowInformationRounds = 0)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(previousRound);
@@ -33,7 +34,9 @@ public sealed class AutonomousGroupChatContinuationDecider
         double retentionFactor = Math.Clamp(
             plan.ContinuationRatePercent / 100d
                 * relationshipModifier
-                * participationModifier,
+                * participationModifier
+                * GetInformationModifier(
+                    consecutiveLowInformationRounds),
             0,
             0.95);
         double occurrenceProbability = Math.Round(
@@ -52,6 +55,17 @@ public sealed class AutonomousGroupChatContinuationDecider
             OccurrenceProbability = occurrenceProbability,
             RandomRoll = boundedRoll,
             ShouldContinue = boundedRoll < occurrenceProbability
+        };
+    }
+
+    private static double GetInformationModifier(
+        int consecutiveLowInformationRounds)
+    {
+        return consecutiveLowInformationRounds switch
+        {
+            <= 0 => 1,
+            1 => 0.82,
+            _ => 0.55
         };
     }
 }

@@ -300,6 +300,9 @@ public sealed class AutonomousGroupChatSessionService
             replyToMessageId: replyToMessageId);
         storedSession.RecordMessageActivity(sentAt);
         dbContext.GroupMessages.Add(newMessage);
+        GroupMessageAudienceSnapshotWriter.AddSnapshot(
+            dbContext,
+            newMessage);
         dbContext.SaveChanges();
 
         message = newMessage;
@@ -325,8 +328,49 @@ public sealed class AutonomousGroupChatSessionService
             return false;
         }
 
+        return TryUpdateRoundPlan(
+            dbContext,
+            round,
+            round.PlannedSpeakerCount,
+            plannedMessageCount,
+            out errorMessage);
+    }
+
+    /// <summary>
+    /// 局部失败结束后，将轮次计划规模修正为实际成功的发言人数和消息数。
+    /// </summary>
+    public bool TryUpdateRoundPlan(
+        Guid roundId,
+        int plannedSpeakerCount,
+        int plannedMessageCount,
+        out string errorMessage)
+    {
+        using VocaChatDbContext dbContext = _dbContextFactory.CreateDbContext();
+        AutonomousGroupChatRound? round = dbContext.AutonomousGroupChatRounds
+            .SingleOrDefault(item => item.Id == roundId);
+        if (round is null)
+        {
+            errorMessage = "自主好友群聊轮次不存在。";
+            return false;
+        }
+
+        return TryUpdateRoundPlan(
+            dbContext,
+            round,
+            plannedSpeakerCount,
+            plannedMessageCount,
+            out errorMessage);
+    }
+
+    private static bool TryUpdateRoundPlan(
+        VocaChatDbContext dbContext,
+        AutonomousGroupChatRound round,
+        int plannedSpeakerCount,
+        int plannedMessageCount,
+        out string errorMessage)
+    {
         int savedMessageCount = dbContext.GroupMessages.Count(message =>
-            message.AutonomousGroupChatRoundId == roundId);
+            message.AutonomousGroupChatRoundId == round.Id);
         if (plannedMessageCount < savedMessageCount)
         {
             errorMessage = "计划消息数不能少于当前轮次已经保存的消息数。";
@@ -335,7 +379,7 @@ public sealed class AutonomousGroupChatSessionService
 
         try
         {
-            round.UpdatePlannedMessageCount(plannedMessageCount);
+            round.UpdatePlan(plannedSpeakerCount, plannedMessageCount);
             dbContext.SaveChanges();
             errorMessage = string.Empty;
             return true;

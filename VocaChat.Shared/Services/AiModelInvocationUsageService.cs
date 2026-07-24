@@ -139,6 +139,19 @@ public sealed class AiModelInvocationUsageService
                             AiModelInvocationStage.ReplyGeneration
                         && usage.AiResponseBatchId ==
                             message.AiResponseBatchId),
+                    usages.Where(usage =>
+                        usage.Stage ==
+                            AiModelInvocationStage.SelfMemoryJudgment
+                        && usage.AiResponseBatchId ==
+                            message.AiResponseBatchId),
+                    usages.Where(usage =>
+                        usage.Stage ==
+                            AiModelInvocationStage.WorldKnowledgeExtraction
+                        && (usage.AiResponseBatchId.HasValue
+                            ? usage.AiResponseBatchId ==
+                                message.AiResponseBatchId
+                            : usage.InteractionBatchId ==
+                                message.InteractionBatchId)),
                     interactionSharedMessageCount: aiMessages.Count(item =>
                         item.InteractionBatchId is not null
                         && item.InteractionBatchId ==
@@ -203,6 +216,16 @@ public sealed class AiModelInvocationUsageService
                             AiModelInvocationStage.ReplyGeneration
                         && usage.AiResponseBatchId ==
                             message.AiResponseBatchId),
+                    usages.Where(usage =>
+                        usage.Stage ==
+                            AiModelInvocationStage.SelfMemoryJudgment
+                        && usage.AiResponseBatchId ==
+                            message.AiResponseBatchId),
+                    usages.Where(usage =>
+                        usage.Stage ==
+                            AiModelInvocationStage.WorldKnowledgeExtraction
+                        && usage.AiResponseBatchId ==
+                            message.AiResponseBatchId),
                     interactionSharedMessageCount: 0,
                     responseSharedMessageCount: aiMessages.Count(item =>
                         item.AiResponseBatchId is not null
@@ -219,6 +242,8 @@ public sealed class AiModelInvocationUsageService
         IEnumerable<AiModelInvocationUsage> groupDirectorUsages,
         IEnumerable<AiModelInvocationUsage> conversationDirectorUsages,
         IEnumerable<AiModelInvocationUsage> replyGenerationUsages,
+        IEnumerable<AiModelInvocationUsage> selfMemoryJudgmentUsages,
+        IEnumerable<AiModelInvocationUsage> worldKnowledgeExtractionUsages,
         int interactionSharedMessageCount,
         int responseSharedMessageCount)
     {
@@ -228,12 +253,18 @@ public sealed class AiModelInvocationUsageService
             AggregateStage(conversationDirectorUsages);
         AiModelStageTokenUsageSummary? replyGeneration =
             AggregateStage(replyGenerationUsages);
+        AiModelStageTokenUsageSummary? selfMemoryJudgment =
+            AggregateStage(selfMemoryJudgmentUsages);
+        AiModelStageTokenUsageSummary? worldKnowledgeExtraction =
+            AggregateStage(worldKnowledgeExtractionUsages);
         AiModelStageTokenUsageSummary[] stages =
             new[]
             {
                 groupDirector,
                 conversationDirector,
-                replyGeneration
+                replyGeneration,
+                selfMemoryJudgment,
+                worldKnowledgeExtraction
             }
             .OfType<AiModelStageTokenUsageSummary>()
             .ToArray();
@@ -247,6 +278,8 @@ public sealed class AiModelInvocationUsageService
             groupDirector,
             conversationDirector,
             replyGeneration,
+            selfMemoryJudgment,
+            worldKnowledgeExtraction,
             stages.All(stage => stage.UsageComplete),
             stages.Where(stage => stage.TotalTokens.HasValue)
                 .Sum(stage => stage.TotalTokens!.Value),
@@ -305,6 +338,8 @@ public sealed record AiMessageTokenUsageSummary(
     AiModelStageTokenUsageSummary? GroupDirector,
     AiModelStageTokenUsageSummary? ConversationDirector,
     AiModelStageTokenUsageSummary? ReplyGeneration,
+    AiModelStageTokenUsageSummary? SelfMemoryJudgment,
+    AiModelStageTokenUsageSummary? WorldKnowledgeExtraction,
     bool UsageComplete,
     int TotalTokens,
     int InteractionSharedMessageCount,

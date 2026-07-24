@@ -5,6 +5,10 @@ public sealed class UpdateAiSelfMemoryRequest
 {
     public string Type { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
+    public string? FactKey { get; set; }
+    public string? FactNature { get; set; }
+    public string? Mutability { get; set; }
+    public Guid? CharacterWorldId { get; set; }
     public int Salience { get; set; }
     public bool IsUserLocked { get; set; }
     public DateTime? OccurredAt { get; set; }

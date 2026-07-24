@@ -37,6 +37,12 @@ public class AiAccountServiceTests : IDisposable
         Assert.Equal("助手", account.IdentityDescription);
         Assert.Equal("冷静", account.Personality);
         Assert.Equal("简洁", account.SpeakingStyle);
+        Assert.Equal(
+            CharacterWorld.DefaultWorldId,
+            account.CharacterWorldId);
+        Assert.Equal(
+            CharacterWorld.DefaultWorldName,
+            account.CharacterWorld?.Name);
         Assert.Equal(account.Id, Assert.Single(service.GetAllAccounts()).Id);
     }
 

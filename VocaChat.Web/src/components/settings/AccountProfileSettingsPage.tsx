@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Brain, Search, UserRoundCog } from 'lucide-react'
+import { Brain, Globe2, Search, UserRoundCog } from 'lucide-react'
 import type {
   AiAccountResponse,
   UpdateAiAccountRequest,
 } from '@/api/types'
 import { AccountProfileEditor } from '@/components/settings/AccountProfileEditor'
 import { AiSelfMemoryPanel } from '@/components/settings/AiSelfMemoryPanel'
+import { AiWorldKnowledgePanel } from '@/components/settings/AiWorldKnowledgePanel'
 import { ListItem } from '@/components/common/ListItem'
 import { EmptyState } from '@/components/feedback/EmptyState'
 import { ErrorState } from '@/components/feedback/ErrorState'
 import { LoadingState } from '@/components/feedback/LoadingState'
 import { cn } from '@/lib/utils'
 import type { RemoteStatus } from '@/types/remoteStatus'
+import { useCharacterWorlds } from '@/hooks/useCharacterWorlds'
 
-type ProfileTab = 'profile' | 'memories'
+type ProfileTab = 'profile' | 'memories' | 'worldKnowledge'
 
 interface AccountProfileSettingsPageProps {
   accounts: AiAccountResponse[]
@@ -52,6 +54,7 @@ export function AccountProfileSettingsPage({
   onAccountChanged,
   onDirtyChange,
 }: AccountProfileSettingsPageProps) {
+  const characterWorlds = useCharacterWorlds()
   const [searchText, setSearchText] = useState('')
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(
     () => getInitialAccountId() ?? accounts[0]?.id,
@@ -68,6 +71,16 @@ export function AccountProfileSettingsPage({
     )),
     [accounts, normalizedSearch],
   )
+  const worldUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const account of accounts) {
+      counts.set(
+        account.characterWorldId,
+        (counts.get(account.characterWorldId) ?? 0) + 1,
+      )
+    }
+    return counts
+  }, [accounts])
 
   useEffect(() => {
     if (accountStatus !== 'success' || accounts.length === 0 || selectedAccount) return
@@ -77,6 +90,18 @@ export function AccountProfileSettingsPage({
   useEffect(() => {
     onDirtyChange(hasEditorChanges)
   }, [hasEditorChanges, onDirtyChange])
+
+  useEffect(() => {
+    if (!hasEditorChanges) return
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasEditorChanges])
 
   function confirmDiscard(): boolean {
     return !hasEditorChanges || window.confirm('当前修改尚未保存，确定要切换吗？')
@@ -118,11 +143,16 @@ export function AccountProfileSettingsPage({
     return succeeded
   }
 
+  async function refreshWorldReferences() {
+    onReloadAccounts()
+    await onAccountChanged()
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 px-6 pt-7 xl:px-8">
         <h2 className="font-display text-2xl font-semibold tracking-[-0.025em] text-foreground">账号资料编辑</h2>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">管理好友的长期账号资料、媒体和独立个人记忆。</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">管理好友的长期账号资料、个人记忆和对其他世界的认识。</p>
       </header>
 
       <div className="grid min-h-0 flex-1 gap-0 px-6 pt-5 pb-6 md:grid-cols-[224px_minmax(0,1fr)] xl:grid-cols-[248px_minmax(0,1fr)] xl:px-8">
@@ -180,6 +210,7 @@ export function AccountProfileSettingsPage({
               <div className="flex shrink-0 gap-1 border-b border-border px-5 pt-2 sm:px-6" role="tablist" aria-label="账号管理内容">
                 <ProfileTabButton selected={activeTab === 'profile'} onClick={() => changeTab('profile')} icon={UserRoundCog}>账号资料</ProfileTabButton>
                 <ProfileTabButton selected={activeTab === 'memories'} onClick={() => changeTab('memories')} icon={Brain}>AI 记忆</ProfileTabButton>
+                <ProfileTabButton selected={activeTab === 'worldKnowledge'} onClick={() => changeTab('worldKnowledge')} icon={Globe2}>世界认知</ProfileTabButton>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto" role="tabpanel">
                 {activeTab === 'profile' ? (
@@ -191,13 +222,28 @@ export function AccountProfileSettingsPage({
                     isUploadingCover={uploadingMedia?.accountId === selectedAccount.id && uploadingMedia.kind === 'cover'}
                     saveErrorMessage={updateErrorMessage}
                     mediaErrorMessage={mediaErrorMessage}
+                    characterWorlds={characterWorlds}
+                    worldUsageCounts={worldUsageCounts}
                     onSave={saveAccount}
                     onUploadAvatar={(file) => uploadMedia('avatar', file)}
                     onUploadCover={(file) => uploadMedia('cover', file)}
+                    onWorldChanged={refreshWorldReferences}
+                    onDirtyChange={setHasEditorChanges}
+                  />
+                ) : activeTab === 'memories' ? (
+                  <AiSelfMemoryPanel
+                    key={selectedAccount.id}
+                    aiAccountId={selectedAccount.id}
+                    characterWorlds={characterWorlds.data}
+                    defaultCharacterWorldId={selectedAccount.characterWorldId}
                     onDirtyChange={setHasEditorChanges}
                   />
                 ) : (
-                  <AiSelfMemoryPanel key={selectedAccount.id} aiAccountId={selectedAccount.id} onDirtyChange={setHasEditorChanges} />
+                  <AiWorldKnowledgePanel
+                    key={selectedAccount.id}
+                    aiAccountId={selectedAccount.id}
+                    onDirtyChange={setHasEditorChanges}
+                  />
                 )}
               </div>
             </div>
@@ -232,5 +278,6 @@ function getInitialAccountId(): string | undefined {
 }
 
 function getInitialProfileTab(): ProfileTab {
-  return new URLSearchParams(window.location.search).get('profileTab') === 'memories' ? 'memories' : 'profile'
+  const tab = new URLSearchParams(window.location.search).get('profileTab')
+  return tab === 'memories' || tab === 'worldKnowledge' ? tab : 'profile'
 }

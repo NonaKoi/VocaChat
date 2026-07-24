@@ -38,6 +38,13 @@ public class GroupMessageServiceTests : IDisposable
         Assert.Equal("我", storedMessage.SenderDisplayName);
         Assert.Null(storedMessage.SenderAiAccountId);
         Assert.Equal("hello", storedMessage.Content);
+
+        using VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        GroupMessageAudience audience = Assert.Single(
+            dbContext.GroupMessageAudience.AsNoTracking());
+        Assert.Equal(storedMessage.Id, audience.GroupMessageId);
+        Assert.Equal(context.JoinedAccount.Id, audience.AiAccountId);
     }
 
     [Theory]
@@ -115,6 +122,13 @@ public class GroupMessageServiceTests : IDisposable
         Assert.Equal(context.JoinedAccount.Nickname, storedMessage.SenderDisplayName);
         Assert.Equal(context.JoinedAccount.Id, storedMessage.SenderAiAccountId);
         Assert.Equal("reply", storedMessage.Content);
+
+        using VocaChatDbContext dbContext =
+            _database.CreateDbContextFactory().CreateDbContext();
+        GroupMessageAudience audience = Assert.Single(
+            dbContext.GroupMessageAudience.AsNoTracking());
+        Assert.Equal(storedMessage.Id, audience.GroupMessageId);
+        Assert.Equal(context.JoinedAccount.Id, audience.AiAccountId);
     }
 
     [Fact]
